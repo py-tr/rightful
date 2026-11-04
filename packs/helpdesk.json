@@ -1,0 +1,155 @@
+{
+  "pack": "helpdesk",
+  "version": 1,
+  "realm": "corp",
+  "static_get_prefixes": [
+    "/resources/"
+  ],
+  "read_query": {
+    "keys": [
+      "search",
+      "first",
+      "max",
+      "briefRepresentation",
+      "exact",
+      "q",
+      "username",
+      "email",
+      "enabled",
+      "type",
+      "userProfileMetadata"
+    ],
+    "value_regex": "^[A-Za-z0-9 ._@:-]{0,64}$"
+  },
+  "reads": [
+    "/admin/serverinfo",
+    "/admin/master/console/whoami",
+    "/admin/realms/{realm}",
+    "/admin/realms/{realm}/ui-ext/realms/names",
+    "/admin/realms/{realm}/ui-ext/brute-force-user/{user}",
+    "/admin/realms/{realm}/users",
+    "/admin/realms/{realm}/users/count",
+    "/admin/realms/{realm}/users/{user}",
+    "/admin/realms/{realm}/users/{user}/credentials",
+    "/admin/realms/{realm}/users/{user}/sessions",
+    "/admin/realms/{realm}/users/{user}/groups",
+    "/admin/realms/{realm}/users/{user}/role-mappings",
+    "/admin/realms/{realm}/users/{user}/configured-user-storage-credential-types",
+    "/admin/realms/{realm}/ui-ext/brute-force-user",
+    "/admin/realms/{realm}/ui-ext/info",
+    "/admin/realms/{realm}/users/profile",
+    "/admin/realms/{realm}/attack-detection/brute-force/users/{user}",
+    "/admin/realms/{realm}/users/{user}/unmanagedAttributes",
+    "/admin/realms/{realm}/authentication/required-actions"
+  ],
+  "writes": {
+    "reset_password": {
+      "method": "PUT",
+      "path": "/admin/realms/{realm}/users/{user}/reset-password",
+      "body": {
+        "type": "object",
+        "fields": {
+          "type": {
+            "enum": [
+              "password"
+            ]
+          },
+          "temporary": {
+            "enum": [
+              true
+            ]
+          },
+          "value": {
+            "type": "string",
+            "override": "broker_secret"
+          }
+        }
+      },
+      "receipt": "owner",
+      "label": "reset"
+    },
+    "send_actions_email": {
+      "method": "PUT",
+      "path": "/admin/realms/{realm}/users/{user}/execute-actions-email",
+      "query": {
+        "lifespan": "^[0-9]{2,5}$"
+      },
+      "body": {
+        "type": "array_enum",
+        "enum": [
+          "UPDATE_PASSWORD",
+          "CONFIGURE_TOTP"
+        ]
+      },
+      "receipt": "owner",
+      "label": "email"
+    },
+    "remove_credential": {
+      "method": "DELETE",
+      "path": "/admin/realms/{realm}/users/{user}/credentials/{cred}",
+      "body": {
+        "type": "none"
+      },
+      "receipt": "owner",
+      "label": "rmcred"
+    },
+    "logout_sessions": {
+      "method": "POST",
+      "path": "/admin/realms/{realm}/users/{user}/logout",
+      "body": {
+        "type": "none"
+      },
+      "receipt": "owner",
+      "label": "logout"
+    },
+    "change_email": {
+      "method": "PUT",
+      "path": "/admin/realms/{realm}/users/{user}",
+      "body": {
+        "type": "object",
+        "fields": {
+          "email": {
+            "type": "string",
+            "regex": "^[^@\\s]{1,64}@[^@\\s]{1,190}$",
+            "required": true
+          }
+        }
+      },
+      "receipt": "contact",
+      "label": "emailchg"
+    }
+  },
+  "approvers": {
+    "owner": "the account owner's registered device (CIBA push to the target user)",
+    "manager": "the target user's manager, read from the user attribute 'manager' (visible to the broker, not editable by it)",
+    "contact": "the target user's manager (a contact change never relies on the contact being changed)"
+  },
+  "composites": {
+    "mfa_recovery_lost_device": {
+      "method": "POST",
+      "path": "/gate/v1/actions/mfa-recovery-lost-device/{user}",
+      "receipt": "manager",
+      "label": "mfarecov",
+      "steps": [
+        "remove_otp_credentials",
+        "send_actions_email:CONFIGURE_TOTP",
+        "logout_sessions",
+        "notify_owner"
+      ],
+      "why": "The caller says the registered device is lost, so the owner cannot approve on it. A manager approves; the re-enrolment link goes only to the email on file; the owner is notified (NIST SP 800-63B-4 4.2.3)."
+    },
+    "compromise_response": {
+      "method": "POST",
+      "path": "/gate/v1/actions/compromise-response/{user}",
+      "receipt": "owner",
+      "label": "compromise",
+      "steps": [
+        "reset_password_oob",
+        "logout_sessions",
+        "send_actions_email:CONFIGURE_TOTP",
+        "notify_owner"
+      ],
+      "why": "The password may have leaked: one approval for a fixed, pre-declared set, executed by the broker."
+    }
+  }
+}

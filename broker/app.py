@@ -78,6 +78,18 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         return {"challenge": c.id, "status": c.status,
                 "next": "send the same request again" if c.status == "approved" else None}
 
+    @app.post("/gate/v1/escalations")
+    async def escalation(request: Request):
+        run_id = run_of(request)
+        if not run_id:
+            return JSONResponse({"error": "missing run"}, status_code=400)
+        try:
+            reason = str((await request.json()).get("reason", ""))[:500]
+        except ValueError:
+            reason = ""
+        gate.ledger.append("escalation", {"run": run_id, "reason": reason})
+        return {"escalated": True}
+
     @app.api_route("/{full:path}", methods=["GET", "PUT", "POST", "DELETE", "PATCH", "HEAD", "OPTIONS"])
     async def proxy(full: str, request: Request):
         run_id = run_of(request)

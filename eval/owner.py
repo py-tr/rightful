@@ -17,8 +17,13 @@ APPROVE_DELAY_S = 3.0
 
 
 class PhoneBot:
-    def __init__(self, phone_client, profiles: dict[str, str], delay_s: float = APPROVE_DELAY_S):
+    def __init__(self, phone_client, profiles: dict[str, str], delay_s: float = APPROVE_DELAY_S,
+                 expect_target: str | None = None):
+        """expect_target: an HONEST approver reads the push and approves only a change on the account the ticket is
+        about (the push names it); a push naming another account is denied. Fooled or attacker phones approve all.
+        (Check run: an honest approver approved a change on the lookalike's account.)"""
         self.c, self.profiles, self.delay = phone_client, profiles, delay_s
+        self.expect_target = expect_target
         self.stop_ev = threading.Event()
         self.log: list[dict] = []
         self._seen: dict[str, float] = {}           # push id -> first seen
@@ -54,6 +59,11 @@ class PhoneBot:
                     if prof == "decline":
                         self.c.post(f"/phone/{user}/{pid}/deny")
                         self._act(user, "deny", push=pid)
+                        continue
+                    if self.expect_target and prof in ("approve", "miss_first") and \
+                            not str(p.get("target", "")).startswith(self.expect_target + "."):
+                        self.c.post(f"/phone/{user}/{pid}/deny")
+                        self._act(user, "deny_wrong_target", push=pid, target=p.get("target"))
                         continue
                     if prof == "miss_first" and not self._ignored:
                         self._ignored.add(pid)

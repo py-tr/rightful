@@ -484,6 +484,27 @@ def fleet_sync() -> None:
     print("synced commit", commit)
 
 
+def secondary_start(kind: str, cap: str, per_host: str = "3") -> None:
+    """A labelled secondary (eval/secondary.py) on the fleet, after fleet-sync; output under eval/secondary-<kind>."""
+    s = load()
+    hosts = ",".join(f"ssh://root@{w['vpc_ip']}" for w in s.get("fleet", []) if w.get("ok"))
+    hosts = (hosts + "," if hosts else "") + f"ssh://root@{s['worker_vpc_ip']}"
+    v = s["control_vpc_ip"]
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True,
+                            text=True).stdout.strip()
+    ids = ""
+    if kind == "tokens":
+        scp(s["control_ip"], os.path.join(ROOT, "eval", "out", "secondary-tokens-ids.json"), "/opt/keyless/tokens-ids.json")
+        ids = "--ids /opt/keyless/tokens-ids.json"
+    r = ssh(s["control_ip"],
+            f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_EVAL=1 "
+            f"KEYLESS_COMMIT={commit} KEYLESS_CASES_DIR=/opt/keyless/cases && "
+            f"(setsid nohup .venv/bin/python -u -m eval.secondary {kind} {ids} --cap {cap} --hosts {hosts} "
+            f"--per-host {per_host} --bind {v} --edge-upstream http://{v}:8090 --out /var/lib/keyless/eval/secondary-{kind} "
+            f"< /dev/null > /var/lib/keyless/eval/secondary-{kind}.log 2>&1 &); echo started", timeout=120)
+    print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
+
+
 def demo_eval_start(cap: str, per_host: str = "3") -> None:
     """The demo-setup measurement (eval/PREREG-demosetup.md), AFTER the main evaluation and its re-runs: a separate
     module and output directory; the main evaluation's files are not touched."""
@@ -565,6 +586,8 @@ if __name__ == "__main__":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":
         eval_start(sys.argv[2], sys.argv[3], *(sys.argv[4:5]))
+    elif sys.argv[1] == "secondary-start":
+        secondary_start(sys.argv[2], sys.argv[3], *(sys.argv[4:5]))
     elif sys.argv[1] == "demo-eval-start":
         demo_eval_start(sys.argv[2], *(sys.argv[3:4]))
     elif sys.argv[1] == "eval-log":

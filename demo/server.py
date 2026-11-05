@@ -261,7 +261,7 @@ class Demo:
                             pass
                     if c.status in ("approved", "denied", "expired") and (c.id, c.status) not in s.narrated:
                         self._narrate(s, {"kind": "challenge", "data": {"challenge": c.id, "status": c.status}})
-                        s.outcomes.put((c.run_id, c.status))
+                        s.outcomes.put((c.run_id, c.status, time.time()))
             if time.time() - last_count > 10:         # the live part of the counter, from the identity server's log
                 last_count = time.time()
                 try:
@@ -339,8 +339,11 @@ class Demo:
                           f"nothing): \"{d.get('how', '')[:160]}\"")
             return
         if k == "executed" and s.mode == "agent_decides":
+            verified = self._owner_asked(s, d.get("run") or s.run_id) == "approved"
             self.emit(s, "gate", f"Change made: {ACTIONS.get(d.get('op'), d.get('op'))} on "
-                      f"{self._account(s, d.get('user'))}, on the agent's word alone.", loud=True)
+                      f"{self._account(s, d.get('user'))}, "
+                      + ("after Jordan approved a verification push." if verified else "on the agent's word alone."),
+                      loud=not verified, ok=verified)
             return
         if k == "decision" and d.get("method") in ("PUT", "POST", "DELETE"):
             act = ACTIONS.get(d.get("op") or "", "make a change")
@@ -473,6 +476,7 @@ class Demo:
                 llm = LLM(models=[s.model or self.model], cap_usd=reserved, max_tokens=8000)
             deadline = time.time() + CONVERSATION_WALL_S
             n = {"script": 0}
+            seen = {"tool_t": 0.0}
 
             def on_event(kind: str, data: dict) -> None:
                 if kind == "thinking":
@@ -485,6 +489,7 @@ class Demo:
                     self.emit(s, "step", f"{words[0].upper()}{words[1:]} (script {n['script']} in a fresh sandbox)",
                               code=code[:4000])
                 elif kind == "tool_result":
+                    seen["tool_t"] = time.time()
                     with s.lock:
                         for ev in reversed(s.events):
                             if ev["who"] == "step" and "output" not in ev:
@@ -519,6 +524,8 @@ class Demo:
             nudges = {"n": 0}
 
             def on_reply(delivered: str):
+                # 11-06: the agent waited for the approval itself, replied, and was then told "the owner approved"
+                # again, so it replied twice; an outcome seen before its last script returned is dropped
                 """The visitor's next message; or, while a push is open, the owner's answer told to the agent so it
                 carries on (it does not have to remember to poll); or None to end the conversation."""
                 said_nothing = not (delivered or "").strip().split("\n\n")[0].strip() or \
@@ -535,10 +542,10 @@ class Demo:
                     except queue.Empty:
                         pass
                     try:
-                        run, st = s.outcomes.get_nowait()
+                        run, st, at = s.outcomes.get_nowait()
                     except queue.Empty:
                         continue
-                    if run == rid:
+                    if run == rid and at > seen["tool_t"]:
                         return {"approved": "[System note: the owner approved the request on their phone.]",
                                 "denied": "[System note: the owner declined the request on their phone.]",
                                 "expired": "[System note: the owner did not answer; the request expired.]"}[st]
@@ -746,9 +753,11 @@ class Demo:
                              if c.status == "sent" and (c.id, "sent") in col.narrated}
             for user in ("cfo", "ceo"):
                 v = pc.get(f"/phone/{user}").json()
-                for p in v["pending"]:
-                    if p["binding"] not in open_bindings:  # expired, answered or closed: not on the phone any more
+                shown_bindings = set()
+                for p in reversed(v["pending"]):          # newest first; one card per request (11-06: shown twice)
+                    if p["binding"] not in open_bindings or p["binding"] in shown_bindings:
                         continue
+                    shown_bindings.add(p["binding"])
                     if p["id"] not in col.candidates:
                         decoys = set()
                         while len(decoys) < 2:

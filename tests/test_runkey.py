@@ -34,7 +34,12 @@ def env(tmp_path):
     receipts = ReceiptStore(":memory:")
     gate = Gate(load_pack("helpdesk"), receipts, Ledger(str(tmp_path / "l.jsonl")))
     app = create_app(gate, kc, Challenges(kc, receipts), run_key_master=MASTER)
-    return TestClient(app), seen, gate
+    for r in ("run-1", "run-7"):
+        app.state.open_run(r)
+    client = TestClient(app)
+    client.rebuild = lambda: create_app(Gate(load_pack("helpdesk"), receipts, Ledger(str(tmp_path / "l.jsonl"))),
+                                        kc, Challenges(kc, receipts), run_key_master=MASTER)
+    return client, seen, gate
 
 
 def signed(run_id, method, target, body=b"", key=None, ts=None):
@@ -76,6 +81,34 @@ def test_stale_signature_is_refused(env):
     c, seen, _ = env
     old = str(int(time.time()) - 600)
     assert c.get(READ, headers=signed("run-1", "GET", READ, ts=old)).status_code == 401 and seen == []
+
+
+def test_window_is_120_seconds_and_skew_is_logged(env):
+    c, seen, gate = env
+    assert c.get(READ, headers=signed("run-1", "GET", READ, ts=str(int(time.time()) - 90))).status_code == 200
+    assert c.get(READ, headers=signed("run-1", "GET", READ, ts=str(int(time.time()) - 130))).status_code == 401
+    skews = [e["data"] for e in gate.ledger.entries() if e["kind"] == "clock_skew"]
+    assert len(skews) == 2 and skews[0]["rejected"] is False and skews[1]["rejected"] is True
+
+
+def test_a_run_that_was_never_opened_speaks_for_nothing(env):
+    c, seen, _ = env
+    assert c.get(READ, headers=signed("run-unknown", "GET", READ)).status_code == 401 and seen == []
+
+
+def test_a_closed_run_speaks_for_nothing_even_after_a_restart(env):
+    c, seen, _ = env
+    c.app.state.close_run("run-1")
+    assert c.get(READ, headers=signed("run-1", "GET", READ)).status_code == 401
+    c2 = TestClient(c.rebuild())                                # broker restart: the lifecycle comes from the ledger
+    assert c2.get(READ, headers=signed("run-1", "GET", READ)).status_code == 401
+    assert c2.get(READ, headers=signed("run-7", "GET", READ)).status_code == 200   # still-open runs stay open
+    assert len(seen) == 1
+
+
+def test_run_ids_are_random():
+    ids = {runkey.new_run_id() for _ in range(1000)}
+    assert len(ids) == 1000 and all(len(i) == 24 for i in ids)
 
 
 def test_challenge_routes_are_signed_too(env):

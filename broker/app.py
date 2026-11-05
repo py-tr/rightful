@@ -28,12 +28,33 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
     """run_key_master: when set (always, in deployment), every request must carry the edge's signature for its run
     (broker/runkey.py); unsigned or mis-signed requests get 401 and nothing else happens."""
     from .composites import execute as run_composite
+    from .runkey import SKEW_LOG_SECONDS
+    from .runkey import skew as skew_of
     from .runkey import verify as verify_sig
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
     # Rebuilt from the ledger: a quarantined run stays quarantined across a broker restart (review finding #4).
     quarantined: dict[str, str] = {e["data"]["run"]: e["data"].get("reason", "")
                                    for e in gate.ledger.entries() if e["kind"] == "quarantine"}
     lock = threading.Lock()
+    # Run lifecycle (mentor's review): with signing on, only runs the control plane opened are accepted, and a closed
+    # run speaks for nothing (a lingering edge from a crashed task gets 401). Rebuilt from the ledger.
+    open_runs: set[str] = set()
+    for e in gate.ledger.entries():
+        if e["kind"] == "run_opened":
+            open_runs.add(e["data"]["run"])
+        elif e["kind"] == "run_closed":
+            open_runs.discard(e["data"]["run"])
+    skew_logged: dict[str, int] = {}
+
+    def open_run(run_id: str) -> None:
+        with lock:
+            open_runs.add(run_id)
+        gate.ledger.append("run_opened", {"run": run_id})
+
+    def close_run(run_id: str, why: str = "task ended") -> None:
+        with lock:
+            open_runs.discard(run_id)
+        gate.ledger.append("run_closed", {"run": run_id, "why": why})
 
     def _target(request: Request) -> str:
         raw = request.scope.get("raw_path", b"").decode("latin-1") or request.url.path
@@ -45,9 +66,15 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         if not (r and len(r) <= 64 and r.replace("-", "").replace("_", "").isalnum()):
             return None
         if run_key_master is not None:
-            bad = verify_sig(run_key_master, r, request.headers.get("x-gate-ts", ""),
-                             request.headers.get("x-gate-sig", ""), request.method, _target(request),
-                             await request.body())
+            ts = request.headers.get("x-gate-ts", "")
+            bad = verify_sig(run_key_master, r, ts, request.headers.get("x-gate-sig", ""), request.method,
+                             _target(request), await request.body())
+            if not bad and r not in open_runs:
+                bad = "run is not open (never started, or already ended)"
+            sk = skew_of(ts)
+            if sk is not None and abs(sk) > SKEW_LOG_SECONDS and skew_logged.get(r) != int(sk // 10):
+                skew_logged[r] = int(sk // 10)                 # log drift once per 10 s bucket per run
+                gate.ledger.append("clock_skew", {"run": r[:64], "skew_seconds": round(sk, 1), "rejected": bool(bad)})
             if bad:
                 try:
                     gate.ledger.append("bad_signature", {"run": r[:64], "reason": bad,
@@ -245,4 +272,5 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         return Response(content=content, status_code=up.status_code, headers=headers)
 
     app.state.quarantined = quarantined
+    app.state.open_run, app.state.close_run = open_run, close_run      # called by the control plane's orchestrator
     return app

@@ -20,6 +20,7 @@ iptables -F DOCKER-USER
 iptables -A DOCKER-USER -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
 iptables -A DOCKER-USER -d 169.254.169.254 -j DROP
 iptables -A DOCKER-USER -p tcp -d "$BROKER_VPC_IP" --dport 8090 -j RETURN
+iptables -A DOCKER-USER -i br-+ -o br-+ -j RETURN    # sandbox <-> edge on the same task network; Docker's own isolation rules still apply
 iptables -A DOCKER-USER -i docker0 -j DROP
 iptables -A DOCKER-USER -i br-+ -j DROP
 netfilter-persistent save >/dev/null 2>&1 || true

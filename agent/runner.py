@@ -79,6 +79,13 @@ class DockerRunner:
                      "-e", f"UPSTREAM={self.upstream}", "--add-host", "host.docker.internal:host-gateway",
                      self.edge_image).check_returncode()
         self._docker("network", "connect", "--alias", "gate", self.net, self.edge).check_returncode()
+        # The sandbox reaches the edge by a fixed hosts entry, not DNS: Docker's embedded DNS depends on iptables
+        # rules inside the container's namespace that gVisor's network stack does not run (measured on the worker).
+        ip = self._docker("inspect", "-f", "{{(index .NetworkSettings.Networks \"%s\").IPAddress}}" % self.net,
+                          self.edge).stdout.strip()
+        if not ip:
+            raise RuntimeError("edge proxy has no address on the task network")
+        self.edge_ip = ip
         return self
 
     TMPFS = "/tmp:rw,size=16m,noexec"
@@ -92,6 +99,8 @@ class DockerRunner:
                 "--tmpfs", self.TMPFS, "--memory", self.memory, "--memory-swap", self.memory,
                 "--cpus", self.CPUS, "--pids-limit", self.PIDS, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                 "-e", "TICKET_FILE=/w/ticket.txt", "-v", f"{self.dir}:/w:ro", *self.EXTRA]
+        if getattr(self, "edge_ip", None):
+            args += ["--add-host", f"gate:{self.edge_ip}"]
         if self.runtime:
             args += ["--runtime", self.runtime]
         return args

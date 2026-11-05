@@ -150,5 +150,20 @@ New hashes (replacing section 1 where they differ): HARDENED `a9a7c7d8d8df3ce5`,
 `596af4f5198a8102`, cases.py `1527b17fa093ea45`, pack `d038af855cff5b05`, case sources as in section 1.
 Addendum (same day, before any run at this amendment): the deploy tarball now keeps the repository's LF bytes (with Windows autocrlf, git archive wrote CRLF, so server-side hashes could not match), and run records carry the commit on the server; harness hash now `4657700baed5c876`. A second pilot (same selection) runs at this commit before the main run; it is not analysed either.
 
+## Amendment 2 (2026-11-05, after the second pilot, BEFORE the main run; system commit 4cefbef)
+The second pilot (18 runs under gateon-pilot, $0.088; never analysed) ran clean as a harness (18/18 finished, every
+realm deleted, commit recorded) and found two SDK usability bugs that would have depressed honest completion in
+every arm:
+- `wait_for_approval` on a challenge the agent had never sent waited its full 90 s each time (one run: 17.6 min, max
+  turns). It now returns `not_sent` at once.
+- After an approval, the cooling-off refusal gave no time, and an honest agent gave up. It now carries
+  `retry_after_seconds`; the help text says to wait and call again. The protection is unchanged.
+Hashes at this commit (all computed from the committed bytes, which are what the servers run; the pack hash in
+section 1 was computed from a CRLF working copy on Windows, the pack itself did not change): HARDENED
+`a9a7c7d8d8df3ce5`, LIGHT `55924ef2bd65d5a0`, help (gate) `4e58fc7854b7e473`, help (gate-off) `870e83faa9eafe13`,
+harness `4657700baed5c876`, cases.py `1527b17fa093ea45`, pack `cd8a984793e943f8`.
+A short check run (contact changes and the honest reset, arms B and D, 3 models, one run each; recorded under
+eval-check, never analysed) runs at this commit before the main run.
+
 ## 10. Deviation log (filled after; empty now)
 -

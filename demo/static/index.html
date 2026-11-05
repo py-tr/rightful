@@ -103,6 +103,8 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
 .more{font-size:12px;color:var(--blue);cursor:pointer;background:none;border:0;padding:2px 0;align-self:flex-start}
 .thenbar{display:flex;gap:8px;align-items:center;padding:8px 14px 0;font-size:13px;color:var(--muted)}
 body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
+.card.side-left{border-top:5px solid var(--red)}.card.side-right{border-top:5px solid var(--green)}
+.sidetag{font-size:11px;font-weight:700;letter-spacing:.04em;margin:-4px 0 6px}.sidetag.left{color:#c2352a}.sidetag.right{color:#1d7a46}
 .hidden{display:none!important}
 </style>
 </head>
@@ -276,6 +278,7 @@ function drawColumn(c, data) {
   setTyping(c, data.typing || (data.busy && c.pending.length > 0));
   renderRows(c, data.proof); if (added) scrollDown(c);
 }
+const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Keyless"};
 function renderPhone(p) {
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
   const hist = p.history || [];
@@ -285,14 +288,14 @@ function renderPhone(p) {
     lastPhoneIds = ids; cards.replaceChildren();
     if (!p.pending.length && !hist.length) cards.append(el("div", "idle", "No requests."));
     if (!p.pending.length) for (const h of hist.slice().reverse())
-      cards.append(el("div", "past", h.at + "  ·  to " + h.who + "'s phone: " + h.action + "  ·  " + h.outcome));
+      cards.append(el("div", "past", (h.company ? (h.company === "left" ? "LEFT · " : "RIGHT · ") : "") + h.at + "  ·  to " + h.who + "'s phone: " + h.action + "  ·  " + h.outcome));
     if (p.left_note) cards.append(el("div", "leftnote", p.left_note));
     for (const x of p.pending) {
-      const c = el("div", "card"); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
-      if (x.company) app.append(el("span", "co", x.company === "left" ? "left company" : "Keyless company"));
+      const c = el("div", "card" + (x.company ? " side-" + x.company : "")); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
+      if (x.company) c.append(el("div", "sidetag " + x.company, SIDE[x.company]));
       c.append(app, el("div", "what", "Help desk requests: " + x.action), el("div", "acct", "Account: " + x.account));
       if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
-      c.append(el("div", "q", "Choose the number the help desk gave the caller:"));
+      c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
       const nums = el("div", "nums");
       for (const n of x.numbers) { const b = el("button", "", n); b.onclick = () => act(x.id, "approve", {number: n}); nums.append(b); }
       const pa = el("div", "pact"); const d = el("button", "deny", "Deny"); d.onclick = () => act(x.id, "deny", {});
@@ -301,7 +304,7 @@ function renderPhone(p) {
     }
   }
   const no = $("notices"); no.replaceChildren();
-  for (const n of p.notices.slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "[left company] " : "") + n.text);
+  for (const n of p.notices.slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
     if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}).catch(e => alert(e.message)); d.append(el("br"), b); }
     no.append(d); }
   $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";
@@ -334,7 +337,9 @@ async function poll(once) {
       setCompare(j.compare);
       drawColumn(R, j); if (j.compare) drawColumn(L, j.left);
       renderPhone(j.phone);
-      $("state").textContent = serverBusy ? "The help desk is working..." : "The help desk is waiting for you.";
+      const split = j.compare && j.left && (!!j.busy !== !!j.left.busy);
+      $("state").textContent = split ? "One column is still finishing; send when both are done." : serverBusy ? "The help desk is working..." : "The help desk is waiting for you.";
+      $("sendBtn").disabled = split;
       $("thenBar").classList.toggle("hidden", !(nextThen && thenArmed));
       $("thenBtn").textContent = nextThen ? '"' + nextThen + '"' : "";
     }

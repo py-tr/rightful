@@ -514,7 +514,7 @@ class Demo:
             def on_reply(delivered: str):
                 """The visitor's next message; or, while a push is open, the owner's answer told to the agent so it
                 carries on (it does not have to remember to poll); or None to end the conversation."""
-                said_nothing = not (delivered or "").split("\n\n")[0].strip() or \
+                said_nothing = not (delivered or "").strip().split("\n\n")[0].strip() or \
                     (delivered or "").strip().startswith("Changes to your account in this session")
                 if said_nothing and nudges["n"] < 2:   # measured: the model sometimes returns an empty turn
                     nudges["n"] += 1

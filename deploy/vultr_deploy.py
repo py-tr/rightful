@@ -396,6 +396,25 @@ def eval_start(cmd: str, cap: str, per_host: str = "3") -> None:
     print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
 
 
+def demo_eval_start(cap: str, per_host: str = "3") -> None:
+    """The demo-setup measurement (eval/PREREG-demosetup.md), AFTER the main evaluation and its re-runs: a separate
+    module and output directory; the main evaluation's files are not touched."""
+    s = load()
+    hosts = ",".join(f"ssh://root@{w['vpc_ip']}" for w in s.get("fleet", []) if w.get("ok"))
+    if s.get("worker_vpc_ip"):
+        hosts = (hosts + "," if hosts else "") + f"ssh://root@{s['worker_vpc_ip']}"
+    v = s["control_vpc_ip"]
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True,
+                            text=True).stdout.strip()
+    r = ssh(s["control_ip"],
+            f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_COMMIT={commit} && "
+            f"(setsid nohup .venv/bin/python -u -m eval.demo_setup run "
+            f"--cap {cap} --hosts {hosts} --per-host {per_host} --bind {v} --edge-upstream http://{v}:8090 "
+            f"--out /var/lib/keyless/eval/demosetup < /dev/null > /var/lib/keyless/eval/demosetup.log 2>&1 &); "
+            f"echo started", timeout=60)
+    print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
+
+
 def eval_log(cmd: str = "run") -> None:
     s = load()
     print(ssh(s["control_ip"], f"tail -n 30 /var/lib/keyless/eval/harness-{cmd}.log; "
@@ -458,6 +477,8 @@ if __name__ == "__main__":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":
         eval_start(sys.argv[2], sys.argv[3], *(sys.argv[4:5]))
+    elif sys.argv[1] == "demo-eval-start":
+        demo_eval_start(sys.argv[2], *(sys.argv[3:4]))
     elif sys.argv[1] == "eval-log":
         eval_log(*(sys.argv[2:3]))
     else:

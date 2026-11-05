@@ -56,19 +56,31 @@ class FakeKC:
         return httpx.Response(204)
 
 
-def build(tmp_path):
-    clock, fake = Clock(), FakeKC()
+def build(tmp_path, clock=None, fake=None, push=None):
+    """Everything durable lives in files (the receipts database and the ledger), as in deployment. Calling build again
+    with the same tmp_path, clock and fake is a broker restart. `push` is the phone service, kept across a restart
+    (it is a separate device)."""
+    clock, fake = clock or Clock(), fake or FakeKC()
     kc = Keycloak(KeycloakConfig("http://kc", "corp", "b", "s", "c", "s"), clock=clock,
                   http=httpx.Client(base_url="http://kc", transport=httpx.MockTransport(fake.handler)))
     pack = load_pack("helpdesk")
-    receipts = ReceiptStore(":memory:", clock=clock)
-    push = create_push_app("http://kc", "corp", http=httpx.Client(base_url="http://kc",
-                                                                   transport=httpx.MockTransport(fake.handler)))
-    ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify, clock=clock)
+    receipts = ReceiptStore(str(tmp_path / "receipts.db"), clock=clock)
+    if push is None:
+        push = create_push_app("http://kc", "corp", http=httpx.Client(base_url="http://kc",
+                                                                       transport=httpx.MockTransport(fake.handler)))
+    ledger = Ledger(str(tmp_path / "l.jsonl"))
+    ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify, clock=clock, ledger=ledger)
     push.state.on_cancel = ch.cancel
-    gate = Gate(pack, receipts, Ledger(str(tmp_path / "l.jsonl")))
+    gate = Gate(pack, receipts, ledger)
     app = create_app(gate, kc, ch, notify=push.state.notify, deliver_secret=push.state.deliver)
+    build.last = (push, ch, receipts)
     return clock, fake, TestClient(app), TestClient(push)
+
+
+def restart(tmp_path, clock, fake):
+    push, _, old_receipts = build.last
+    old_receipts._db.close()
+    return build(tmp_path, clock, fake, push)
 
 
 def approve(fake, c, path, decision="approved"):
@@ -177,6 +189,114 @@ def test_quarantine_only_on_hostile_signals(tmp_path, method, path, body, hostil
     clock, fake, c, _ = build(tmp_path)
     r = c.request(method, path, content=body, headers=H)
     assert r.status_code == 403 and bool(r.json().get("quarantined")) is hostile and fake.calls == []
+
+
+# --- review finding #4: nothing safety-relevant resets on a broker restart --------------------------------------
+
+def test_snapshot_check_survives_a_restart(tmp_path):
+    """The snapshot lived only on the in-memory challenge; after a restart the re-check was skipped (fail-open).
+    Now it is stored in the receipt row, so the restarted broker still catches the changed email."""
+    clock, fake, c, phone = build(tmp_path)
+    approve(fake, c, LOST)
+    fake.users[CFO]["email"] = "attacker@evil.example"
+    clock.t += 61
+    clock, fake, c, phone = restart(tmp_path, clock, fake)
+    r = c.post(LOST, headers=H)
+    assert r.status_code == 409 and r.json()["outcome"] == "aborted_changed_since_approval"
+    assert not any("execute-actions-email" in p for _, p in fake.calls)
+
+
+def test_receipt_without_snapshot_aborts_the_composite(tmp_path):
+    """Fail closed: a receipt with no stored snapshot (e.g. from an older database) never runs a composite."""
+    clock, fake, c, _ = build(tmp_path)
+    _, _, receipts = build.last
+    from gate.grammar import parse
+    op = parse(load_pack("helpdesk"), "POST", LOST, b"")
+    receipts.mint("run-1", op.name, op.user, op.request_hash, approver="ceo", channel="ciba:manager", ttl_seconds=60)
+    r = c.post(LOST, headers=H)
+    assert r.status_code == 409 and r.json()["outcome"] == "aborted_no_snapshot" and fake.calls == []
+
+
+def test_quarantine_survives_a_restart(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    assert c.put("/admin/realms/corp/events/config", content=b"{}", headers=H).json()["quarantined"]
+    clock, fake, c, _ = restart(tmp_path, clock, fake)
+    r = c.get(f"/admin/realms/corp/users/{CFO}", headers=H)
+    assert r.status_code == 403 and r.json()["outcome"] == "quarantined"
+
+
+def test_decline_tripwire_survives_a_restart(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    body = b'{"type":"password","temporary":true}'
+    ch = c.put(reset, content=body, headers=H).json()["challenge_required"]
+    c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    fake.ciba["r1"] = "denied"
+    c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
+    clock, fake, c, _ = restart(tmp_path, clock, fake)
+    nxt = c.put(reset, content=body, headers={"X-Gate-Run": "run-9"}).json()["challenge_required"]
+    assert nxt["status"] == "human_only" and "declined" in nxt["why"]
+
+
+def test_cancel_button_still_works_after_a_restart(tmp_path):
+    clock, fake, c, phone = build(tmp_path)
+    approve(fake, c, LOST)
+    notice = [n for n in phone.get("/phone/cfo").json()["inbox"] if n.get("cancel_id")][0]
+    clock, fake, c, phone = restart(tmp_path, clock, fake)
+    assert phone.post(f"/phone/cfo/cancel/{notice['cancel_id']}").json()["cancelled_receipts"] == 1
+    clock.t += 61
+    assert c.post(LOST, headers=H).status_code == 403 and fake.calls == []
+
+
+def test_push_rate_limit_survives_a_restart(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    statuses = []
+    for i in range(5):
+        h = {"X-Gate-Run": f"run-{i}"}
+        ch = c.put(reset, content=b'{"type":"password","temporary":true}', headers=h).json()["challenge_required"]
+        statuses.append(c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=h).json()["status"])
+        if i == 1:
+            clock, fake, c, _ = restart(tmp_path, clock, fake)
+    assert statuses == ["sent", "sent", "sent", "rate_limited", "rate_limited"]
+
+
+def test_unapproved_attempt_count_survives_a_restart(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    body = b'{"type":"password","temporary":true}'
+    for _ in range(3):
+        assert not c.put(reset, content=body, headers=H).json().get("quarantined")
+    clock, fake, c, _ = restart(tmp_path, clock, fake)
+    assert c.put(reset, content=body, headers=H).json().get("quarantined")      # the 4th, counted across the restart
+
+
+# --- review finding #5: two concurrent polls of one approval mint one receipt ------------------------------------
+
+def test_concurrent_polls_mint_one_receipt(tmp_path):
+    import threading
+    clock, fake, c, _ = build(tmp_path)
+    _, ch_store, receipts = build.last
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    ch = c.put(reset, content=b'{"type":"password","temporary":true}', headers=H).json()["challenge_required"]
+    c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    fake.ciba["r1"] = "approved"
+    real_snapshot = ch_store.kc.user_snapshot
+    barrier = threading.Barrier(8)
+
+    def slow_snapshot(uid):                  # widen the window: every poll is inside it before any mint
+        try:
+            barrier.wait(timeout=2)
+        except threading.BrokenBarrierError:
+            pass
+        return real_snapshot(uid)
+    ch_store.kc.user_snapshot = slow_snapshot
+    threads = [threading.Thread(target=ch_store.poll, args=(ch["challenge"], "run-1")) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert receipts.count() == 1
 
 
 def test_retrying_a_declined_change_quarantines(tmp_path):

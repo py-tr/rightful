@@ -35,7 +35,7 @@ def build():
                   http=httpx.Client(base_url=KC, timeout=15, headers=host))
     console = ConsoleSession(KC, PUBLIC_FOR_SANDBOX, "corp", *s["console"])
     push = create_push_app(KC, "corp", http=httpx.Client(base_url=KC, timeout=10, headers=host))
-    ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify)
+    ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify, ledger=gate.ledger)
     push.state.on_cancel = ch.cancel
     broker = create_app(gate, kc, ch, deliver_secret=push.state.deliver, notify=push.state.notify, console=console)
 

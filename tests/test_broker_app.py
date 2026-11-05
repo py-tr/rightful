@@ -43,6 +43,8 @@ class FakeKeycloak:
                                   headers={"Set-Cookie": "KEYCLOAK_IDENTITY=secret"})
         self.upstream.append({"method": req.method, "path": p, "auth": req.headers.get("authorization"),
                               "body": req.content.decode()})
+        if getattr(self, "fail_writes", False):
+            return httpx.Response(500, json={"error": "unknown_error"})
         return httpx.Response(204)
 
 
@@ -141,6 +143,36 @@ def test_forbidden_write_quarantines_the_run(env):
     assert quarantined and quarantined[0][0] == "run-1"
     assert c.get(f"/admin/realms/corp/users/{U}", headers=H).status_code == 403   # the run is blocked from now on
     assert fake.upstream == []
+
+
+def _approve_and_retry(fake, c):
+    ch = c.put(RESET, content=BODY, headers=H).json()["challenge_required"]
+    c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    fake.ciba["req1"] = "approved"
+    c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
+    return c.put(RESET, content=BODY, headers=H)
+
+
+def test_upstream_refusal_is_never_recorded_as_executed(env):
+    """Review finding #3: the ledger said "executed" before Keycloak answered. Keycloak now fails the approved write
+    with a 500: the caller's 'changes to your account' line must say none, and a claimed reset must be held."""
+    from agent.claims import changes_line, check
+    fake, c, delivered, _, gate = env
+    fake.fail_writes = True
+    r = _approve_and_retry(fake, c)
+    assert r.status_code == 500 and len(fake.upstream) == 1         # it really was forwarded, and really failed
+    kinds = [e["kind"] for e in gate.ledger.entries()]
+    assert "forwarding" in kinds and "upstream_failed" in kinds and "executed" not in kinds
+    assert changes_line(gate.ledger.path, "run-1").endswith("none.")
+    assert check("I have reset your password.", gate.ledger.path, "run-1")[0] == "held"
+    assert delivered == []                                          # no password delivered for a reset that failed
+
+
+def test_upstream_success_is_recorded_as_executed(env):
+    from agent.claims import changes_line
+    fake, c, _, _, gate = env
+    assert _approve_and_retry(fake, c).status_code == 204
+    assert "temporary password set" in changes_line(gate.ledger.path, "run-1")
 
 
 def test_semicolon_path_never_reaches_keycloak(env):

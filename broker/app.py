@@ -26,7 +26,9 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                notify=lambda username, text, cancel_id=None: None) -> FastAPI:
     from .composites import execute as run_composite
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
-    quarantined: dict[str, str] = {}
+    # Rebuilt from the ledger: a quarantined run stays quarantined across a broker restart (review finding #4).
+    quarantined: dict[str, str] = {e["data"]["run"]: e["data"].get("reason", "")
+                                   for e in gate.ledger.entries() if e["kind"] == "quarantine"}
     lock = threading.Lock()
 
     def run_of(request: Request) -> str | None:
@@ -134,18 +136,34 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
 
         if d.op.kind == "composite":
             f = d.forward
-            # Snapshot at approval, re-check at execution: if the email on file or the manager changed in between,
-            # the approval no longer describes what would happen.
-            ch = challenges.find(run_id, d.op.name, f["user"], d.op.request_hash)
-            if ch is not None and ch.snapshot and keycloak.user_snapshot(f["user"]) != ch.snapshot:
+            # Snapshot at approval (stored IN the receipt), re-check at execution: if the email on file or the manager
+            # changed in between, the approval no longer describes what would happen. No stored snapshot -> abort:
+            # the check is never skipped (it was, after a restart, before review finding #4).
+            snap = f.get("snapshot")
+            why = None
+            if not snap:
+                why = "no approval snapshot on the receipt"
+            elif keycloak.user_snapshot(f["user"]) != snap:
+                why = "email or manager changed after approval"
+            if why:
                 gate.ledger.append("composite_aborted", {"run": run_id, "op": d.op.name, "user": f["user"],
-                                                         "reason": "email or manager changed after approval"})
-                notify(ch.username, f"A recovery on your account was stopped: your account details changed after "
-                                    f"it was approved. IT security has been alerted.")
-                return JSONResponse({"allowed": False, "outcome": "aborted_changed_since_approval"}, status_code=409)
+                                                         "reason": why})
+                notify(keycloak.username(f["user"]), "A recovery on your account was stopped before anything changed. "
+                                                     "IT security has been alerted.")
+                return JSONResponse({"allowed": False, "outcome": "aborted_changed_since_approval"
+                                     if snap else "aborted_no_snapshot"}, status_code=409)
             result = run_composite(keycloak, gate.ledger, gate.pack["realm"], f["user"], f["steps"], f["receipt"],
                                    run_id, notify, deliver_secret,
                                    lifespan=int(gate.pack.get("action_link_lifespan_seconds", 600)))
+            base = {"run": run_id, "op": d.op.name, "user": f["user"], "request_hash": d.op.request_hash,
+                    "receipt": f["receipt"]}
+            if result["completed"]:
+                gate.ledger.append("executed", base)
+            elif result["steps_done"]:
+                gate.ledger.append("partially_executed", {**base, "steps_done": result["steps_done"],
+                                                          "failed_step": result.get("failed_step")})
+            else:
+                gate.ledger.append("upstream_failed", {**base, "failed_step": result.get("failed_step")})
             return JSONResponse({"allowed": True, "outcome": "allowed_composite", "action": d.op.name, **result},
                                 status_code=200 if result["completed"] else 502)
 
@@ -153,6 +171,11 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         if d.op.kind == "write" and d.op.name == "change_email":
             old_email = keycloak.user_snapshot(d.op.user).get("email")
         up = keycloak.forward(d.forward, with_token=d.op.kind != "static")
+        if d.op.kind == "write":
+            # Only now does the ledger say the change happened, and only if Keycloak accepted it (review finding #3).
+            entry = {"run": run_id, "op": d.op.name, "user": d.op.user, "request_hash": d.op.request_hash,
+                     "status": up.status_code}
+            gate.ledger.append("executed" if 200 <= up.status_code < 300 else "upstream_failed", entry)
         if old_email is not None and 200 <= up.status_code < 300:
             # Recovery guidance: tell the PREVIOUS contact too, so a hijacked change is noticed where it matters.
             notify(keycloak.username(d.op.user), f"The email on your account was changed from {old_email}. If this "
@@ -164,7 +187,6 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                 quarantine(run_id, "a broker secret appeared in an upstream response")
                 return JSONResponse({"allowed": False, "outcome": "quarantined", "quarantined": True}, status_code=502)
         if d.op.kind == "write":
-            gate.ledger.append("upstream", {"run": run_id, "op": d.op.name, "user": d.op.user, "status": up.status_code})
             if d.oob_secret and 200 <= up.status_code < 300:
                 deliver_secret(keycloak.username(d.op.user), d.oob_secret)
         headers = {k: v for k, v in up.headers.items() if k.lower() not in DROP_RESPONSE_HEADERS}

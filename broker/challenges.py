@@ -13,6 +13,7 @@ Consent-fatigue design (Microsoft's red team ranks consent fatigue as the most e
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 import threading
@@ -52,16 +53,37 @@ def binding_message(number: str, label: str, username: str, user_id: str, reques
 class Challenges:
     def __init__(self, keycloak, receipts: ReceiptStore, ttl_seconds: float = 180, max_sends: int = 3,
                  window_seconds: float = 600, clock=time.time, pack: dict | None = None,
-                 notify=lambda username, text, cancel_id=None: None):
+                 notify=lambda username, text, cancel_id=None: None, ledger=None):
         self.kc, self.receipts, self.ttl = keycloak, receipts, ttl_seconds
         self.max_sends, self.window, self._clock = max_sends, window_seconds, clock
         self.pack = pack or {}
         self.notify = notify
+        self.ledger = ledger
         self._lock = threading.Lock()
         self._by_id: dict[str, Challenge] = {}
         self._sends: dict[str, list[float]] = {}
         self._declined: dict[str, float] = {}       # user id -> time of the owner's/manager's decline
-        self._cancel: dict[str, str] = {}           # cancel id -> user id
+        self._cancel: dict[str, str] = {}           # sha256(cancel id) -> user id
+        # The safety state is rebuilt from the ledger, so a broker restart never resets it (review finding #4): the
+        # decline tripwire, the per-approver push rate limit, and the owner's cancel buttons.
+        for e in (ledger.entries() if ledger is not None else []):
+            d = e["data"]
+            if e["kind"] == "tripwire":
+                self._declined[d["user"]] = max(self._declined.get(d["user"], 0), e["ts"])
+            elif e["kind"] == "push_sent":
+                self._sends.setdefault(d["approver"], []).append(e["ts"])
+            elif e["kind"] == "cancel_offered":
+                self._cancel[d["cancel_hash"]] = d["user"]
+            elif e["kind"] == "cancel_used":
+                self._cancel.pop(d["cancel_hash"], None)
+
+    def _record(self, kind: str, data: dict) -> None:
+        if self.ledger is not None:
+            self.ledger.append(kind, data)
+
+    def _trip(self, user_id: str, why: str) -> None:
+        self._declined[user_id] = self._clock()
+        self._record("tripwire", {"user": user_id, "why": why})
 
     def _delay(self, kind: str, user_id: str) -> float:
         if kind not in ("manager", "contact"):
@@ -111,10 +133,12 @@ class Challenges:
 
     def send(self, cid: str, run_id: str) -> Challenge | None:
         c = self.get(cid, run_id)
-        if c is None or c.status not in ("created", "rate_limited"):
+        if c is None:
             return c
         now = self._clock()
         with self._lock:
+            if c.status not in ("created", "rate_limited"):     # checked under the lock: one push per challenge
+                return c
             recent = [t for t in self._sends.get(c.approver, []) if now - t < self.window]
             if len(recent) >= self.max_sends:
                 c.status = "rate_limited"
@@ -122,6 +146,8 @@ class Challenges:
                 return c
             recent.append(now)
             self._sends[c.approver] = recent
+            c.status = "sending"
+        self._record("push_sent", {"approver": c.approver, "user": c.user_id, "challenge": c.id})
         c.auth_req_id = self.kc.ciba_start(c.approver, c.binding)
         c.status = "sent"
         return c
@@ -132,27 +158,41 @@ class Challenges:
             return c
         state = self.kc.ciba_poll(c.auth_req_id)
         if state == "approved" and not c.receipt_minted:
+            # Network reads first, then check-and-mint under one lock: two concurrent polls of one approval mint
+            # exactly one receipt (review finding #5).
             delay = self._delay(c.receipt_kind, c.user_id)
-            c.snapshot = self.kc.user_snapshot(c.user_id)
-            self.receipts.mint(c.run_id, c.operation, c.user_id, c.request_hash, approver=c.approver,
-                               channel=f"ciba:{c.receipt_kind}", ttl_seconds=self.ttl, delay_seconds=delay)
-            c.receipt_minted, c.status = True, "approved"
+            snapshot = self.kc.user_snapshot(c.user_id)
+            with self._lock:
+                if c.receipt_minted:
+                    return c
+                self.receipts.mint(c.run_id, c.operation, c.user_id, c.request_hash, approver=c.approver,
+                                   channel=f"ciba:{c.receipt_kind}", ttl_seconds=self.ttl, delay_seconds=delay,
+                                   snapshot=snapshot)
+                c.snapshot, c.receipt_minted, c.status = snapshot, True, "approved"
             if delay > 0:                           # tell the owner everywhere, with a way to stop it
                 cancel_id = "cnl_" + secrets.token_urlsafe(10)
-                self._cancel[cancel_id] = c.user_id
+                h = hashlib.sha256(cancel_id.encode()).hexdigest()
+                self._cancel[h] = c.user_id
+                self._record("cancel_offered", {"cancel_hash": h, "user": c.user_id, "challenge": c.id})
                 self.notify(c.username, f"{c.approver} approved '{c.operation}' on your account. It runs in "
                                         f"{int(delay)} s unless you cancel. If you did not ask for this, cancel now.",
                             cancel_id)
         elif state in ("denied", "expired"):
-            c.status = state
+            with self._lock:
+                if c.status != "sent":
+                    return c
+                c.status = state
             if state == "denied":
-                self._declined[c.user_id] = self._clock()     # the decline tripwire
+                self._trip(c.user_id, "approver declined")     # the decline tripwire
         return c
 
     def cancel(self, cancel_id: str) -> int:
         """The owner pressed cancel (from any device): every pending receipt on the account dies; human-only follows."""
-        uid = self._cancel.pop(cancel_id, None)
+        h = hashlib.sha256(cancel_id.encode()).hexdigest()
+        with self._lock:
+            uid = self._cancel.pop(h, None)
         if uid is None:
             return 0
-        self._declined[uid] = self._clock()
+        self._record("cancel_used", {"cancel_hash": h, "user": uid})
+        self._trip(uid, "owner cancelled")
         return self.receipts.cancel_for_user(uid)

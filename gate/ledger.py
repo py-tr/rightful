@@ -53,6 +53,13 @@ class Ledger:
             self._seq, self._head = seq, h
             return entry
 
+    def entries(self) -> list[dict]:
+        """Every entry, oldest first (the file was verified when this ledger was opened)."""
+        if not os.path.exists(self.path):
+            return []
+        with self._lock, open(self.path, encoding="utf-8") as f:
+            return [json.loads(line) for line in f if line.strip()]
+
     def head(self) -> dict:
         return {"seq": self._seq, "hash": self._head}
 

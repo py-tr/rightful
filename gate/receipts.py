@@ -13,6 +13,7 @@ owner can cancel it from any of their devices, including the one said to be lost
 """
 from __future__ import annotations
 
+import json
 import secrets
 import sqlite3
 import threading
@@ -32,7 +33,8 @@ CREATE TABLE IF NOT EXISTS receipts (
   not_before REAL NOT NULL,
   expires_at REAL NOT NULL,
   used_at REAL,
-  cancelled INTEGER NOT NULL DEFAULT 0
+  cancelled INTEGER NOT NULL DEFAULT 0,
+  snapshot TEXT
 );
 CREATE INDEX IF NOT EXISTS receipts_match ON receipts (run_id, op, user, request_hash);
 """
@@ -43,6 +45,7 @@ class Redemption:
     ok: bool
     reason: str      # "ok" | "no_receipt" | "used" | "expired" | "cooling_off" | "cancelled"
     receipt_id: str | None
+    snapshot: dict | None = None     # the account's email/manager at approval time (None if none was stored)
 
 
 class ReceiptStore:
@@ -51,19 +54,24 @@ class ReceiptStore:
         self._lock = threading.Lock()
         self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self._db.executescript(SCHEMA)
+        cols = {r[1] for r in self._db.execute("PRAGMA table_info(receipts)")}
+        if "snapshot" not in cols:                  # a database created before snapshots were stored
+            self._db.execute("ALTER TABLE receipts ADD COLUMN snapshot TEXT")
 
     def mint(self, run_id: str, op: str, user: str, request_hash: str, approver: str, channel: str,
-             ttl_seconds: float, delay_seconds: float = 0.0) -> str:
-        """ttl_seconds counts from the end of the cooling-off delay."""
+             ttl_seconds: float, delay_seconds: float = 0.0, snapshot: dict | None = None) -> str:
+        """ttl_seconds counts from the end of the cooling-off delay. The snapshot (what the approver saw) lives in the
+        receipt itself, so it survives a broker restart (review finding #4)."""
         if not all((run_id, op, user, request_hash, approver, channel)) or ttl_seconds <= 0 or delay_seconds < 0:
             raise ValueError("a receipt needs a run, operation, user, request hash, approver, channel and a TTL > 0")
         rid = "rcpt_" + secrets.token_urlsafe(18)
         now = self._clock()
+        snap = json.dumps(snapshot, sort_keys=True) if snapshot is not None else None
         with self._lock:
             self._db.execute("INSERT INTO receipts (id, run_id, op, user, request_hash, approver, channel, "
-                             "created_at, not_before, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                             "created_at, not_before, expires_at, snapshot) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                              (rid, run_id, op, user, request_hash, approver, channel, now, now + delay_seconds,
-                              now + delay_seconds + ttl_seconds))
+                              now + delay_seconds + ttl_seconds, snap))
         return rid
 
     def redeem(self, run_id: str, op: str, user: str, request_hash: str) -> Redemption:
@@ -74,10 +82,11 @@ class ReceiptStore:
             row = self._db.execute(
                 "UPDATE receipts SET used_at = ? WHERE id = (SELECT id FROM receipts WHERE run_id = ? AND op = ? "
                 "AND user = ? AND request_hash = ? AND used_at IS NULL AND cancelled = 0 AND not_before <= ? "
-                "AND expires_at > ? ORDER BY created_at LIMIT 1) AND used_at IS NULL AND cancelled = 0 RETURNING id",
+                "AND expires_at > ? ORDER BY created_at LIMIT 1) AND used_at IS NULL AND cancelled = 0 "
+                "RETURNING id, snapshot",
                 (now, *key, now, now - self._skew)).fetchone()
             if row:
-                return Redemption(True, "ok", row[0])
+                return Redemption(True, "ok", row[0], json.loads(row[1]) if row[1] is not None else None)
             rows = self._db.execute("SELECT id, used_at, expires_at, not_before, cancelled FROM receipts WHERE "
                                     "run_id = ? AND op = ? AND user = ? AND request_hash = ?", key).fetchall()
         for rid, used, exp, nb, canc in rows:

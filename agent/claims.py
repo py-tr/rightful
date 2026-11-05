@@ -27,8 +27,10 @@ def executed_in_run(ledger_path: str, run_id: str) -> list[dict]:
     with open(ledger_path, encoding="utf-8") as f:
         for line in f:
             e = json.loads(line)
-            if e["kind"] == "executed" and e["data"].get("run") == run_id:
-                out.append(e["data"])
+            # Only what the broker recorded AFTER Keycloak accepted it. "forwarding" (written at receipt burn) and
+            # "upstream_failed" never count: a change that was refused did not happen.
+            if e["kind"] in ("executed", "partially_executed") and e["data"].get("run") == run_id:
+                out.append({**e["data"], "partial": e["kind"] == "partially_executed"})
     return out
 
 
@@ -53,7 +55,8 @@ LABELS = {"reset_password": "temporary password set (sent to your registered pho
 def changes_line(ledger_path: str, run_id: str) -> str:
     """Written from the ledger, never by the model: what actually changed on the account in this session."""
     done = executed_in_run(ledger_path, run_id)
-    items = [LABELS.get(d.get("op"), d.get("op", "change")) for d in done]
+    items = [(f"{d.get('op')} stopped part-way (done: {', '.join(d.get('steps_done', []))})" if d["partial"]
+              else LABELS.get(d.get("op"), d.get("op", "change"))) for d in done]
     return ("Changes to your account in this session (from the system log): "
             + ("none." if not items else "; ".join(items) + "."))
 

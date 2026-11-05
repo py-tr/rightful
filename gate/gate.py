@@ -1,6 +1,8 @@
 """The gate: one decision per request from the sandbox. Authorization is not a model output.
 
-Order for a write: parse strictly -> find and burn a matching receipt -> write the ledger -> only then forward.
+Order for a write: parse strictly -> find and burn a matching receipt -> write "forwarding" to the ledger -> only then
+forward. The broker writes "executed" only after the upstream answers 2xx (or a composite completes), so the ledger
+never says a change happened when Keycloak refused it.
 Any failure on that path denies (fail closed). Reads and console assets pass without a receipt; anything the policy
 pack does not describe is denied. The agent never receives a token, a receipt, or a secret.
 """
@@ -47,6 +49,13 @@ class Gate:
         self.max_unapproved = max_unapproved_writes
         self._secret = secret_factory
         self._unapproved: dict[str, int] = {}
+        # Rebuilt from the ledger, so a broker restart does not reset a looping run's strikes (review finding #4).
+        for e in ledger.entries():
+            d = e["data"]
+            if e["kind"] == "decision" and d.get("request_hash") and d.get("outcome", "").startswith("denied_") \
+                    and d["outcome"] not in ("denied_cooling_off",):
+                key = f"{d['run']}|{d['request_hash']}"
+                self._unapproved[key] = self._unapproved.get(key, 0) + 1
 
     def _hostile(self, method: str, target: str, r: Reject) -> str | None:
         """Quarantine only on hostile signals; an honest agent's harmless mistake gets a refusal it can learn from.
@@ -120,12 +129,13 @@ class Gate:
         if op.kind == "composite":
             steps = list(self.pack["composites"][op.name]["steps"])
             try:
-                seq = self._log("executed", {"run": run_id, "op": op.name, "user": op.user, "steps": steps,
+                seq = self._log("forwarding", {"run": run_id, "op": op.name, "user": op.user, "steps": steps,
                                              "request_hash": op.request_hash, "receipt": red.receipt_id})
             except LedgerError as e:
                 return Decision(False, "denied_ledger_down", f"receipt burned, nothing executed: {e}", op)
             return Decision(True, "allowed_composite", "", op,
-                            {"composite": op.name, "user": op.user, "steps": steps, "receipt": red.receipt_id},
+                            {"composite": op.name, "user": op.user, "steps": steps, "receipt": red.receipt_id,
+                             "snapshot": red.snapshot},
                             ledger_seq=seq)
 
         # Burned. Build exactly what was approved; replace override fields (e.g. the password) with broker values.
@@ -139,7 +149,7 @@ class Gate:
                     body_obj[name] = secret
             fwd_body = json.dumps(body_obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
         try:
-            seq = self._log("executed", {"run": run_id, "method": method, "path": op.path, "op": op.name,
+            seq = self._log("forwarding", {"run": run_id, "method": method, "path": op.path, "op": op.name,
                                          "user": op.user, "request_hash": op.request_hash, "receipt": red.receipt_id,
                                          "secret_out_of_band": secret is not None})
         except LedgerError as e:

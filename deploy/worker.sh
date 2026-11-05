@@ -5,7 +5,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 echo "=== STEP docker + gvisor"
 apt-get update -qq && apt-get install -y -qq docker.io curl ca-certificates gnupg iptables-persistent >/dev/null
-curl -fsSL https://gvisor.dev/archive.key | gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+curl -fsSL https://gvisor.dev/archive.key | gpg --batch --yes --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg   # re-runnable
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" > /etc/apt/sources.list.d/gvisor.list
 apt-get update -qq && apt-get install -y -qq runsc >/dev/null && runsc install >/dev/null && systemctl restart docker
 runsc --version | head -1

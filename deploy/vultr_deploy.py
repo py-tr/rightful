@@ -312,7 +312,9 @@ def _provision_fleet_worker(s: dict, rec: dict) -> dict:
         return rec
     pub = ssh(s["control_ip"], "cat /root/.ssh/id_ed25519.pub").stdout.strip()
     ssh(rec["ip"], "mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys", input_text=pub + "\n")
-    chk = ssh(s["control_ip"], f"ssh -o StrictHostKeyChecking=accept-new root@{rec['vpc_ip']} true && "
+    # a new worker can get a deleted one's VPC address: forget the old host key first (11-05: all 3 checks failed)
+    chk = ssh(s["control_ip"], f"ssh-keygen -R {rec['vpc_ip']} >/dev/null 2>&1; "
+                               f"ssh -o StrictHostKeyChecking=accept-new root@{rec['vpc_ip']} true && "
                                f"DOCKER_HOST=ssh://root@{rec['vpc_ip']} docker info --format '{{{{.Runtimes}}}}'")
     rec["ok"] = "runsc" in chk.stdout
     rec["provisioned_s"] = round(time.time() - rec["created"])

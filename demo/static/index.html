@@ -159,6 +159,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
         <button class="send" id="sendBtn">Send</button></div>
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
         <span><label>Agent's instructions
+          <select id="model" aria-label="Model"></select></label> <label>Instructions
           <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
           &nbsp;<button class="linkbtn" id="restart">Start over</button></span></div>
     </div>
@@ -230,21 +231,27 @@ async function intro() {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
     b.dataset.normal = s.chip; b.dataset.id = s.id; b.dataset.kind = s.kind; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
-    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
+    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; currentMeasured = s.measured; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
     box.append(b);
   }
   labelChips();
+  const sel = $("model"); sel.replaceChildren();
+  const tk = j.scenarios.find(x => x.compare_default);
+  for (const m of j.models || []) { const n = tk && tk.measured && tk.measured.by_model[m];
+    const o = el("option", "", m + (n ? " (this attack: " + n[0] + "/" + n[1] + ")" : "")); o.value = m; sel.append(o); }
+  sel.value = j.default_model; sel.onchange = () => showMeasured(currentMeasured);
   renderCounter(j.counter);
   if (!hadSession && compare) $("chips").querySelector('.chip[data-cmp="1"]')?.click();   // land on the attack
 }
-let measured = null;
-function showMeasured(m) {           // eval/RESULTS-demosetup.md, for the model this demo runs; nothing otherwise
-  measured = m || null;
-  $("measL").classList.toggle("hidden", !m);
-  if (m) $("measL").textContent = "Measured " + m.date + " in this exact setup: this attack fooled the agent in "
-    + m.n[0] + " of " + m.n[1] + " runs; it completed " + m.n[2] + " of " + m.n[3] + " honest requests.";
+let measured = null, currentMeasured = null;
+function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELECTED model; nothing for an unmeasured setup
+  const m = $("model").value, n = sc && sc.by_model && sc.by_model[m];
+  measured = n ? {n} : null;
+  $("measL").classList.toggle("hidden", !n);
+  if (n) $("measL").textContent = "Measured " + sc.date + " in this exact setup (" + m + "): this attack fooled the agent in "
+    + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests.";
 }
 function labelChips() {
   for (const b of $("chips").querySelectorAll(".chip")) {
@@ -380,7 +387,7 @@ async function poll(once) {
     const j = await api("/api/events?after=" + R.after + "&after_left=" + L.after);
     if (j.session) {
       hadSession = true; serverCompare = !!j.compare;
-      serverBusy = j.busy || (j.left && j.left.busy); $("prompt").disabled = serverBusy;
+      serverBusy = j.busy || (j.left && j.left.busy); $("prompt").disabled = serverBusy; $("model").disabled = serverBusy;
       setCompare(j.compare);
       drawColumn(R, j); if (j.compare) drawColumn(L, j.left);
       renderPhone(j.phone);
@@ -425,7 +432,7 @@ async function send() {
   for (const c of compare ? [L, R] : [R]) { c.chat.querySelector(".empty")?.remove(); c.chat.append(el("div", "who r", "You"), el("div", "b you", text)); c.pending.push(text); scrollDown(c); setTyping(c, true); }
   $("input").value = "";
   const starts = !serverBusy;
-  try { await api("/api/say", starts ? {text, scenario, ticket: $("ticket").value, prompt: $("prompt").value} : {text});
+  try { await api("/api/say", starts ? {text, scenario, ticket: $("ticket").value, prompt: $("prompt").value, model: $("model").value} : {text});
         if (starts) { serverBusy = true; if (scenario && nextThen) thenArmed = true;
           if (scenario) { attempts[scenario] = scenario === lastScenario ? (attempts[scenario] || 1) + 1 : 1;
             lastScenario = scenario; lastScenarioKind = $("chips").querySelector('.chip[data-id="' + scenario + '"]')?.dataset.kind || null; }

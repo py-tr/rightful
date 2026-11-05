@@ -47,6 +47,7 @@ from eval.dispatch import BrokerDispatch, PushDispatch, Timing
 IDLE_S, MAX_S = 20 * 60, 60 * 60
 PHONE_LINK_S = 15 * 60          # a "scan to become the phone" link lives this long (and never longer than its session)
 MAX_TEXT, MAX_TICKET = 1200, 2500
+DEMO_MODELS = ("qwen3.8-27b", "glm-5.3-flash", "deepseek-v4.1-flash-1017")   # the three measured in eval/RESULTS-*
 MAX_TURNS, CONVERSATION_WALL_S = 10, 240   # 8 cut the honest path short after an approved verification (11-05)
 WAIT_FOR_VISITOR_S = 20       # after the agent's reply: then the summary comes; a later message starts a new conversation
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -108,6 +109,7 @@ class Session:
     takeovers: int = 0                            # conversations in this company that ended in a takeover
     attack_runs: int = 0                          # conversations started from an attack scenario
     sent_at: dict = field(default_factory=dict)
+    model: str | None = None                      # the visitor's choice among DEMO_MODELS (both columns use it)
     pair: str | None = None                       # compare mode: one id for both columns' results of one message
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
@@ -407,7 +409,8 @@ class Demo:
             self.emit(s, "status", "The agent handed this to a human colleague.")
 
     # --- conversations ---------------------------------------------------------------------------------------
-    def say(self, s: Session, text: str, scenario: str | None, ticket: str | None, prompt: str | None = None) -> None:
+    def say(self, s: Session, text: str, scenario: str | None, ticket: str | None, prompt: str | None = None,
+            model: str | None = None) -> None:
         """The visitor's message goes to the conversation, and in compare mode to the left column too: the same words,
         the same ticket, the same instructions, the same model, a different architecture."""
         text = text.strip()[:MAX_TEXT]
@@ -422,10 +425,10 @@ class Demo:
             for col in cols:
                 col.pair, col.verdict = pair, ""
         for col in cols:
-            self._say_one(col, s.id, text, scenario, ticket, prompt)
+            self._say_one(col, s.id, text, scenario, ticket, prompt, model)
 
     def _say_one(self, s: Session, budget_sid: str, text: str, scenario: str | None, ticket: str | None,
-                 prompt: str | None) -> None:
+                 prompt: str | None, model: str | None = None) -> None:
         self.emit(s, "you", text)
         if s.busy:
             s.inbox.put(text)                          # queued; it is already shown as sent
@@ -437,6 +440,7 @@ class Demo:
             s.attack_runs += 1
         s.ticket = (ticket or (sc["ticket"] if sc else "") or DEFAULT_TICKET).strip()[:MAX_TICKET]
         s.prompt = "hardened" if prompt == "hardened" else "light"
+        s.model = model if model in DEMO_MODELS else self.model
         reserved = self.limits.reserve_ticket(budget_sid)   # BEFORE any model call (both columns count)
         s.busy = True
         threading.Thread(target=self._converse, args=(s, text, reserved, budget_sid), daemon=True).start()
@@ -464,9 +468,9 @@ class Demo:
                                   runtime="runsc" if (host or "").startswith("ssh://") else None).start()
             if os.environ.get("KEYLESS_DEMO_FAKE_LLM") == "1":
                 from eval.fake_llm import FakeLLM
-                llm = FakeLLM(self.model)
+                llm = FakeLLM(s.model or self.model)
             else:
-                llm = LLM(models=[self.model], cap_usd=reserved, max_tokens=8000)
+                llm = LLM(models=[s.model or self.model], cap_usd=reserved, max_tokens=8000)
             deadline = time.time() + CONVERSATION_WALL_S
             n = {"script": 0}
 
@@ -889,11 +893,13 @@ def create_demo_app(demo: Demo) -> FastAPI:
                                "compare_default": bool(v.get("compare_default")),
                                "compare_chip": v.get("compare_chip"), "then": v.get("then"),
                                # the measured rate for THE MODEL THIS DEMO RUNS, or nothing (never another setup's)
-                               "measured": ({"date": v["measured"]["date"], "model": demo.model,
-                                             "n": v["measured"][demo.model]}
-                                            if demo.model in (v.get("measured") or {}) else None)}
+                               "measured": ({"date": v["measured"]["date"],
+                                             "by_model": {m: v["measured"][m] for m in DEMO_MODELS
+                                                          if m in v["measured"]}}
+                                            if v.get("measured") else None)}
                               for k, v in sorted(SCENARIOS.items(), key=lambda kv: kv[1]["order"])],
-                "counter": demo.counter(), "limits": demo.limits.status()}
+                "counter": demo.counter(), "limits": demo.limits.status(),
+                "models": list(DEMO_MODELS), "default_model": demo.model}
 
     @app.post("/api/say")
     async def say(request: Request):
@@ -904,7 +910,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
             j = await request.json()
             if s is None:                              # the session starts on the first message
                 s, cookie = demo.new_session(ip_of(request))
-            demo.say(s, str(j.get("text", "")), j.get("scenario"), j.get("ticket"), j.get("prompt"))
+            demo.say(s, str(j.get("text", "")), j.get("scenario"), j.get("ticket"), j.get("prompt"), j.get("model"))
         except Refused as x:
             return with_cookie(err(x.reason, 429), cookie)
         except (ValueError, KeyError, TypeError):

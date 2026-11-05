@@ -99,7 +99,8 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{margin-top:6px}footer summary{cursor:pointer}
 .slot .counter{margin-top:8px;padding:8px 10px;box-shadow:none;background:var(--surface)}
 .slot .counter .big{font-size:26px}
-.b.agent.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.b.agent.clamp{max-height:7.2em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
+.chat>*{flex-shrink:0}
 .more{font-size:12px;color:var(--blue);cursor:pointer;background:none;border:0;padding:2px 0;align-self:flex-start}
 .thenbar{display:flex;gap:8px;align-items:center;padding:8px 14px 0;font-size:13px;color:var(--muted)}
 body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}

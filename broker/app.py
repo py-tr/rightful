@@ -14,6 +14,7 @@ import threading
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from gate import Gate
 
@@ -23,17 +24,41 @@ DROP_RESPONSE_HEADERS = {"set-cookie", "authorization", "www-authenticate", "con
 
 def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username, secret: None,
                on_quarantine=lambda run_id, reason: None, console=None,
-               notify=lambda username, text, cancel_id=None: None) -> FastAPI:
+               notify=lambda username, text, cancel_id=None: None, run_key_master: bytes | None = None) -> FastAPI:
+    """run_key_master: when set (always, in deployment), every request must carry the edge's signature for its run
+    (broker/runkey.py); unsigned or mis-signed requests get 401 and nothing else happens."""
     from .composites import execute as run_composite
+    from .runkey import verify as verify_sig
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
     # Rebuilt from the ledger: a quarantined run stays quarantined across a broker restart (review finding #4).
     quarantined: dict[str, str] = {e["data"]["run"]: e["data"].get("reason", "")
                                    for e in gate.ledger.entries() if e["kind"] == "quarantine"}
     lock = threading.Lock()
 
-    def run_of(request: Request) -> str | None:
+    def _target(request: Request) -> str:
+        raw = request.scope.get("raw_path", b"").decode("latin-1") or request.url.path
+        qs = request.scope.get("query_string") or b""
+        return raw + (("?" + qs.decode("latin-1")) if qs else "")
+
+    async def run_of(request: Request) -> str | None:
         r = request.headers.get("x-gate-run", "")
-        return r if r and len(r) <= 64 and r.replace("-", "").replace("_", "").isalnum() else None
+        if not (r and len(r) <= 64 and r.replace("-", "").replace("_", "").isalnum()):
+            return None
+        if run_key_master is not None:
+            bad = verify_sig(run_key_master, r, request.headers.get("x-gate-ts", ""),
+                             request.headers.get("x-gate-sig", ""), request.method, _target(request),
+                             await request.body())
+            if bad:
+                try:
+                    gate.ledger.append("bad_signature", {"run": r[:64], "reason": bad,
+                                                         "client": request.client.host if request.client else ""})
+                except Exception:
+                    pass
+                return None
+        return r
+
+    def no_run() -> JSONResponse:
+        return JSONResponse({"error": "missing or unsigned run"}, status_code=400 if run_key_master is None else 401)
 
     def quarantine(run_id: str, reason: str) -> None:
         with lock:
@@ -50,13 +75,13 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         return None
 
     @app.post("/gate/v1/challenges/{cid}/send")
-    def send(cid: str, request: Request):
-        run_id = run_of(request)
+    async def send(cid: str, request: Request):
+        run_id = await run_of(request)
         if not run_id:
-            return JSONResponse({"error": "missing run"}, status_code=400)
+            return no_run()
         if (b := blocked(run_id)):
             return b
-        c = challenges.send(cid, run_id)
+        c = await run_in_threadpool(challenges.send, cid, run_id)      # blocking Keycloak call: off the event loop
         if c is None:
             return JSONResponse({"error": "unknown challenge"}, status_code=404)
         gate.ledger.append("challenge", {"run": run_id, "challenge": c.id, "op": c.operation, "user": c.user_id,
@@ -66,13 +91,13 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                 if c.status == "sent" else None}
 
     @app.get("/gate/v1/challenges/{cid}")
-    def poll(cid: str, request: Request):
-        run_id = run_of(request)
+    async def poll(cid: str, request: Request):
+        run_id = await run_of(request)
         if not run_id:
-            return JSONResponse({"error": "missing run"}, status_code=400)
+            return no_run()
         if (b := blocked(run_id)):
             return b
-        c = challenges.poll(cid, run_id)
+        c = await run_in_threadpool(challenges.poll, cid, run_id)
         if c is None:
             return JSONResponse({"error": "unknown challenge"}, status_code=404)
         if c.status in ("approved", "denied", "expired"):
@@ -82,9 +107,9 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
 
     @app.post("/gate/v1/escalations")
     async def escalation(request: Request):
-        run_id = run_of(request)
+        run_id = await run_of(request)
         if not run_id:
-            return JSONResponse({"error": "missing run"}, status_code=400)
+            return no_run()
         try:
             reason = str((await request.json()).get("reason", ""))[:500]
         except ValueError:
@@ -94,13 +119,13 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
 
     @app.api_route("/{full:path}", methods=["GET", "PUT", "POST", "DELETE", "PATCH", "HEAD", "OPTIONS"])
     async def proxy(full: str, request: Request):
-        run_id = run_of(request)
+        run_id = await run_of(request)
         if not run_id:
-            return JSONResponse({"error": "missing run"}, status_code=400)
+            return no_run()
         if (b := blocked(run_id)):
             return b
         raw = request.scope.get("raw_path", b"").decode("latin-1") or request.url.path
-        target = raw + (("?" + request.scope["query_string"].decode("latin-1")) if request.scope.get("query_string") else "")
+        target = _target(request)
         body = await request.body()
         if console is not None and console.handles(raw) and not raw.startswith("/admin/realms/"):
             # The console's own UI and sign-in routes: kept alive by the broker's session, never the admin API.

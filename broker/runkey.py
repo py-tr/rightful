@@ -1,0 +1,41 @@
+"""Run-id signatures from the edge to the broker (review finding #6: the broker trusted any X-Gate-Run from the VPC).
+
+- The control plane holds one master key. Each task's key is HMAC(master, run_id); only that key is given to the
+  task's edge proxy. A compromised worker reveals the keys of the runs on it, never the master, so it cannot speak
+  for any other run.
+- The edge signs every request: HMAC(task_key, run_id \n timestamp \n METHOD \n target \n sha256(body)). The broker
+  re-derives the task key from the run id and checks it, with a short clock window. A signature is bound to one
+  exact request, so it cannot be moved to another path, method or body.
+`sandbox/edge.py` carries its own copy of `sign` (it is a separate image); a test checks the two agree.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import time
+
+WINDOW_SECONDS = 60
+
+
+def task_key(master: bytes, run_id: str) -> str:
+    return hmac.new(master, b"keyless-run-key\n" + run_id.encode(), hashlib.sha256).hexdigest()
+
+
+def sign(key_hex: str, run_id: str, ts: str, method: str, target: str, body: bytes) -> str:
+    msg = "\n".join((run_id, ts, method.upper(), target, hashlib.sha256(body or b"").hexdigest())).encode()
+    return hmac.new(bytes.fromhex(key_hex), msg, hashlib.sha256).hexdigest()
+
+
+def verify(master: bytes, run_id: str, ts: str, sig: str, method: str, target: str, body: bytes,
+           now: float | None = None) -> str | None:
+    """None if valid, otherwise the reason it is not."""
+    if not ts or not sig:
+        return "unsigned request"
+    try:
+        age = abs((time.time() if now is None else now) - float(ts))
+    except ValueError:
+        return "bad timestamp"
+    if age > WINDOW_SECONDS:
+        return "stale signature"
+    want = sign(task_key(master, run_id), run_id, ts, method, target, body)
+    return None if hmac.compare_digest(want, sig) else "bad signature"

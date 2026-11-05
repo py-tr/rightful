@@ -53,8 +53,10 @@ def binding_message(number: str, label: str, username: str, user_id: str, reques
 class Challenges:
     def __init__(self, keycloak, receipts: ReceiptStore, ttl_seconds: float = 180, max_sends: int = 3,
                  window_seconds: float = 600, clock=time.time, pack: dict | None = None,
-                 notify=lambda username, text, cancel_id=None: None, ledger=None):
+                 notify=lambda username, text, cancel_id=None: None, ledger=None, min_poll_interval: float = 1.0):
         self.kc, self.receipts, self.ttl = keycloak, receipts, ttl_seconds
+        self.min_poll_interval = min_poll_interval
+        self._last_poll: dict[str, float] = {}
         self.max_sends, self.window, self._clock = max_sends, window_seconds, clock
         self.pack = pack or {}
         self.notify = notify
@@ -156,6 +158,11 @@ class Challenges:
         c = self.get(cid, run_id)
         if c is None or c.status != "sent":
             return c
+        with self._lock:                            # a tight script loop never hammers Keycloak's CIBA endpoint
+            now = self._clock()
+            if now - self._last_poll.get(c.id, float("-inf")) < self.min_poll_interval:
+                return c
+            self._last_poll[c.id] = now
         state = self.kc.ciba_poll(c.auth_req_id)
         if state == "approved" and not c.receipt_minted:
             # Network reads first, then check-and-mint under one lock: two concurrent polls of one approval mint

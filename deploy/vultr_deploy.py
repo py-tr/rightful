@@ -139,8 +139,12 @@ def provision_control(s: dict) -> None:
     s["tgz"] = tarball()
     scp(s["control_ip"], s["tgz"], "/root/keyless.tgz")
     pw = secrets.token_urlsafe(18)
-    r = ssh(s["control_ip"], f"VPC_IP={s['control_vpc_ip']} PUBLIC_HOST={s['public_host']} KC_ADMIN_PW={pw} bash -s",
-            input_text=open(os.path.join(ROOT, "deploy", "control.sh"), encoding="utf-8").read())
+    # The admin password travels inside the script on stdin, never on a command line (where `ps` would show it).
+    script = open(os.path.join(ROOT, "deploy", "control.sh"), encoding="utf-8").read().replace("\r", "")
+    if "set -euo pipefail\n" not in script:
+        raise RuntimeError("control.sh lost its 'set -euo pipefail' line; cannot inject the admin password")
+    script = script.replace("set -euo pipefail\n", f"set -euo pipefail\nKC_ADMIN_PW='{pw}'\n", 1)
+    r = ssh(s["control_ip"], f"VPC_IP={s['control_vpc_ip']} PUBLIC_HOST={s['public_host']} bash -s", input_text=script)
     print(r.stdout[-2000:], r.stderr[-800:])
     if "CONTROL OK" not in r.stdout:
         raise RuntimeError("control setup failed")

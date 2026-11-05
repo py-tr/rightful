@@ -291,12 +291,29 @@ def test_concurrent_polls_mint_one_receipt(tmp_path):
             pass
         return real_snapshot(uid)
     ch_store.kc.user_snapshot = slow_snapshot
+    ch_store.min_poll_interval = 0               # let every poll through, so the lock (not the throttle) is tested
     threads = [threading.Thread(target=ch_store.poll, args=(ch["challenge"], "run-1")) for _ in range(8)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
     assert receipts.count() == 1
+
+
+def test_poll_has_a_server_side_minimum_interval(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    ch = c.put(reset, content=b'{"type":"password","temporary":true}', headers=H).json()["challenge_required"]
+    c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    polls = []
+    real = build.last[1].kc.ciba_poll
+    build.last[1].kc.ciba_poll = lambda rid: polls.append(rid) or real(rid)
+    for _ in range(50):                                   # a tight loop at one instant
+        c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
+    assert len(polls) == 1
+    clock.t += 1.0
+    c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
+    assert len(polls) == 2
 
 
 def test_retrying_a_declined_change_quarantines(tmp_path):

@@ -57,7 +57,7 @@ def env(tmp_path):
     gate = Gate(load_pack("helpdesk"), receipts, Ledger(str(tmp_path / "ledger.jsonl")),
                 secret_factory=lambda: "BROKER-PW-1")
     delivered, quarantined = [], []
-    app = create_app(gate, kc, Challenges(kc, receipts), deliver_secret=lambda u, s: delivered.append((u, s)),
+    app = create_app(gate, kc, Challenges(kc, receipts, min_poll_interval=0), deliver_secret=lambda u, s: delivered.append((u, s)),
                      on_quarantine=lambda r, why: quarantined.append((r, why)))
     client = TestClient(app)
     return fake, client, delivered, quarantined, gate

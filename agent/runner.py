@@ -49,9 +49,12 @@ class DockerRunner:
 
     def __init__(self, run_id: str, ticket_text: str, upstream: str = "http://host.docker.internal:8090",
                  task_image: str = "keyless-task:dev", edge_image: str = "keyless-edge:dev", runtime: str | None = None,
-                 timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None):
+                 timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None,
+                 run_key: str | None = None):
+        """run_key: this task's edge key, runkey.task_key(master, run_id), derived by the control plane. The edge signs
+        every request with it; the broker refuses unsigned run ids when it has a master key (always, in deployment)."""
         import re as _re
-        self.run_id = run_id
+        self.run_id, self.run_key = run_id, run_key
         self.tag = _re.sub(r"[^a-z0-9-]", "-", run_id.lower())[:40]
         self.net, self.edge = f"kl-net-{self.tag}", f"kl-edge-{self.tag}"
         self.task_image, self.edge_image, self.runtime = task_image, edge_image, runtime
@@ -98,6 +101,7 @@ class DockerRunner:
         self._docker("network", "create", "--internal", self.net).check_returncode()
         self._docker("run", "-d", "--name", self.edge, "--read-only", "--cap-drop", "ALL",
                      "--security-opt", "no-new-privileges", "--memory", "64m", "-e", f"RUN_ID={self.run_id}",
+                     *(["-e", f"RUN_KEY={self.run_key}"] if self.run_key else []),
                      "-e", f"UPSTREAM={self.upstream}", "--add-host", "host.docker.internal:host-gateway",
                      self.edge_image).check_returncode()
         self._docker("network", "connect", "--alias", "gate", self.net, self.edge).check_returncode()

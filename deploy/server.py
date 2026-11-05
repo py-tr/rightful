@@ -37,7 +37,10 @@ def build():
     push = create_push_app(KC, "corp", http=httpx.Client(base_url=KC, timeout=10, headers=host))
     ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify, ledger=gate.ledger)
     push.state.on_cancel = ch.cancel
-    broker = create_app(gate, kc, ch, deliver_secret=push.state.deliver, notify=push.state.notify, console=console)
+    if not s.get("run_key_master"):
+        raise SystemExit("secrets.json has no run_key_master: refusing to start a broker that trusts unsigned run ids")
+    broker = create_app(gate, kc, ch, deliver_secret=push.state.deliver, notify=push.state.notify, console=console,
+                        run_key_master=bytes.fromhex(s["run_key_master"]))
 
     @push.get("/healthz")
     def health():

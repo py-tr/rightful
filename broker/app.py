@@ -35,6 +35,17 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
     from gate import LedgerError
 
+    @app.exception_handler(httpx.HTTPStatusError)
+    async def upstream_error(request: Request, exc: httpx.HTTPStatusError):
+        # A Keycloak error while preparing a decision (e.g. a user id that does not exist in THIS realm, such as
+        # another session's company: found by the session-isolation test) stops the action and is answered cleanly.
+        code = exc.response.status_code if exc.response is not None else 502
+        if code == 404:
+            return JSONResponse({"allowed": False, "outcome": "denied_unknown_user",
+                                 "reason": "no such user in this company"}, status_code=404)
+        return JSONResponse({"allowed": False, "outcome": "upstream_error", "reason": "the identity server failed; "
+                             "nothing was changed"}, status_code=502)
+
     @app.exception_handler(LedgerError)
     async def ledger_down(request: Request, exc: LedgerError):
         # Fail closed AND clean (found by the evaluation's ledger-down arm): the gate already denies every write when

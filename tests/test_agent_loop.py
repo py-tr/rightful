@@ -100,8 +100,30 @@ def test_fooled_agent_wants_the_reset_and_gets_nothing(tmp_path):
     llm = ScriptedLLM([("code", code), ("say", "Your password has been reset, check your phone.")])
     res = run_ticket(llm, runner, "run-1", "Finish the reset L1 already verified, please.", ledger.path)
     assert fake.writes == []                                     # nothing reached Keycloak
-    assert res.replies[0]["claim_check"] == "held"               # the false claim never reached the caller
-    assert "not been able" in res.replies[0]["delivered"]
+    assert res.replies[0]["claim_check"] == "corrected"          # the false claim never reached the caller...
+    d = res.replies[0]["delivered"]
+    assert "has been reset" not in d and "Correction from the system log" in d
+    assert d.endswith("(from the system log): none.")            # ...and the ledger line has the last word
+
+
+def test_correction_keeps_the_honest_rest_of_the_reply(tmp_path):
+    fake, client, ledger, _ = setup(tmp_path, owner_approves=False)
+    runner = InProcessRunner(client, ticket_text="INC-8")
+    llm = ScriptedLLM([("say", "Thanks for waiting. I've reset your password. If you still can't sign in, call the "
+                               "desk on the published number and quote INC-8.")])
+    res = run_ticket(llm, runner, "run-1", "Help", ledger.path)
+    d = res.replies[0]["delivered"]
+    assert d.startswith("[System log: no change") and "Thanks for waiting." in d and "quote INC-8" in d
+    assert "I've reset" not in d and d.count("Correction from the system log") == 1
+
+
+def test_claim_check_failure_fails_closed(tmp_path, monkeypatch):
+    from agent import claims
+    fake, client, ledger, _ = setup(tmp_path)
+    monkeypatch.setattr(claims, "annotate", lambda *a: 1 / 0)
+    res = run_ticket(ScriptedLLM([("say", "Your password has been reset.")]), InProcessRunner(client, "INC-9"),
+                     "run-1", "Help", ledger.path)
+    assert res.replies[0]["claim_check"] == "held" and "has been reset" not in res.replies[0]["delivered"]
 
 
 def test_claim_without_any_attempt_is_held(tmp_path):
@@ -109,7 +131,8 @@ def test_claim_without_any_attempt_is_held(tmp_path):
     runner = InProcessRunner(client, ticket_text="INC-3")
     llm = ScriptedLLM([("say", "All set, I have reset your MFA and sent you a link.")])
     res = run_ticket(llm, runner, "run-1", "Reset my MFA", ledger.path)
-    assert res.replies[0]["claim_check"] == "held" and fake.writes == []
+    assert res.replies[0]["claim_check"] == "corrected" and fake.writes == []
+    assert "I have reset your MFA" not in res.replies[0]["delivered"]
 
 
 def test_plain_answer_is_delivered_unchanged(tmp_path):

@@ -8,9 +8,9 @@ import json
 import re
 
 VERB = re.compile(r"\b(reset|re-?enrolled|removed|deleted|changed|updated|sent|unlocked|logged (?:you )?out|"
-                  r"signed (?:you )?out|cleared|revoked|completed)\b", re.IGNORECASE)
+                  r"signed (?:you )?out|cleared|revoked|completed|triggered|issued|initiated)\b", re.IGNORECASE)
 MARK = re.compile(r"\b(i(?:'ve| have)?|we(?:'ve| have)?|has been|have been|had been|is now|was|were|successfully|"
-                  r"all set|done)\b", re.IGNORECASE)          # a bare "I"/"we" covers the simple past ("I reset it")
+                  r"all set|done)\b|[✅✔]", re.IGNORECASE)   # bare "I"/"we": the simple past; a checkmark: done
 STATE = re.compile(r"\b(password|e-?mail)\b[^.!?\n,;]{0,40}\bis now\b", re.IGNORECASE)   # "your email is now x@y"
 SUBJECT = re.compile(r"\b(password|mfa|authenticator|otp|credential|token|e-?mail|account|sessions?|link|recovery)\b",
                      re.IGNORECASE)
@@ -83,6 +83,39 @@ def check(text: str, ledger_path: str, run_id: str) -> tuple[str, str]:
     if not done:
         return "held", "the reply claims an account change, but the ledger shows none in this run"
     return "ok", f"{len(done)} executed action(s) in this run"
+
+
+CORRECTION = "[Correction from the system log: no change was made to your account in this session.]"
+BANNER = ("[System log: no change was made to your account in this session. Anything below that says otherwise "
+          "is not correct.]")
+
+
+def annotate(text: str, ledger_path: str, run_id: str) -> tuple[str, str, str]:
+    """The detector is an ANNOTATOR, not a gate (mentor's review): the model's reply is kept, and only a sentence that
+    claims a change the ledger does not show is replaced with a visible correction, so a caller never reads a
+    confident lie a few lines above a footer that contradicts it. A false hold now costs a redundant note.
+    Returns (verdict 'ok' | 'corrected', delivered text, reason)."""
+    if not claims_a_change(text):
+        return "ok", text, "no change claimed"
+    done = executed_in_run(ledger_path, run_id)
+    if done:
+        return "ok", text, f"{len(done)} executed action(s) in this run"
+    out, last, n, prev_end = [], 0, 0, None
+    for s in SENTENCE.finditer(text):
+        if not claims_a_change(s.group(0)):
+            continue
+        gap = text[last:s.start()]
+        lead = s.group(0)[: len(s.group(0)) - len(s.group(0).lstrip())]     # keep a leading space or bullet indent
+        if prev_end == last and not gap.strip():
+            out.append(gap)                                  # adjacent claims share one correction
+        else:
+            out.append(gap + lead + CORRECTION)
+        last = prev_end = s.end()
+        n += 1
+    out.append(text[last:])
+    # A reply caught claiming a change is suspect as a whole (a recap list can repeat the claim in forms the detector
+    # misses), so the caller is warned before reading it, not only in place.
+    return "corrected", BANNER + "\n\n" + "".join(out), f"{n} sentence(s) claimed a change the ledger does not show"
 
 
 LABELS = {"reset_password": "temporary password set (sent to your registered phone)",

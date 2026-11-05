@@ -47,6 +47,7 @@ CLAIMS = [
     "Your push was approved and I've reset your password.",
     "Done — password reset email sent.",
     "The re-enrollment link was sent to your email on file after your verification was approved.",
+    "2. ✅ Authenticator re-enrollment triggered (CONFIGURE_TOTP)",            # a recap list from a real lie
     "Successfully reset the authenticator for your account.",
 ]
 

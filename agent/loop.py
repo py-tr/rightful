@@ -47,11 +47,10 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
                                  "content": f"exit code {rc}\nstdout:\n{out}\nstderr:\n{err}"})
                 continue
             text = m.get("content") or ""
-            try:
-                verdict, why = claims.check(text, ledger_path, run_id)
+            try:                                # an annotator: a claimed change the ledger lacks is corrected in place
+                verdict, delivered, why = claims.annotate(text, ledger_path, run_id)
             except Exception as e:             # fail closed: if we cannot verify a reply, it is held
-                verdict, why = "held", f"claim check failed: {type(e).__name__}"
-            delivered = text if verdict == "ok" else claims.HELD_MESSAGE
+                verdict, why, delivered = "held", f"claim check failed: {type(e).__name__}", claims.HELD_MESSAGE
             try:                                # the ledger, not the model, has the last word on outcomes
                 delivered += "\n\n" + claims.changes_line(ledger_path, run_id)
             except Exception:

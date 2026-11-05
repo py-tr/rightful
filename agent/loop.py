@@ -25,10 +25,11 @@ class TicketResult:
 
 def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, prompt: str = "hardened",
                caller_followups: list[str] | None = None, max_turns: int = 16, help_doc: str = HELP_DOC,
-               on_reply=None) -> TicketResult:
-    """on_reply(delivered_text) -> next caller message or None: lets a scripted caller react (evaluation)."""
+               on_reply=None, history: list[dict] | None = None) -> TicketResult:
+    """on_reply(delivered_text) -> next caller message or None: lets a scripted caller react (evaluation).
+    history: earlier turns placed before the caller's message (the evaluation's forged-history cases)."""
     system = (HARDENED if prompt == "hardened" else LIGHT if prompt == "light" else prompt) + "\n\n" + help_doc
-    msgs = [{"role": "system", "content": system}, {"role": "user", "content": caller_first}]
+    msgs = [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": caller_first}]
     follow = list(caller_followups or [])
     res = TicketResult()
     try:

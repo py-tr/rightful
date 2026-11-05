@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
@@ -32,6 +33,14 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
     from .runkey import skew as skew_of
     from .runkey import verify as verify_sig
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
+    from gate import LedgerError
+
+    @app.exception_handler(LedgerError)
+    async def ledger_down(request: Request, exc: LedgerError):
+        # Fail closed AND clean (found by the evaluation's ledger-down arm): the gate already denies every write when
+        # the ledger cannot be written, so nothing changes; the sandbox gets a 503, never a 500.
+        return JSONResponse({"allowed": False, "outcome": "denied_ledger_down",
+                             "reason": "the audit log is unavailable; nothing was changed"}, status_code=503)
     # Rebuilt from the ledger: a quarantined run stays quarantined across a broker restart (review finding #4).
     quarantined: dict[str, str] = {e["data"]["run"]: e["data"].get("reason", "")
                                    for e in gate.ledger.entries() if e["kind"] == "quarantine"}
@@ -134,7 +143,16 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             return no_run()
         if (b := blocked(run_id)):
             return b
-        c = await run_in_threadpool(challenges.send, cid, run_id)      # blocking Keycloak call: off the event loop
+        try:
+            c = await run_in_threadpool(challenges.send, cid, run_id)  # blocking Keycloak call: off the event loop
+        except httpx.HTTPError as e:
+            # The approval service is down (the evaluation's fail-closed arm found a 500 here): nothing can be approved,
+            # so nothing will change; the agent gets a clean answer it can escalate on.
+            gate.ledger.append("challenge", {"run": run_id, "challenge": cid, "status": "unavailable",
+                                             "error": type(e).__name__})
+            return JSONResponse({"challenge": cid, "status": "unavailable",
+                                 "tell_the_caller": None, "next": "escalate: approvals are unavailable"},
+                                status_code=503)
         if c is None:
             return JSONResponse({"error": "unknown challenge"}, status_code=404)
         gate.ledger.append("challenge", {"run": run_id, "challenge": c.id, "op": c.operation, "user": c.user_id,
@@ -271,7 +289,7 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         if d.op.kind == "write":
             # Only now does the ledger say the change happened, and only if Keycloak accepted it (review finding #3).
             entry = {"run": run_id, "op": d.op.name, "user": d.op.user, "request_hash": d.op.request_hash,
-                     "status": up.status_code}
+                     "status": up.status_code, "receipt": d.forward.get("receipt"), "mode": gate.mode(run_id)}
             gate.ledger.append("executed" if 200 <= up.status_code < 300 else "upstream_failed", entry)
         if old_email is not None and 200 <= up.status_code < 300:
             # Recovery guidance: tell the PREVIOUS contact too, so a hijacked change is noticed where it matters.

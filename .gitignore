@@ -33,3 +33,4 @@ devenv/out/
 
 # deployment state and temporary SSH keys
 deploy/.state/
+eval/out/

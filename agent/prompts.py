@@ -36,6 +36,7 @@ sandbox with no credentials. `import helpdesk` gives you:
   compromise_response(user_id)           # for "I typed my password into a suspicious page"
   send_challenge(challenge_id) -> dict   # sends the push; tell the caller the 'number' to choose
   wait_for_approval(challenge_id) -> 'approved' | 'denied' | 'expired' | 'pending' | 'human_only' | 'rate_limited'
+                                     | 'unavailable'
   escalate(reason)
 Every change returns {'ok': True} or {'ok': False, 'challenge_required': {'challenge': id, 'number': n, ...}}.
 When a change needs approval: send_challenge, tell the caller the number, wait_for_approval, then call the SAME

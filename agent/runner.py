@@ -50,7 +50,7 @@ class DockerRunner:
     def __init__(self, run_id: str, ticket_text: str, upstream: str = "http://host.docker.internal:8090",
                  task_image: str = "keyless-task:dev", edge_image: str = "keyless-edge:dev", runtime: str | None = None,
                  timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None,
-                 run_key: str | None = None, realm: str | None = None):
+                 run_key: str | None = None, realm: str | None = None, docker_host: str | None = None):
         """run_key: this task's edge key, runkey.task_key(master, run_id), derived by the control plane. The edge signs
         every request with it; the broker refuses unsigned run ids when it has a master key (always, in deployment).
         realm: the realm the SDK addresses (default 'corp'; the evaluation uses a scratch realm 'eval-...')."""
@@ -72,7 +72,9 @@ class DockerRunner:
                                                "keycloak": [_up.hostname, 8089]}
         # Remote mode: DOCKER_HOST=ssh://root@<worker> means mounted paths live on the WORKER, so task files are
         # created there over the same SSH link (measured: a local temp path mounted remotely shows up empty).
-        dh = os.environ.get("DOCKER_HOST", "")
+        # docker_host: per instance (parallel evaluation threads drive different workers; DOCKER_HOST is process-wide)
+        dh = docker_host if docker_host is not None else os.environ.get("DOCKER_HOST", "")
+        self._env = {**os.environ, "DOCKER_HOST": dh} if dh else None
         self.remote = dh[len("ssh://"):] if dh.startswith("ssh://") else None
         if self.remote:
             self.dir = f"/var/lib/keyless/tasks/{self.tag}"
@@ -97,7 +99,8 @@ class DockerRunner:
                  "PYTHONDONTWRITEBYTECODE=1", "GATE_URL=http://gate:8080", "TICKET_FILE=/w/ticket.txt"]
 
     def _docker(self, *args, input_text=None, timeout=60):
-        return subprocess.run(["docker", *args], input=input_text, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(["docker", *args], input=input_text, capture_output=True, text=True, timeout=timeout,
+                              env=self._env)
 
     def _clear_docker(self) -> None:
         for c in self.containers:

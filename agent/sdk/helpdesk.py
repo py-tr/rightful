@@ -116,7 +116,7 @@ def wait_for_approval(challenge_id: str, timeout_s: float = 90, poll_s: float = 
     st = "pending"
     while time.time() < end:
         st = challenge_status(challenge_id)
-        if st in ("approved", "denied", "expired", "human_only", "rate_limited"):
+        if st in ("approved", "denied", "expired", "human_only", "rate_limited", "unavailable"):
             return st
         time.sleep(poll_s)
     return st

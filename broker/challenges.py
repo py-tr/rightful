@@ -139,7 +139,7 @@ class Challenges:
             return c
         now = self._clock()
         with self._lock:
-            if c.status not in ("created", "rate_limited"):     # checked under the lock: one push per challenge
+            if c.status not in ("created", "rate_limited", "unavailable"):   # under the lock: one push per challenge
                 return c
             recent = [t for t in self._sends.get(c.approver, []) if now - t < self.window]
             if len(recent) >= self.max_sends:
@@ -149,9 +149,13 @@ class Challenges:
             recent.append(now)
             self._sends[c.approver] = recent
             c.status = "sending"
-        self._record("push_sent", {"approver": c.approver, "user": c.user_id, "challenge": c.id})
-        c.auth_req_id = self.kc.ciba_start(c.approver, c.binding)
+        try:
+            c.auth_req_id = self.kc.ciba_start(c.approver, c.binding)
+        except Exception:
+            c.status = "unavailable"                  # nothing was sent; the attempt still counts for the rate limit
+            raise
         c.status = "sent"
+        self._record("push_sent", {"approver": c.approver, "user": c.user_id, "challenge": c.id})
         return c
 
     def poll(self, cid: str, run_id: str) -> Challenge | None:

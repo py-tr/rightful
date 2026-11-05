@@ -259,5 +259,6 @@ class Gate:
         headers = {"Accept": "application/json"}
         if fwd_body:
             headers["Content-Type"] = "application/json"
-        fwd = {"method": method, "path": op.path, "query": list(op.query), "body": fwd_body, "headers": headers}
+        fwd = {"method": method, "path": op.path, "query": list(op.query), "body": fwd_body, "headers": headers,
+               "receipt": red.receipt_id}
         return Decision(True, "allowed_write", "", op, fwd, oob_secret=secret, ledger_seq=seq)

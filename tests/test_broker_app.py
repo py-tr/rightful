@@ -34,6 +34,8 @@ class FakeKeycloak:
             err = {"pending": "authorization_pending", "denied": "access_denied"}.get(state, "invalid_grant")
             return httpx.Response(400, json={"error": err})
         if p.endswith("/ext/ciba/auth"):
+            if getattr(self, "push_down", False):
+                raise httpx.ConnectError("push service down")
             rid = f"req{len(self.ciba) + 1}"
             self.ciba[rid] = "pending"
             self.ciba_requests.append(req.content.decode())
@@ -185,6 +187,24 @@ def test_upstream_success_is_recorded_as_executed(env):
     fake, c, _, _, gate = env
     assert _approve_and_retry(fake, c).status_code == 204
     assert "temporary password set" in changes_line(gate.ledger.path, "run-1")
+
+
+def test_push_service_down_is_a_clean_503_and_nothing_changes(env):
+    """Found by the evaluation's fail-closed arm: a down push service surfaced as a 500 and crashed the agent's script."""
+    fake, c, *_ = env
+    ch = c.put(RESET, content=BODY, headers=H).json()["challenge_required"]
+    fake.push_down = True
+    r = c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    assert r.status_code == 503 and r.json()["status"] == "unavailable"
+    assert c.put(RESET, content=BODY, headers=H).status_code == 403 and fake.upstream == []
+
+
+def test_ledger_down_is_a_clean_503_and_nothing_changes(env, tmp_path):
+    fake, c, _, _, gate = env
+    gate.ledger.path = str(tmp_path / "missing-dir" / "l.jsonl")
+    r = c.post("/gate/v1/escalations", json={"reason": "x"}, headers=H)       # an endpoint that writes the ledger
+    assert r.status_code == 503 and r.json()["outcome"] == "denied_ledger_down"
+    assert c.put(RESET, content=BODY, headers=H).status_code in (403, 503) and fake.upstream == []
 
 
 def test_semicolon_path_never_reaches_keycloak(env):

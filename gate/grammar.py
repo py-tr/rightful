@@ -117,6 +117,16 @@ def _match(template: str, path: str, realm: str) -> dict[str, str] | None:
     return params
 
 
+def _in_enum(v: Any, enum: list) -> bool:
+    """Type-exact: in Python 1 == True and 1.0 == 1, so `v in enum` would accept {"temporary": 1} (found by the fuzzer)."""
+    return any(type(v) is type(e) and v == e for e in enum)
+
+
+def _full(pattern: str, v: str) -> bool:
+    """re.match with '$' also matches before a trailing newline ("a@b\\n" passed the email check); fullmatch does not."""
+    return re.fullmatch(pattern, v) is not None
+
+
 def _check_body(spec: dict, value: Any) -> tuple[Any, dict[str, str]]:
     kind = spec["type"]
     if kind == "none":
@@ -126,7 +136,7 @@ def _check_body(spec: dict, value: Any) -> tuple[Any, dict[str, str]]:
     if kind == "array_enum":
         allowed = spec["enum"]
         if not isinstance(value, list) or not value or len(value) != len(set(map(str, value))) \
-                or any(v not in allowed for v in value):
+                or any(not _in_enum(v, allowed) for v in value):
             raise Reject("not_allowlisted", f"body must be a non-empty list of distinct values from {allowed}")
         return value, {}
     if kind == "object":
@@ -143,12 +153,12 @@ def _check_body(spec: dict, value: Any) -> tuple[Any, dict[str, str]]:
                     raise Reject("not_allowlisted", f"missing required field {name!r}")
                 continue
             v = value[name]
-            if "enum" in f and v not in f["enum"]:
+            if "enum" in f and not _in_enum(v, f["enum"]):
                 raise Reject("not_allowlisted", f"field {name!r} must be one of {f['enum']}")
             if f.get("type") == "string":
                 if not isinstance(v, str):
                     raise Reject("not_allowlisted", f"field {name!r} must be a string")
-                if "regex" in f and not re.match(f["regex"], v):
+                if "regex" in f and not _full(f["regex"], v):
                     raise Reject("not_allowlisted", f"field {name!r} has an unexpected format")
             if "override" in f:
                 overrides[name] = f["override"]
@@ -188,7 +198,7 @@ def parse(pack: dict, method: str, target: str, body: bytes) -> Operation:
         for k, v in query:
             if k in rq.get("empty_only", []) and v == "":
                 continue            # the console always sends e.g. `q=`; a value (an attribute search) is refused
-            if k not in rq["keys"] or not re.match(rq["value_regex"], v):
+            if k not in rq["keys"] or not _full(rq["value_regex"], v):
                 raise Reject("not_allowlisted", f"read query parameter {k!r} not allowed")
         for tpl in pack["reads"]:
             params = _match(tpl, path, realm)
@@ -219,7 +229,7 @@ def parse(pack: dict, method: str, target: str, body: bytes) -> Operation:
             continue
         allowed_q = op.get("query", {})
         for k, v in query:
-            if k not in allowed_q or not re.match(allowed_q[k], v):
+            if k not in allowed_q or not _full(allowed_q[k], v):
                 raise Reject("not_allowlisted", f"query parameter {k!r} not allowed for {name}")
         try:
             parsed = parse_json(body)

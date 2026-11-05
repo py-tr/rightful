@@ -78,6 +78,14 @@ def test_get_with_a_body_is_refused(cs):
     assert s.handle("GET", "/resources/x/app.js", {}, b"payload")[0] == 403 and seen == []
 
 
+@pytest.mark.parametrize("path", ["/realms/corp/?/%00/\t/x?search=1", "/admin/corp/console/?\t/..//x",
+                                  "/resources/x/app.js?a=é", "/resources/x/app.js?a= b"])
+def test_control_characters_in_the_query_are_refused_not_crashed(cs, path):
+    """Found by the fuzzer: a raw tab after '?' passed the path check and crashed URL building (a 500)."""
+    s, seen = cs
+    assert s.handle("GET", path, {}, b"")[0] == 403 and seen == []
+
+
 def test_token_map_is_bounded(cs):
     s, _ = cs
     for i in range(s.MAX_TOKENS + 50):

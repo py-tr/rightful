@@ -146,6 +146,8 @@ class ConsoleSession:
         refusal = self.allowed(method, path)
         if refusal:
             return refuse(refusal)
+        if any(ord(ch) < 0x21 or ord(ch) > 0x7e for ch in qs):     # found by the fuzzer: a raw tab crashed the route
+            return refuse("control, space or non-ASCII characters in the query")
         if path == f"/realms/{self.realm}/protocol/openid-connect/auth":
             from urllib.parse import parse_qs
             if parse_qs(qs).get("client_id") != [self.CONSOLE_CLIENT]:
@@ -165,7 +167,11 @@ class ConsoleSession:
             if body:
                 return refuse("GET with a body")
             body = b""
-        r = self._send(method, self.up + path_qs, headers=hdrs, content=body or None)
+        try:
+            r = self._send(method, self.up + path_qs, headers=hdrs, content=body or None)
+        except (httpx.HTTPError, ValueError) as e:      # never a 500 from the console route
+            return 502, [("Content-Type", "application/json")], json.dumps(
+                {"error": f"upstream request failed: {type(e).__name__}"}).encode()
         if path == f"/realms/{self.realm}/protocol/openid-connect/auth" and r.status_code == 200 \
                 and "kc-form-login" in r.text:
             lr = self._login(r.text)

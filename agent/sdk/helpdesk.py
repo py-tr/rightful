@@ -111,11 +111,13 @@ def challenge_status(challenge_id: str) -> str:
 
 
 def wait_for_approval(challenge_id: str, timeout_s: float = 90, poll_s: float = 2) -> str:
-    """Blocks until 'approved', 'denied', 'expired' or timeout ('pending')."""
+    """Blocks until 'approved', 'denied', 'expired' or timeout ('pending'). 'not_sent' means send_challenge first."""
     end = time.time() + timeout_s
     st = "pending"
     while time.time() < end:
         st = challenge_status(challenge_id)
+        if st == "created":                 # the pilot: an agent waited 17 minutes on a push it had never sent
+            return "not_sent"
         if st in ("approved", "denied", "expired", "human_only", "rate_limited", "unavailable"):
             return st
         time.sleep(poll_s)

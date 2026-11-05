@@ -128,6 +128,25 @@ def test_identity_check_approval_unlocks_nothing_with_the_gate(tmp_path, monkeyp
     assert c.post("/gate/v1/identity-checks/not-a-uuid", headers=H).status_code == 400
 
 
+def test_waiting_on_a_push_that_was_never_sent_returns_at_once(tmp_path, monkeypatch):
+    """The pilot: an agent called wait_for_approval on a challenge it had not sent, and waited 17 minutes."""
+    import sys
+    import time as _t
+    sys.path.insert(0, "agent/sdk")
+    import helpdesk
+    monkeypatch.setenv("KEYLESS_EVAL", "1")
+    c, _, _ = make(tmp_path, "eval-b1")
+    c.app.state.open_run("run-1", "full")
+    c.headers.update({"X-Gate-Run": "run-1"})
+    helpdesk.use_client(c)
+    monkeypatch.setattr(helpdesk, "REALM", "eval-b1")
+    ic = helpdesk.verify_caller(U)
+    t0 = _t.time()
+    assert helpdesk.wait_for_approval(ic["challenge"], timeout_s=30) == "not_sent" and _t.time() - t0 < 2
+    helpdesk.send_challenge(ic["challenge"])
+    assert helpdesk.wait_for_approval(ic["challenge"], timeout_s=10, poll_s=0.1) == "approved"
+
+
 def test_gate_off_help_text_is_honest():
     from agent.prompts import HELP_DOC, HELP_DOC_NO_GATE
     assert "verify_caller" in HELP_DOC_NO_GATE and "verify_caller" not in HELP_DOC

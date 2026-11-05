@@ -95,6 +95,7 @@ def test_cooling_off_then_runs(tmp_path):
     assert approve(fake, c, LOST) == "approved"
     r = c.post(LOST, headers=H)
     assert r.status_code == 403 and r.json()["outcome"] == "denied_cooling_off" and not r.json().get("quarantined")
+    assert 59 <= r.json()["retry_after_seconds"] <= 60          # the pilot: an honest agent needs to know how long
     assert fake.calls == []
     clock.t += 61
     assert c.post(LOST, headers=H).status_code == 200

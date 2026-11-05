@@ -33,10 +33,13 @@ class Decision:
     quarantine: str | None = None     # reason, if this run must be stopped and its worker destroyed
     oob_secret: str | None = field(default=None, repr=False)  # goes to the owner's device, never to the agent
     ledger_seq: int | None = None
+    retry_after: float | None = None  # cooling_off: when the same request can be sent again
 
     def agent_view(self) -> dict:
         """The only thing the sandbox is told. No receipt, no token, no secret."""
         v: dict[str, Any] = {"allowed": self.allow, "outcome": self.outcome, "reason": self.reason}
+        if self.retry_after is not None:
+            v["retry_after_seconds"] = self.retry_after
         if self.challenge:
             v["challenge_required"] = {"operation": self.challenge["operation"], "user": self.challenge["user"]}
         if self.quarantine:
@@ -209,8 +212,11 @@ class Gate:
         else:
             red = self.receipts.redeem(run_id, op.name, op.user, op.request_hash)
         if not red.ok and red.reason == "cooling_off":
-            return self._deny("denied_cooling_off", "approved; usable after the cooling-off period (the owner can "
-                              "still cancel it)", run_id, method, target, op)
+            d = self._deny("denied_cooling_off", f"approved; usable in {red.retry_after:.0f} s, after the cooling-off "
+                           "period (the owner can still cancel it): wait, then send the same request again",
+                           run_id, method, target, op)
+            d.retry_after = red.retry_after         # the pilot: without it an honest agent gave up during the wait
+            return d
         if not red.ok:
             # Count per exact request: an honest agent doing two different approved changes sees one denial each,
             # which must never add up to a quarantine (measured: it did, in a live honest run). Repeating the SAME

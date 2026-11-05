@@ -46,6 +46,7 @@ class Redemption:
     reason: str      # "ok" | "no_receipt" | "used" | "expired" | "cooling_off" | "cancelled"
     receipt_id: str | None
     snapshot: dict | None = None     # the account's email/manager at approval time (None if none was stored)
+    retry_after: float | None = None  # cooling_off: seconds until the receipt ripens
 
 
 class ReceiptStore:
@@ -97,7 +98,7 @@ class ReceiptStore:
                 return Redemption(False, "used", rid)
         for rid, used, exp, nb, canc in rows:
             if nb > now:
-                return Redemption(False, "cooling_off", rid)
+                return Redemption(False, "cooling_off", rid, retry_after=round(nb - now, 1))
         if rows:
             return Redemption(False, "expired", rows[0][0])
         return Redemption(False, "no_receipt", None)

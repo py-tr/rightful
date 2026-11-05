@@ -148,7 +148,7 @@ The paid pilot (12 runs recorded under gateon-pilot, $0.075; never analysed) fou
 New hashes (replacing section 1 where they differ): HARDENED `a9a7c7d8d8df3ce5`, help text (gate-off)
 `f506b9fb4a86c19f`, harness `ba59978c89a0d19f`. Unchanged: LIGHT `55924ef2bd65d5a0`, help text (gate)
 `596af4f5198a8102`, cases.py `1527b17fa093ea45`, pack `d038af855cff5b05`, case sources as in section 1.
-A second pilot (same selection) runs at this commit before the main run; it is not analysed either.
+Addendum (same day, before any run at this amendment): the deploy tarball now keeps the repository's LF bytes (with Windows autocrlf, git archive wrote CRLF, so server-side hashes could not match), and run records carry the commit on the server; harness hash now `4657700baed5c876`. A second pilot (same selection) runs at this commit before the main run; it is not analysed either.
 
 ## 10. Deviation log (filled after; empty now)
 -

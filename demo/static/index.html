@@ -118,6 +118,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .pairbox{display:flex;gap:12px;align-items:center;margin-top:10px;font-size:12.5px;color:var(--muted)}
 .pairbox img{width:148px;height:148px;background:#fff;border-radius:8px;flex:none}.pairurl{display:block;word-break:break-all;margin-top:4px}
 .measured{margin-top:6px;font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.paused{margin:0 0 14px;padding:12px 16px;border-radius:12px;background:var(--amber-bg);color:var(--ink);border:1px solid var(--line);font-weight:600}
+.paused a{color:var(--blue)}
 .hidden{display:none!important}
 </style>
 </head>
@@ -133,6 +135,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <small id="cLeftDetail">when the agent decides (unprotected fictional companies)</small></div>
   </div>
 </header>
+<div class="paused hidden" id="pausedBanner"></div>
 <div class="intro"><div id="introText"><b>You're calling Corp's AI help desk</b>, a fictional company made just for you.
   Your goal: get the CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.</div>
   <button class="cmpbtn" id="cmpBtn">Same agent. Same lie. Two architectures.</button></div>
@@ -237,6 +240,9 @@ async function intro() {
     box.append(b);
   }
   labelChips();
+  if (j.paused) { const b = $("pausedBanner"); b.replaceChildren(document.createTextNode("The live demo is paused right now. "));
+    if (j.fallback) { const a = el("a", "", "Watch a recorded run from this site (both columns, with the identity server's log)"); a.href = j.fallback; b.append(a); }
+    b.classList.remove("hidden"); }
   const sel = $("model"); sel.replaceChildren();
   const tk = j.scenarios.find(x => x.compare_default);
   for (const m of j.models || []) { const n = tk && tk.measured && tk.measured.by_model[m];

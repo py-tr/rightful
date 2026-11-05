@@ -908,7 +908,10 @@ def create_demo_app(demo: Demo) -> FastAPI:
                                             if v.get("measured") else None)}
                               for k, v in sorted(SCENARIOS.items(), key=lambda kv: kv[1]["order"])],
                 "counter": demo.counter(), "limits": demo.limits.status(),
-                "models": list(DEMO_MODELS), "default_model": demo.model}
+                "models": list(DEMO_MODELS), "default_model": demo.model,
+                # the kill switch's fallback (mentor's checklist): a recorded run from this live site, never a dead end
+                "paused": demo.limits.status().get("paused", False),
+                "fallback": os.environ.get("DEMO_FALLBACK_URL") or None}
 
     @app.post("/api/say")
     async def say(request: Request):

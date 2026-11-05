@@ -10,6 +10,7 @@ Keycloak's CIBA authentication channel points at the push service on the host.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -72,7 +73,8 @@ def mails() -> list[dict]:
 
 def master_admin(base: str) -> httpx.Client:
     t = httpx.post(f"{base}/realms/master/protocol/openid-connect/token",
-                   data={"grant_type": "password", "client_id": "admin-cli", "username": "admin", "password": "admin"})
+                   data={"grant_type": "password", "client_id": "admin-cli", "username": "admin",
+                         "password": os.environ.get("KC_ADMIN_PASSWORD", "admin")})
     t.raise_for_status()
     return httpx.Client(base_url=base, headers={"Authorization": f"Bearer {t.json()['access_token']}"}, timeout=15)
 
@@ -82,7 +84,7 @@ def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
     a.post("/admin/realms", json={
         "realm": realm, "enabled": True, "adminEventsEnabled": True, "adminEventsDetailsEnabled": True,
         "eventsEnabled": True,
-        **({"smtpServer": {"host": "host.docker.internal", "port": "1025", "from": "helpdesk@corp.example",
+        **({"smtpServer": {"host": os.environ.get("SMTP_HOST", "host.docker.internal"), "port": "1025", "from": "helpdesk@corp.example",
                            "fromDisplayName": "Corp IT (fictional)"}} if smtp else {}),
         "attributes": {"cibaBackchannelTokenDeliveryMode": "poll", "cibaExpiresIn": "180", "cibaInterval": "1",
                        "cibaAuthRequestedUserHint": "login_hint"}}).raise_for_status()

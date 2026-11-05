@@ -30,3 +30,6 @@ results/
 
 # local probe output (screenshots, ledgers)
 devenv/out/
+
+# deployment state and temporary SSH keys
+deploy/.state/

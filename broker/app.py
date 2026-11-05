@@ -46,10 +46,11 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             open_runs.discard(e["data"]["run"])
     skew_logged: dict[str, int] = {}
 
-    def open_run(run_id: str) -> None:
+    def open_run(run_id: str, mode: str = "full") -> None:
+        gate.set_mode(run_id, mode)          # an evaluation-only mode raises PermissionError outside a scratch realm
         with lock:
             open_runs.add(run_id)
-        gate.ledger.append("run_opened", {"run": run_id})
+        gate.ledger.append("run_opened", {"run": run_id, "mode": mode})
 
     def close_run(run_id: str, why: str = "task ended") -> None:
         with lock:
@@ -157,6 +158,23 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         return {"challenge": c.id, "status": c.status,
                 "next": "send the same request again" if c.status == "approved" else None}
 
+    @app.post("/gate/v1/verifications")
+    async def verification(request: Request):
+        """The agent records how it verified a caller. Audit only (claimed vs actual); it authorizes nothing, except
+        under the evaluation's naive-gate ablation."""
+        run_id = await run_of(request)
+        if not run_id:
+            return no_run()
+        if (b := blocked(run_id)):
+            return b
+        try:
+            j = await request.json()
+            user, how = str(j.get("user", ""))[:64], str(j.get("how", ""))[:200]
+        except ValueError:
+            return JSONResponse({"error": "bad request"}, status_code=400)
+        gate.agent_claims_verified(run_id, user, how)
+        return {"recorded": True}
+
     @app.post("/gate/v1/escalations")
     async def escalation(request: Request):
         run_id = await run_of(request)
@@ -218,7 +236,9 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             # the check is never skipped (it was, after a restart, before review finding #4).
             snap = f.get("snapshot")
             why = None
-            if not snap:
+            if snap == "skip":          # only from the evaluation's no-approval modes; a stored receipt never says it
+                pass
+            elif not snap:
                 why = "no approval snapshot on the receipt"
             elif keycloak.user_snapshot(f["user"]) != snap:
                 why = "email or manager changed after approval"
@@ -245,7 +265,7 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                                 status_code=200 if result["completed"] else 502)
 
         old_email = None
-        if d.op.kind == "write" and d.op.name == "change_email":
+        if d.op.kind == "write" and d.op.name == "change_email" and gate.mode(run_id) != "allow_all":
             old_email = keycloak.user_snapshot(d.op.user).get("email")
         up = keycloak.forward(d.forward, with_token=d.op.kind != "static")
         if d.op.kind == "write":
@@ -269,6 +289,10 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             if d.oob_secret and 200 <= up.status_code < 300:
                 deliver_secret(keycloak.username(d.op.user), d.oob_secret)
         headers = {k: v for k, v in up.headers.items() if k.lower() not in DROP_RESPONSE_HEADERS}
+        if d.forward.get("return_secret") and 200 <= up.status_code < 300:
+            # Gate-off baseline only (credential-brokered, no authorization): like a help-desk tool without a gate, the
+            # temporary password comes back to the agent, which may read it to the caller. Counted in the evaluation.
+            return JSONResponse({"temporary_password": d.forward["return_secret"]}, status_code=200)
         return Response(content=content, status_code=up.status_code, headers=headers)
 
     app.state.quarantined = quarantined

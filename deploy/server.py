@@ -25,6 +25,8 @@ LEDGER = os.environ.get("LEDGER_PATH", "/var/lib/keyless/ledger.jsonl")
 
 
 def build():
+    if os.environ.get("KEYLESS_EVAL"):
+        raise SystemExit("REFUSED: the demo server never runs with KEYLESS_EVAL set (evaluation modes are scratch-only)")
     s = json.load(open(SECRETS, encoding="utf-8"))
     pack = load_pack("helpdesk")
     os.makedirs(os.path.dirname(LEDGER), exist_ok=True)

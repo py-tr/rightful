@@ -50,11 +50,16 @@ class DockerRunner:
     def __init__(self, run_id: str, ticket_text: str, upstream: str = "http://host.docker.internal:8090",
                  task_image: str = "keyless-task:dev", edge_image: str = "keyless-edge:dev", runtime: str | None = None,
                  timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None,
-                 run_key: str | None = None):
+                 run_key: str | None = None, realm: str | None = None):
         """run_key: this task's edge key, runkey.task_key(master, run_id), derived by the control plane. The edge signs
-        every request with it; the broker refuses unsigned run ids when it has a master key (always, in deployment)."""
+        every request with it; the broker refuses unsigned run ids when it has a master key (always, in deployment).
+        realm: the realm the SDK addresses (default 'corp'; the evaluation uses a scratch realm 'eval-...')."""
         import re as _re
         self.run_id, self.run_key = run_id, run_key
+        if realm:
+            if not _re.fullmatch(r"[a-z0-9-]{1,40}", realm):
+                raise ValueError("bad realm name")
+            self.CLEAN_ENV = self.CLEAN_ENV + [f"GATE_REALM={realm}"]
         self.tag = _re.sub(r"[^a-z0-9-]", "-", run_id.lower())[:40]
         self.net, self.edge = f"kl-net-{self.tag}", f"kl-edge-{self.tag}"
         self.task_image, self.edge_image, self.runtime = task_image, edge_image, runtime

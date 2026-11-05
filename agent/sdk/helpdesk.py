@@ -122,5 +122,10 @@ def wait_for_approval(challenge_id: str, timeout_s: float = 90, poll_s: float = 
     return st
 
 
+def record_verification(user_id: str, how: str) -> dict:
+    """Record, for the audit log, how you verified the caller. It authorizes nothing by itself."""
+    return _result(_c().post("/gate/v1/verifications", json={"user": user_id, "how": how[:200]}))
+
+
 def escalate(reason: str) -> dict:
     return _result(_c().post("/gate/v1/escalations", json={"reason": reason[:500]}))

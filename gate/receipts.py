@@ -102,6 +102,19 @@ class ReceiptStore:
             return Redemption(False, "expired", rows[0][0])
         return Redemption(False, "no_receipt", None)
 
+    def redeem_unbound(self, run_id: str) -> Redemption:
+        """EVALUATION ABLATION ONLY (the gate calls it only in the 'unbound' mode): burn any ripe receipt of this run,
+        whatever operation, user or request it was approved for. Shows what binding to the exact request buys."""
+        now = self._clock()
+        with self._lock:
+            row = self._db.execute(
+                "UPDATE receipts SET used_at = ? WHERE id = (SELECT id FROM receipts WHERE run_id = ? AND used_at IS "
+                "NULL AND cancelled = 0 AND not_before <= ? AND expires_at > ? ORDER BY created_at LIMIT 1) "
+                "RETURNING id, snapshot", (now, run_id, now, now - self._skew)).fetchone()
+        if row:
+            return Redemption(True, "ok", row[0], json.loads(row[1]) if row[1] is not None else None)
+        return Redemption(False, "no_receipt", None)
+
     def cancel_for_user(self, user: str) -> int:
         """The owner pressed cancel: every pending receipt on their account dies."""
         with self._lock:

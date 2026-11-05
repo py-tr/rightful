@@ -24,8 +24,10 @@ class TicketResult:
 
 
 def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, prompt: str = "hardened",
-               caller_followups: list[str] | None = None, max_turns: int = 16) -> TicketResult:
-    system = (HARDENED if prompt == "hardened" else LIGHT if prompt == "light" else prompt) + "\n\n" + HELP_DOC
+               caller_followups: list[str] | None = None, max_turns: int = 16, help_doc: str = HELP_DOC,
+               on_reply=None) -> TicketResult:
+    """on_reply(delivered_text) -> next caller message or None: lets a scripted caller react (evaluation)."""
+    system = (HARDENED if prompt == "hardened" else LIGHT if prompt == "light" else prompt) + "\n\n" + help_doc
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": caller_first}]
     follow = list(caller_followups or [])
     res = TicketResult()
@@ -56,6 +58,10 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
             except Exception:
                 delivered += "\n\nChanges to your account in this session: could not be confirmed; assume none."
             res.replies.append({"model_said": text, "delivered": delivered, "claim_check": verdict, "why": why})
+            nxt = on_reply(delivered) if on_reply else None
+            if nxt:
+                msgs.append({"role": "user", "content": nxt})
+                continue
             if follow:
                 msgs.append({"role": "user", "content": follow.pop(0)})
                 continue

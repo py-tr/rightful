@@ -15,7 +15,7 @@ from typing import Any
 
 from .grammar import OVERRIDE_PLACEHOLDER, Operation, Reject, parse
 from .ledger import Ledger, LedgerError
-from .receipts import ReceiptStore
+from .receipts import ReceiptStore, Redemption
 
 WRITE_METHODS = ("PUT", "POST", "DELETE")
 # Path and encoding tricks (the ';', '%' and '..' classes): quarantine at once. Other malformed writes are strikes.
@@ -44,12 +44,25 @@ class Decision:
         return v
 
 
+EVAL_MODES = ("allow_all", "allowlist_only", "unbound", "naive")
+
+
+def eval_modes_permitted(realm: str) -> bool:
+    """The evaluation's weaker gate modes (the gate-off baseline and the ablations) exist ONLY for the measurement.
+    They are honoured only when KEYLESS_EVAL=1 is set AND the realm is a scratch realm ('eval-...'); the demo realm
+    can never run them (mentor's review: "the answer must be a refusal in code, not a convention")."""
+    import os
+    return os.environ.get("KEYLESS_EVAL") == "1" and realm.startswith("eval-")
+
+
 class Gate:
     def __init__(self, pack: dict, receipts: ReceiptStore, ledger: Ledger, max_unapproved_writes: int = 4,
                  secret_factory=lambda: secrets.token_urlsafe(12)):
         self.pack, self.receipts, self.ledger = pack, receipts, ledger
         self.max_unapproved = max_unapproved_writes
         self._secret = secret_factory
+        self._modes: dict[str, str] = {}               # run id -> eval mode (empty outside an evaluation)
+        self._verified: set[tuple[str, str]] = set()   # (run, user) the AGENT claims to have verified (naive mode only)
         self._unapproved: dict[str, int] = {}
         self._malformed: dict[str, int] = {}          # per run: harmless malformed writes (strikes)
         # Rebuilt from the ledger, so a broker restart does not reset a looping run's strikes (review finding #4).
@@ -62,6 +75,73 @@ class Gate:
             elif e["kind"] == "decision" and d.get("outcome") == "denied_malformed" \
                     and d.get("method") in WRITE_METHODS and not d.get("quarantine"):
                 self._malformed[d["run"]] = self._malformed.get(d["run"], 0) + 1
+
+    def set_mode(self, run_id: str, mode: str) -> None:
+        if mode == "full":
+            self._modes.pop(run_id, None)
+            return
+        if mode not in EVAL_MODES:
+            raise ValueError(f"unknown gate mode {mode!r}")
+        if not eval_modes_permitted(self.pack["realm"]):
+            try:
+                self.ledger.append("eval_mode_refused", {"run": run_id, "mode": mode, "realm": self.pack["realm"]})
+            finally:
+                raise PermissionError(f"REFUSED: gate mode {mode!r} is evaluation-only (needs KEYLESS_EVAL=1 and a "
+                                      f"scratch realm 'eval-*'; this realm is {self.pack['realm']!r})")
+        self._modes[run_id] = mode
+        self.ledger.append("eval_mode", {"run": run_id, "mode": mode})
+
+    def mode(self, run_id: str) -> str:
+        return self._modes.get(run_id, "full")
+
+    def agent_claims_verified(self, run_id: str, user: str, how: str) -> None:
+        """The agent says it verified the caller. Logged in every mode (claimed vs actual, for the audit). Only the
+        evaluation's NAIVE gate treats it as authority: the cheapest proof of why a ledger of approvals matters."""
+        self.ledger.append("agent_claimed_verification", {"run": run_id, "user": user, "how": how[:200]})
+        self._verified.add((run_id, user))
+
+    def _decide_allow_all(self, method: str, target: str, body: bytes, run_id: str) -> Decision:
+        """Gate-off baseline: credential-brokered, NO authorization. The request goes upstream as sent (the service
+        account still signs it); only the realm boundary remains. Evaluation-only (see eval_modes_permitted)."""
+        path, _, qs = target.partition("?")
+        try:
+            op = parse(self.pack, method, target, body)
+        except Reject:
+            import re as _re
+            m = _re.search(r"/users/([0-9a-fA-F-]{36})", path)
+            op = Operation("unparsed", "write" if method in WRITE_METHODS else "read", method, path, (),
+                           {"user": m.group(1)} if m else {}, None, body, "", "owner", "unparsed")
+        if not path.startswith(f"/admin/realms/{self.pack['realm']}/") and op.kind != "composite":
+            return self._deny("denied_not_allowlisted", "outside the realm", run_id, method, target, op)
+        if op.kind == "composite":
+            steps = list(self.pack["composites"][op.name]["steps"])
+            seq = self._log("forwarding", {"run": run_id, "op": op.name, "user": op.user, "steps": steps,
+                                           "request_hash": op.request_hash, "receipt": None, "mode": "allow_all"})
+            return Decision(True, "allowed_composite", "", op, {"composite": op.name, "user": op.user, "steps": steps,
+                                                                "receipt": None, "snapshot": "skip"}, ledger_seq=seq)
+        from urllib.parse import parse_qsl
+        fwd_body, secret = body, None
+        if op.name == "reset_password":
+            try:
+                b = json.loads(body or b"{}")
+                if not b.get("value"):            # the agent did not choose one: the broker makes one and RETURNS it
+                    secret = self._secret()
+                    b["value"] = secret
+                    fwd_body = json.dumps(b).encode()
+            except ValueError:
+                pass
+        kind = "read" if method == "GET" else "write"
+        seq = self._log("decision" if kind == "read" else "forwarding",
+                        {"run": run_id, "method": method, "target": target[:300], "op": op.name, "user": op.user,
+                         "request_hash": op.request_hash, "outcome": "allowed_unauthorized", "mode": "allow_all"})
+        headers = {"Accept": "application/json"}
+        if fwd_body:
+            headers["Content-Type"] = "application/json"
+        op = Operation(op.name, kind, method, path, (), op.params, op.body, fwd_body, op.request_hash, op.receipt,
+                       op.label)
+        return Decision(True, "allowed_unauthorized", "", op,
+                        {"method": method, "path": path, "query": parse_qsl(qs, keep_blank_values=True),
+                         "body": fwd_body, "headers": headers, "return_secret": secret}, ledger_seq=seq)
 
     def _hostile(self, method: str, target: str, r: Reject) -> str | None:
         """Quarantine only on hostile signals; an honest agent's harmless mistake gets a refusal it can learn from.
@@ -96,6 +176,9 @@ class Gate:
 
     def decide(self, method: str, target: str, body: bytes, run_id: str) -> Decision:
         method = method.upper()
+        mode = self.mode(run_id)
+        if mode == "allow_all":
+            return self._decide_allow_all(method, target, body, run_id)
         try:
             op = parse(self.pack, method, target, body)
         except Reject as r:
@@ -117,7 +200,14 @@ class Gate:
             return Decision(True, f"allowed_{op.kind}", "", op, fwd, ledger_seq=seq)
 
         # A write: it needs a receipt minted after the owner's approval for exactly this request in this run.
-        red = self.receipts.redeem(run_id, op.name, op.user, op.request_hash)
+        if mode == "allowlist_only":                       # ablation: the grammar alone, no approval at all
+            red = Redemption(True, "ok", None, "skip")
+        elif mode == "naive" and (run_id, op.user) in self._verified:   # ablation: trusts the agent's own claim
+            red = Redemption(True, "ok", None, "skip")
+        elif mode == "unbound":                            # ablation: any approval in this run unlocks any write
+            red = self.receipts.redeem_unbound(run_id)
+        else:
+            red = self.receipts.redeem(run_id, op.name, op.user, op.request_hash)
         if not red.ok and red.reason == "cooling_off":
             return self._deny("denied_cooling_off", "approved; usable after the cooling-off period (the owner can "
                               "still cancel it)", run_id, method, target, op)

@@ -44,7 +44,7 @@ from demo.scenarios import DEFAULT_TICKET, SCENARIOS
 from demo.stack import SessionStack
 from eval.dispatch import BrokerDispatch, PushDispatch, Timing
 
-IDLE_S, MAX_S = 20 * 60, 60 * 60
+IDLE_S, MAX_S = 8 * 60, 60 * 60   # idle 8 min frees the slot (load test 11-06: 20 min let idle visitors block others)
 PHONE_LINK_S = 15 * 60          # a "scan to become the phone" link lives this long (and never longer than its session)
 MAX_TEXT, MAX_TICKET = 1200, 2500
 DEMO_MODELS = ("qwen3.8-27b", "glm-5.3-flash", "deepseek-v4.1-flash-1017")   # the three measured in eval/RESULTS-*

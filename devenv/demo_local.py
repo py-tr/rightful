@@ -45,6 +45,17 @@ def main() -> int:
             if line.startswith("VULTR_INFERENCE_API_KEY="):
                 os.environ["VULTR_INFERENCE_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
         print("model: glm-5.3-flash (real; within the approved $1 UI-test budget, demo limits apply)")
+    # the sandbox images carry the SDK: rebuild them on every start (cached, seconds) so the agent never runs an older
+    # helpdesk library than the repository's (11-05: a stale image had no verify_caller, so the left column lacked
+    # the push tool its instructions describe)
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for df, tag in (("sandbox/Dockerfile.task", "keyless-task:dev"), ("sandbox/Dockerfile.edge", "keyless-edge:dev")):
+        subprocess.run(["docker", "build", "-q", "-f", df, "-t", tag, "."], cwd=root, check=True,
+                       stdout=subprocess.DEVNULL)
+    chk = subprocess.run(["docker", "run", "--rm", "--entrypoint", "python", "keyless-task:dev", "-c",
+                          "import helpdesk; print(hasattr(helpdesk, 'verify_caller'))"], capture_output=True, text=True)
+    assert chk.stdout.strip() == "True", "the sandbox image's SDK is not the repository's"
     try:
         httpx.get("http://127.0.0.1:8089/realms/master", timeout=3).raise_for_status()
         base = "http://127.0.0.1:8089"

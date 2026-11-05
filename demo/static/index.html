@@ -53,6 +53,10 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .gate.ok{background:var(--green-bg);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
 .gate.warn{background:var(--amber-bg);color:var(--amber);border-color:color-mix(in srgb,var(--amber) 30%,transparent)}
 .gate.takeover{background:var(--red);color:#fff;font-size:16px;padding:14px}
+.gate.held{background:var(--green-bg);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
+.gate.held::before{content:"\1F6E1\FE0F  "}
+.gate.verdict.good{background:var(--green);color:#fff;font-size:16px;padding:14px;border-color:var(--green)}
+.gate.verdict.good::before{content:"\1F6E1\FE0F  "}
 .ph{align-self:stretch;border-radius:10px;padding:9px 12px;background:var(--amber-bg);color:var(--amber);font-weight:600;font-size:14px}
 .ph .num{font-size:18px;padding:0 4px}
 .summary{align-self:stretch;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface);font-size:14px}
@@ -73,6 +77,8 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .notch{width:90px;height:20px;background:#0f1012;border-radius:0 0 12px 12px;margin:-18px auto 10px}
 .phone .title{font-weight:700;font-size:16px}.phone .stitle{color:#6b6d72;font-size:12.5px;margin-bottom:12px}
 .idle{color:#6b6d72;text-align:center;margin-top:120px;font-size:14px}
+.past{background:rgba(255,255,255,.55);color:#6b6d72;border-radius:12px;padding:9px 11px;font-size:12.5px;margin-bottom:8px}
+.leftnote{color:#9a2a20;font-size:13px;font-weight:600;text-align:center;margin-top:14px}
 .card{background:#fff;border-radius:16px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.1);animation:slide .35s ease-out;margin-bottom:12px}
 @keyframes slide{from{transform:translateY(-18px);opacity:0}to{transform:none;opacity:1}}
 .card .app{font-size:11.5px;color:#6b6d72;text-transform:uppercase;letter-spacing:.05em}.card .what{font-weight:700;font-size:16px;margin:4px 0}
@@ -138,10 +144,10 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
       forge or leak. The only approval that cannot be skipped is one the agent cannot reach, bound to a key it never holds.</p>
     <div class="receipts">
       <div class="panel receipt hidden" id="recL"><h2>Receipt: the agent decides</h2>
-        <div class="rrow head"><div>Change</div><div>Allowed by</div><div>Owner's phone</div><div>Identity server's own log</div></div>
+        <div class="rrow head"><div>Change</div><div>Allowed by</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsL"></div></div>
       <div class="panel receipt"><h2 id="recRTitle">Receipt: every change the agent asked for</h2>
-        <div class="rrow head"><div>Change</div><div>The gate</div><div>Owner's phone</div><div>Identity server's own log</div></div>
+        <div class="rrow head"><div>Change</div><div>The gate</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsR"></div></div>
     </div>
   </div>
@@ -197,16 +203,18 @@ async function intro() {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
     b.onclick = () => { scenario = s.id; $("input").value = s.caller; $("ticket").value = s.ticket;
-      $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (s.ticket.includes("L1 (") ? ", with a note" : ""); $("input").focus(); };
+      const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
+      $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus(); };
     box.append(b);
   }
   renderCounter(j.counter);
 }
 function renderCounter(c) {
   $("cWithout").textContent = c.without_approval; $("cWithout").className = "big " + (c.without_approval ? "bad" : "zero");
-  $("cDetail").textContent = "with Keyless, of " + c.attempted + " attempted changes since " + c.since + ", from the identity server's own log";
+  const pl = (n, one, many) => n + " " + (n === 1 ? one : many);
+  $("cDetail").textContent = "with Keyless, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
   if (c.left) { $("cLeft").textContent = c.left.without_approval; $("cLeft").className = "big " + (c.left.without_approval ? "bad" : "zero");
-    $("cLeftDetail").textContent = "when the agent decides, in " + c.left.companies + " unprotected fictional companies, from their identity servers' own logs" + (c.left.taken_over ? "; " + c.left.taken_over + " passwords handed to a caller" : ""); }
+    $("cLeftDetail").textContent = "when the agent decides, in " + pl(c.left.companies, "unprotected fictional company", "unprotected fictional companies") + ", from their identity servers' own logs" + (c.left.taken_over ? "; " + pl(c.left.taken_over, "password", "passwords") + " handed to a caller" : ""); }
 }
 function render(c, e) {
   c.chat.querySelector(".empty")?.remove(); const chat = c.chat;
@@ -220,7 +228,7 @@ function render(c, e) {
     } else md(b, e.text);
     chat.append(b); return; }
   if (e.who === "system") { const d = el("div", "sys"); d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
-  if (e.who === "gate") { chat.append(el("div", "gate" + (e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text)); return; }
+  if (e.who === "gate") { chat.append(el("div", "gate" + (e.verdict === "good" ? " verdict good" : e.verdict === "bad" ? " takeover" : e.held ? " held" : e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text)); return; }
   if (e.who === "explain") { const d = el("div", "sys"); d.append(el("div", "h", "Why"), el("div", "", e.text));
     if (e.restart) { const b = el("button", "send", "Start over with a new company"); b.style.marginTop = "8px"; b.style.padding = "8px 14px";
       b.onclick = async () => { try { await api("/api/restart", {}); } catch (x) {} location.reload(); }; d.append(b); }
@@ -248,11 +256,15 @@ function drawColumn(c, data) {
 }
 function renderPhone(p) {
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
-  const ids = p.pending.map(x => x.id).join(","); const cards = $("cards");
+  const hist = p.history || [];
+  const ids = p.pending.map(x => x.id).join(",") + "|" + hist.length + "|" + (p.left_note || ""); const cards = $("cards");
   $("screen").classList.toggle("lit", p.pending.length > 0);
   if (ids !== lastPhoneIds) {
     lastPhoneIds = ids; cards.replaceChildren();
-    if (!p.pending.length) cards.append(el("div", "idle", "No requests."));
+    if (!p.pending.length && !hist.length) cards.append(el("div", "idle", "No requests."));
+    if (!p.pending.length) for (const h of hist.slice().reverse())
+      cards.append(el("div", "past", h.at + "  ·  to " + h.who + "'s phone: " + h.action + "  ·  " + h.outcome));
+    if (p.left_note) cards.append(el("div", "leftnote", p.left_note));
     for (const x of p.pending) {
       const c = el("div", "card"); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
       if (x.company) app.append(el("span", "co", x.company === "left" ? "left company" : "Keyless company"));
@@ -278,9 +290,11 @@ function renderRows(c, rows) {
   if (!rows.length) { const r = el("div", "rrow"); r.append(el("div", "", "Nothing asked yet.")); box.append(r); return; }
   for (const x of rows) {
     const r = el("div", "rrow");
-    const gateTxt = c.left ? (x.made ? "the agent's word" : "-") : (x.made ? (x.refused ? "refused, then allowed" : "allowed") : (x.refused ? "refused" : "-"));
-    const gp = el("div"); gp.append(el("span", "pill " + (c.left ? (x.made ? "r" : "") : (x.made ? "g" : x.refused ? "r" : "")), gateTxt));
-    const pp = el("div"); pp.append(el("span", "pill " + (x.phone === "approved" ? "g" : x.phone === "not asked" ? "" : "a"), x.phone));
+    const times = x.refusals > 2 ? ", " + x.refusals + " times" : x.refusals === 2 ? ", twice" : "";
+    const gateTxt = c.left ? (x.made ? "the agent's word" : "-") : (x.made ? (x.refused ? "refused" + times + ", then allowed" : "allowed") : (x.refused ? "refused" + times : "-"));
+    const gp = el("div"); gp.append(el("span", "pill " + (c.left ? (x.made ? "r" : "") : (x.made ? "g" : x.refused ? "g" : "")), gateTxt));
+    const who = x.approver === "owner" ? "owner" : "manager";
+    const pp = el("div"); pp.append(el("span", "pill " + (x.phone === "approved" ? "g" : x.phone === "not asked" ? "" : "a"), who + ": " + x.phone));
     r.append(el("div", "", x.action + ", " + x.account + "  ·  ref " + x.ref), gp, pp,
       el("div", "log" + (x.log === "none" ? " none" : (c.left && x.phone !== "approved" ? " bad" : "")), x.log === "none" ? "no change recorded" : x.log));
     box.append(r);

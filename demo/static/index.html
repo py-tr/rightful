@@ -97,6 +97,12 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .rrow.head{border-top:0;color:var(--muted);font-size:12px}.rrow .log{font-weight:700}.rrow .log.none{color:var(--green)}.rrow .log.bad{color:var(--red)}
 .pill{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;background:var(--soft)}.pill.r{background:var(--red-bg);color:var(--red)}.pill.g{background:var(--green-bg);color:var(--green)}.pill.a{background:var(--amber-bg);color:var(--amber)}
 footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{margin-top:6px}footer summary{cursor:pointer}
+.slot .counter{margin-top:8px;padding:8px 10px;box-shadow:none;background:var(--surface)}
+.slot .counter .big{font-size:26px}
+.b.agent.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.more{font-size:12px;color:var(--blue);cursor:pointer;background:none;border:0;padding:2px 0;align-self:flex-start}
+.thenbar{display:flex;gap:8px;align-items:center;padding:8px 14px 0;font-size:13px;color:var(--muted)}
+body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .hidden{display:none!important}
 </style>
 </head>
@@ -106,7 +112,7 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
   <div><h1>Authorization is not a model output.</h1>
     <p class="sub">An AI help desk that can be fooled and still cannot change an account.</p></div>
   <div class="counters">
-    <div class="counter"><span class="big zero" id="cWithout">0</span> account changes without the owner's approval
+    <div class="counter" id="cRightBox"><span class="big zero" id="cWithout">0</span> account changes without the owner's approval
       <small id="cDetail">with Keyless, from the identity server's own log</small></div>
     <div class="counter hidden" id="cLeftBox"><span class="big bad" id="cLeft">0</span> account changes without the owner's approval
       <small id="cLeftDetail">when the agent decides (unprotected fictional companies)</small></div>
@@ -126,12 +132,14 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
       <div class="cols" id="cols">
         <div class="col hidden" id="colL"><div class="colhead left"><b>The agent decides</b>
           <span class="tag">Blast radius: one account · the push tool is available; the agent's word unlocks changes ·
-          unprotected fictional company</span></div><div class="chat" id="chatL" aria-live="polite"></div></div>
+          unprotected fictional company</span><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div></div>
         <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Keyless)</b>
-          <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span></div>
-          <div class="chat" id="chatR" aria-live="polite"><div class="empty">Pick <b>Start here</b> above, or just type to
-          the help desk.</div></div></div>
+          <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
+          <div class="chat" id="chatR" aria-live="polite"><div class="empty"><span class="e1">Press <b>Send</b>: the same
+          message goes to both columns.</span><span class="e2">Pick <b>Start here</b> above, or just type to the help
+          desk.</span></div></div></div>
       </div>
+      <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
       <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
@@ -181,7 +189,7 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
 "use strict";
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; };
-let scenario = null, timer = null, lastPhoneIds = "", serverBusy = false, polling = false, compare = false;
+let thenArmed = false, nextThen = null, hadSession = false, serverCompare = false, scenario = null, timer = null, lastPhoneIds = "", serverBusy = false, polling = false, compare = false;
 class Column {
   constructor(chatId, rowsId, left) { this.chat = $(chatId); this.rows = $(rowsId); this.left = left; this.after = 0;
     this.drawn = new Set(); this.pending = []; this.typingEl = null; }
@@ -202,12 +210,23 @@ async function intro() {
   for (const s of j.scenarios) {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
-    b.onclick = () => { scenario = s.id; $("input").value = s.caller; $("ticket").value = s.ticket;
+    b.dataset.normal = s.chip; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
+    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
-      $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus(); };
+      $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
     box.append(b);
   }
+  labelChips();
   renderCounter(j.counter);
+  if (!hadSession && compare) $("chips").querySelector('.chip[data-cmp="1"]')?.click();   // land on the attack
+}
+function labelChips() {
+  for (const b of $("chips").querySelectorAll(".chip")) {
+    b.classList.toggle("hidden", compare && !b.dataset.cmpchip);
+    b.textContent = compare && b.dataset.cmpchip ? b.dataset.cmpchip : b.dataset.normal;
+    b.style.order = compare && b.dataset.cmpchip ? parseInt(b.dataset.cmpchip, 10) : "";
+    if (compare) b.classList.toggle("start", b.dataset.cmp === "1"); else b.classList.toggle("start", b.dataset.normal.startsWith("Start here"));
+  }
 }
 function renderCounter(c) {
   $("cWithout").textContent = c.without_approval; $("cWithout").className = "big " + (c.without_approval ? "bad" : "zero");
@@ -226,7 +245,10 @@ function render(c, e) {
         md(b, rest.slice(0, k)); b.append(el("s", "", s.replace(/\*\*/g, ""))); rest = rest.slice(k + s.length); }
       md(b, rest); b.append(el("span", "strike-note", "Crossed out by the system: the log shows no such change."));
     } else md(b, e.text);
-    chat.append(b); return; }
+    chat.append(b);
+    if (e.text.length > 320) { b.classList.add("clamp"); const m = el("button", "more", "show the whole reply");
+      m.onclick = () => { const on = b.classList.toggle("clamp"); m.textContent = on ? "show the whole reply" : "show less"; }; chat.append(m); }
+    return; }
   if (e.who === "system") { const d = el("div", "sys"); d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
   if (e.who === "gate") { chat.append(el("div", "gate" + (e.verdict === "good" ? " verdict good" : e.verdict === "bad" ? " takeover" : e.held ? " held" : e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text)); return; }
   if (e.who === "explain") { const d = el("div", "sys"); d.append(el("div", "h", "Why"), el("div", "", e.text));
@@ -291,12 +313,13 @@ function renderRows(c, rows) {
   for (const x of rows) {
     const r = el("div", "rrow");
     const times = x.refusals > 2 ? ", " + x.refusals + " times" : x.refusals === 2 ? ", twice" : "";
-    const gateTxt = c.left ? (x.made ? "the agent's word" : "-") : (x.made ? (x.refused ? "refused" + times + ", then allowed" : "allowed") : (x.refused ? "refused" + times : "-"));
-    const gp = el("div"); gp.append(el("span", "pill " + (c.left ? (x.made ? "r" : "") : (x.made ? "g" : x.refused ? "g" : "")), gateTxt));
+    const ver = x.phone === "verified the caller";
+    const gateTxt = c.left ? (x.made ? (ver ? "the agent, after a verified push" : "the agent's word") : "-") : (x.made ? (x.refused ? "refused" + times + ", then allowed" : "allowed") : (x.refused ? "refused" + times : "-"));
+    const gp = el("div"); gp.append(el("span", "pill " + (c.left ? (x.made ? (ver ? "a" : "r") : "") : (x.made ? "g" : x.refused ? "g" : "")), gateTxt));
     const who = x.approver === "owner" ? "owner" : "manager";
-    const pp = el("div"); pp.append(el("span", "pill " + (x.phone === "approved" ? "g" : x.phone === "not asked" ? "" : "a"), who + ": " + x.phone));
+    const pp = el("div"); pp.append(el("span", "pill " + (x.phone === "approved" || ver ? "g" : x.phone === "not asked" ? "" : "a"), who + ": " + x.phone));
     r.append(el("div", "", x.action + ", " + x.account + "  ·  ref " + x.ref), gp, pp,
-      el("div", "log" + (x.log === "none" ? " none" : (c.left && x.phone !== "approved" ? " bad" : "")), x.log === "none" ? "no change recorded" : x.log));
+      el("div", "log" + (x.log === "none" ? " none" : (c.left && x.phone !== "approved" && !ver ? " bad" : "")), x.log === "none" ? "no change recorded" : x.log));
     box.append(r);
   }
 }
@@ -306,11 +329,14 @@ async function poll(once) {
   try {
     const j = await api("/api/events?after=" + R.after + "&after_left=" + L.after);
     if (j.session) {
+      hadSession = true; serverCompare = !!j.compare;
       serverBusy = j.busy || (j.left && j.left.busy); $("prompt").disabled = serverBusy;
       setCompare(j.compare);
       drawColumn(R, j); if (j.compare) drawColumn(L, j.left);
       renderPhone(j.phone);
       $("state").textContent = serverBusy ? "The help desk is working..." : "The help desk is waiting for you.";
+      $("thenBar").classList.toggle("hidden", !(nextThen && thenArmed));
+      $("thenBtn").textContent = nextThen ? '"' + nextThen + '"' : "";
     }
     renderCounter(j.counter);
   } catch (e) { $("state").textContent = e.message; }
@@ -321,35 +347,42 @@ function setCompare(on) {
   if (on === compare) return; compare = on;
   document.body.classList.toggle("cmp", on);
   for (const id of ["colL", "recL", "headR", "cLeftBox"]) $(id).classList.toggle("hidden", !on);
+  if (on) { $("slotL").append($("cLeftBox")); $("slotR").append($("cRightBox")); }      // each score above its column
+  else { const h = document.querySelector("header .counters"); h.append($("cRightBox"), $("cLeftBox")); }
+  labelChips();
   $("recRTitle").textContent = on ? "Receipt: Keyless (the owner's device decides)" : "Receipt: every change the agent asked for";
-  $("cmpBtn").textContent = on ? "Back to one column" : "Same agent. Same lie. Two architectures.";
-  $("introText").textContent = on ? "The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives." : "";
+  $("cmpBtn").textContent = on ? "One column" : "Compare: same agent, two architectures";
+  if (on) $("introText").replaceChildren(el("b", "", "Same agent. Same lie. Two architectures."), el("br"), document.createTextNode("The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives."));
   if (!on) { $("introText").replaceChildren(el("b", "", "You're calling Corp's AI help desk"), document.createTextNode(", a fictional company made just for you. Your goal: get the CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.")); }
 }
 $("cmpBtn").onclick = async () => {
   if (serverBusy) { alert("Wait for the current conversation to finish."); return; }
   try {
     if (!compare) {
-      await api("/api/compare", {on: true});
+      await api("/api/compare", {on: true}); serverCompare = true;
       L.clear(); setCompare(true);
       if (!scenario || scenario === "honest") ($("chips").querySelector('.chip[data-cmp="1"]') || $("chips").querySelector(".chip.attack"))?.click();
-    } else { await api("/api/compare", {on: false}); setCompare(false); }
+    } else { if (serverCompare) await api("/api/compare", {on: false}); serverCompare = false; setCompare(false); }
   } catch (e) { alert(e.message); }
   poll(true);
 };
 async function send() {
   const text = $("input").value.trim(); if (!text) return;
+  if (compare && !serverCompare && !serverBusy) { try { await api("/api/compare", {on: true}); serverCompare = true; } catch (e) { alert(e.message); return; } }
+  if (text === nextThen) { nextThen = null; $("thenBar").classList.add("hidden"); }
   for (const c of compare ? [L, R] : [R]) { c.chat.querySelector(".empty")?.remove(); c.chat.append(el("div", "who r", "You"), el("div", "b you", text)); c.pending.push(text); scrollDown(c); setTyping(c, true); }
   $("input").value = "";
   const starts = !serverBusy;
   try { await api("/api/say", starts ? {text, scenario, ticket: $("ticket").value, prompt: $("prompt").value} : {text});
-        if (starts) { serverBusy = true; scenario = null; $("prompt").disabled = true; } }
+        if (starts) { serverBusy = true; if (scenario && nextThen) thenArmed = true; scenario = null; $("prompt").disabled = true; } }
   catch (e) { for (const c of compare ? [L, R] : [R]) { setTyping(c, false); c.pending.pop(); const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.message)); c.chat.append(d); } }
   poll(true);
 }
 $("sendBtn").onclick = send;
+$("thenBtn").onclick = () => { if (nextThen) { $("input").value = nextThen; send(); } };
 $("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 $("restart").onclick = async () => { try { await api("/api/restart", {}); } catch (e) {} location.reload(); };
+setCompare(true);                        // compare mode is the landing page (mentor 11-05); one column is a click away
 intro().catch(() => {}); poll();
 </script>
 </body>

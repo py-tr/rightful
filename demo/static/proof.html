@@ -6,38 +6,64 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
 <title>Keyless result</title>
 <style>
-:root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--red:#c2352a;--green:#1d7a46}
-@media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--red:#ff7b6e;--green:#5fd08f}}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}.w{max-width:820px;margin:0 auto;padding:24px 20px}
-h1{font-size:22px;margin:0 0 4px}.m{color:var(--muted)}.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0}
-.row{display:grid;grid-template-columns:2fr 1fr 1fr 1.6fr;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}.row.h{border:0;color:var(--muted);font-size:12px}
-.log{font-weight:700}.chat div{padding:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}.chat b{display:inline-block;min-width:130px;color:var(--muted);font-weight:500}
+:root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--red:#c2352a;--red-bg:#fdecea;--green:#1d7a46;--green-bg:#e7f5ec}
+@media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--red:#ff7b6e;--red-bg:#3a1d1a;--green:#5fd08f;--green-bg:#14301f}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}.w{max-width:1180px;margin:0 auto;padding:24px 16px}
+h1{font-size:22px;margin:0 0 4px}.m{color:var(--muted)}
+.cols{display:grid;grid-template-columns:1fr;gap:16px}.cols.two{grid-template-columns:1fr 1fr}
+@media (max-width:860px){.cols.two{grid-template-columns:1fr}}
+.col{min-width:0}.head{border-radius:12px 12px 0 0;padding:10px 14px;font-weight:700}.head.left{background:var(--red-bg)}.head.right{background:var(--green-bg)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0}
+.verdict{border-radius:10px;padding:12px 14px;font-weight:700;color:#fff;margin:12px 0}.verdict.bad{background:var(--red)}.verdict.good{background:var(--green)}
+.row{display:grid;grid-template-columns:2fr 1fr 1fr 1.6fr;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.row.h{border:0;color:var(--muted);font-size:12px}
+.log{font-weight:700}.chat div{padding:4px 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px}.chat b{display:block;color:var(--muted);font-weight:500;font-size:12px}
 a{color:#2d55c8}
 </style>
 </head>
 <body><div class="w">
 <h1>A result from the Keyless help desk</h1>
-<p class="m">An AI help desk that can be fooled and still cannot change an account. Fictional company; the company was
-deleted afterwards. The last column comes from the identity server's own log.</p>
-<div class="card"><b>What happened</b><div id="summary"></div><div class="m" id="when"></div></div>
-<div class="card"><div class="row h"><div>Change</div><div>The gate</div><div>Owner's phone</div><div>Identity server's own log</div></div><div id="rows"></div></div>
-<div class="card chat" id="chat"></div>
+<p class="m" id="lede">An AI help desk that can be fooled and still cannot change an account. Fictional company, deleted
+afterwards. The last receipt column comes from the identity server's own log.</p>
+<p class="m" id="when"></p>
+<div class="cols" id="cols"></div>
 <p><a href="/">Try it yourself</a></p>
 </div>
 <script>
 "use strict";
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x !== undefined) e.textContent = String(x); return e; };
 const token = location.pathname.split("/").pop();
-fetch("/api/proof/" + encodeURIComponent(token)).then(r => r.ok ? r.json() : Promise.reject()).then(p => {
-  document.getElementById("summary").textContent = p.summary;
-  document.getElementById("when").textContent = new Date(p.t * 1000).toUTCString();
-  const rows = document.getElementById("rows");
+const names = {you: "Caller", agent: "Help desk (AI agent)", system: "Identity system log", gate: "The gate", phone: "Phone", summary: "Summary", explain: "Why"};
+function column(p, left) {
+  const c = el("div", "col");
+  if (p === null) { c.append(el("div", "card m", "The other column of this run was not recorded (it may still have been running).")); return c; }
+  if (left !== null) c.append(el("div", "head " + (left ? "left" : "right"), left ? "The agent decides" : "The owner's device decides (Keyless)"));
+  if (p.verdict) c.append(el("div", "verdict " + (left ? "bad" : "good"), p.verdict));
+  const s = el("div", "card"); s.append(el("b", "", "What happened"), el("div", "", p.summary)); c.append(s);
+  const rc = el("div", "card"); const h = el("div", "row h");
+  for (const x of ["Change", left ? "Allowed by" : "The gate", "Approver", "Identity server's own log"]) h.append(el("div", "", x));
+  rc.append(h);
   for (const x of p.proof) { const r = el("div", "row");
-    r.append(el("div", "", x.action + ", " + x.account + " · ref " + x.ref), el("div", "", x.made ? (x.refused ? "refused, then allowed" : "allowed") : "refused"),
-      el("div", "", x.phone), el("div", "log", x.log === "none" ? "no change recorded" : x.log)); rows.append(r); }
-  const names = {you: "Caller", agent: "Help desk (AI)", system: "Identity system log", gate: "The gate", phone: "Phone", summary: "Summary"};
-  const chat = document.getElementById("chat");
-  for (const m of p.chat) { const d = el("div"); d.append(el("b", "", names[m.who] || m.who), document.createTextNode(m.text)); chat.append(d); }
-}).catch(() => { document.getElementById("summary").textContent = "This result was not found."; });
+    const times = x.refusals > 2 ? ", " + x.refusals + " times" : x.refusals === 2 ? ", twice" : "";
+    const gate = left ? (x.made ? (x.phone === "verified the caller" ? "the agent, after a verified push" : "the agent's word") : "-") : (x.made ? (x.refused ? "refused" + times + ", then allowed" : "allowed") : "refused" + times);
+    r.append(el("div", "", x.action + ", " + x.account + " · ref " + x.ref), el("div", "", gate),
+      el("div", "", (x.approver ? (x.approver === "owner" ? "owner: " : "manager: ") : "") + x.phone),
+      el("div", "log", x.log === "none" ? "no change recorded" : x.log)); rc.append(r); }
+  if (!p.proof.length) { const r = el("div", "row"); r.append(el("div", "", "No change was asked for.")); rc.append(r); }
+  c.append(rc);
+  const chat = el("div", "card chat");
+  for (const m of p.chat) { const d = el("div"); d.append(el("b", "", names[m.who] || m.who), document.createTextNode(m.text.replace(/\*\*/g, "").replace(/^#{1,4}\s+/gm, ""))); chat.append(d); }
+  c.append(chat); return c;
+}
+fetch("/api/proof/" + encodeURIComponent(token)).then(r => r.ok ? r.json() : Promise.reject()).then(p => {
+  document.getElementById("when").textContent = new Date(p.t * 1000).toUTCString();
+  const cols = document.getElementById("cols");
+  if (p.pair) {
+    cols.classList.add("two");
+    document.getElementById("lede").textContent = "Same agent, same message, same ticket, same instructions, same model. The only difference is where the authority to change an account lives. Fictional companies, deleted afterwards; the last receipt column comes from each identity server's own log.";
+    const mine = p.mode === "agent_decides";
+    const left = mine ? p : (p.other || null), right = mine ? (p.other || null) : p;
+    cols.append(column(left, true), column(right, false));
+  } else cols.append(column(p, null));
+}).catch(() => { document.getElementById("cols").append(el("div", "card", "This result was not found.")); });
 </script>
 </body></html>

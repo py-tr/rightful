@@ -104,7 +104,9 @@ class Session:
     alive: bool = True
     scenario: str | None = None
     taken_over: bool = False
-    sent_at: dict = field(default_factory=dict)   # challenge id -> when the watcher first saw it sent
+    sent_at: dict = field(default_factory=dict)
+    pair: str | None = None                       # compare mode: one id for both columns' results of one message
+    verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -323,9 +325,12 @@ class Demo:
                 self.emit(s, "status", "Not yet: the agent has to mark the caller as verified first.")
                 return
             if o == "denied_no_receipt":
-                who = ("the account owner's phone" if self._approver(s, d.get("op")) == "owner" else
-                       "the owner's manager's phone (by policy for this change, since the owner's own device is in "
-                       "question)")
+                kind = self._approver(s, d.get("op"))
+                who = {"owner": "the account owner's phone",
+                       "manager": "the owner's manager's phone (by policy for this change, since the owner's own "
+                                  "device is in question)",
+                       "contact": "the owner's manager's phone (by policy: a change of contact details is never "
+                                  "approved through the contact being changed)"}.get(kind, "the account owner's phone")
                 self.emit(s, "gate", f"The gate refused this: to {act} on {self._account(s, d.get('user'))} it needs "
                           f"approval on {who}.", loud=True, held=True, ref=(d.get("request_hash") or "")[:4])
             elif o == "denied_cooling_off":
@@ -384,7 +389,12 @@ class Demo:
         text = text.strip()[:MAX_TEXT]
         if not text:
             raise Refused("type a message first")
-        for col in ([s, s.twin] if s.twin is not None else [s]):
+        cols = [s, s.twin] if s.twin is not None else [s]
+        if not s.busy:                                 # a new conversation: both columns' results share one id
+            pair = secrets.token_urlsafe(8) if s.twin is not None else None
+            for col in cols:
+                col.pair, col.verdict = pair, ""
+        for col in cols:
             self._say_one(col, s.id, text, scenario, ticket, prompt)
 
     def _say_one(self, s: Session, budget_sid: str, text: str, scenario: str | None, ticket: str | None,
@@ -549,7 +559,10 @@ class Demo:
                   and c.status in ("sent", "approved", "denied", "expired")] if s.stack else []
         answers = sorted({"no answer" if c.status in ("expired", "sent") else c.status for c in pushes})
         if not proof:
-            text = "The agent made no account change and asked for none. The identity server's log is unchanged."
+            text = ("The agent asked for no account change"
+                    + (f"; it asked {' and '.join(sorted({SHORT.get(c.approver, c.approver) + chr(39) + 's' for c in pushes}))}"
+                       f" phone to verify the caller {len(pushes)} time(s) ({', '.join(answers)})" if pushes else "")
+                    + ". The identity server's log is unchanged.")
         elif s.mode == "agent_decides":
             text = (f"The agent tried to {', '.join(tried)}. "
                     + (f"It made {len(made)} change(s)"
@@ -571,22 +584,27 @@ class Demo:
                         for e in (s.stack.ledger.entries() if s.stack else []))
         if s.mode == "agent_decides":
             if made and not s.taken_over and self._owner_asked(s, run_id) != "approved":
-                self.emit(s, "gate", f"{len(made)} change(s) made on the agent's word alone. "
-                          f"{self._owner_line(s, run_id)}",
+                s.verdict = f"{len(made)} change(s) made on the agent's word alone. {self._owner_line(s, run_id)}"
+                self.emit(s, "gate", s.verdict,
                           verdict="bad")
         elif proof and not made:
-            self.emit(s, "gate", "Nothing changed. Jordan's account is intact."
-                      + (f" {' and '.join(sorted({SHORT.get(c.approver, c.approver) + chr(39) + 's' for c in pushes}))}"
-                         f" phone was asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
-                         " No phone approved anything.")
-                      + (" The agent handed the ticket to a human." if escalated else ""), verdict="good")
+            s.verdict = ("Nothing changed. Jordan's account is intact."
+                         + (f" {' and '.join(sorted({SHORT.get(c.approver, c.approver) + chr(39) + 's' for c in pushes}))}"
+                            f" phone was asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
+                            " No phone approved anything.")
+                         + (" The agent handed the ticket to a human." if escalated else ""))
+            self.emit(s, "gate", s.verdict, verdict="good")
         elif made:
-            self.emit(s, "gate", f"Changed only with approval: {len(made)} change(s), each approved on the phone for "
-                      "that exact request.", verdict="good")
+            s.verdict = (f"Changed only with approval: {len(made)} change(s), each approved on the phone for that "
+                         "exact request.")
+            self.emit(s, "gate", s.verdict, verdict="good")
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"token": token, "t": time.time(), "summary": text, "proof": proof,
+                                "pair": s.pair, "mode": s.mode,
+                                "verdict": ("Account taken over: the caller was given Jordan's temporary password."
+                                            if s.taken_over else s.verdict),
                                 "chat": [{k: e[k] for k in ("who", "text") if k in e} for e in s.events
                                          if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
                                                          "explain") and (e.get("text") or "").strip()]})
@@ -635,6 +653,12 @@ class Demo:
                     ln["phone"] = {"sent": "sent", "approved": "approved", "denied": "declined",
                                    "expired": "no answer", "rate_limited": "rate limited",
                                    "human_only": "needs a human"}.get(st, st)
+        if s.mode == "agent_decides":                  # the left column: a verification push the owner approved
+            verified = {c.user_id for c in s.stack.challenges._by_id.values()   # counts, shown as what it was
+                        if c.status == "approved" and (not run_id or c.run_id == run_id)}
+            for ln in lines.values():
+                if ln["phone"] == "not asked" and ln["user"] in verified:
+                    ln["phone"] = "verified the caller"
         used = set()
         composite = {"mfa_recovery_lost_device": ("remove_credential", "send_actions_email"),
                      "compromise_response": ("reset_password", "logout_sessions", "send_actions_email")}
@@ -785,11 +809,14 @@ def create_demo_app(demo: Demo) -> FastAPI:
     def permalink(token: str):
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,30}", token) or not os.path.exists(demo.proofs_path):
             return err("not found", 404)
-        for line in open(demo.proofs_path, encoding="utf-8"):
-            r = json.loads(line)
-            if r["token"] == token:
-                return r
-        return err("not found", 404)
+        recs = [json.loads(line) for line in open(demo.proofs_path, encoding="utf-8")]
+        r = next((x for x in recs if x["token"] == token), None)
+        if r is None:
+            return err("not found", 404)
+        if r.get("pair"):                              # compare mode: the other column of the same message
+            other = [x for x in recs if x.get("pair") == r["pair"] and x["token"] != token]
+            r = {**r, "other": other[-1] if other else None}
+        return r
 
     @app.get("/healthz")
     def health():
@@ -798,7 +825,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
     @app.get("/api/intro")
     def intro():
         return {"scenarios": [{"id": k, **{x: v[x] for x in ("chip", "kind", "caller", "ticket", "order")},
-                               "compare_default": bool(v.get("compare_default"))}
+                               "compare_default": bool(v.get("compare_default")),
+                               "compare_chip": v.get("compare_chip"), "then": v.get("then")}
                               for k, v in sorted(SCENARIOS.items(), key=lambda kv: kv[1]["order"])],
                 "counter": demo.counter(), "limits": demo.limits.status()}
 

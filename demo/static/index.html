@@ -152,6 +152,7 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; };
 let after = 0, scenario = null, pendingLocal = [], timer = null, lastPhoneIds = "", typingEl = null, sessionOn = false, serverBusy = false;
+let polling = false; const drawn = new Set();   // each event is drawn exactly once, and refreshes never overlap
 
 async function api(path, body) {
   const opt = body === undefined ? {credentials: "same-origin"} : {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
@@ -188,6 +189,7 @@ function render(e) {
     chat.append(el("div", "who r", "You"), el("div", "b you", e.text)); return;
   }
   if (e.who === "agent") {
+    if (!e.text || !e.text.trim()) return;                        // an empty reply is not a message
     chat.append(el("div", "who", "Help desk (AI agent)"));
     const b = el("div", "b agent"); let rest = e.text;
     if (e.struck && e.struck.length) {
@@ -200,6 +202,10 @@ function render(e) {
   }
   if (e.who === "system") { const d = el("div", "sys"); d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
   if (e.who === "gate") { chat.append(el("div", "gate" + (e.ok ? " ok" : ""), e.text)); return; }
+  if (e.who === "explain") { const d = el("div", "sys"); d.append(el("div", "h", "Why"), el("div", "", e.text));
+    if (e.restart) { const b = el("button", "send", "Start over with a new company"); b.style.marginTop = "8px"; b.style.padding = "8px 14px";
+      b.onclick = async () => { try { await api("/api/restart", {}); } catch (x) {} location.reload(); }; d.append(b); }
+    chat.append(d); return; }
   if (e.who === "phone") { const d = el("div", "ph"); const t = e.text.split(String(e.number));
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
@@ -257,11 +263,13 @@ function renderRows(rows) {
   }
 }
 async function poll(once) {
+  if (polling) { if (!once) { clearTimeout(timer); timer = setTimeout(poll, 700); } return; }
+  polling = true;
   try {
     const j = await api("/api/events?after=" + after);
     if (j.session) {
       sessionOn = true; serverBusy = j.busy; $("prompt").disabled = j.busy;
-      for (const e of j.events) { render(e); after = e.seq + 1; }
+      for (const e of j.events) { if (!drawn.has(e.seq)) { drawn.add(e.seq); render(e); } after = Math.max(after, e.seq + 1); }
       setTyping(j.typing || (j.busy && !j.events.length && pendingLocal.length));
       renderPhone(j.phone); renderRows(j.proof);
       $("state").textContent = j.busy ? (j.typing ? "The help desk is thinking..." : "The help desk is working...") : "The help desk is waiting for you.";
@@ -269,6 +277,7 @@ async function poll(once) {
     }
     renderCounter(j.counter);
   } catch (e) { $("state").textContent = e.message; }
+  polling = false;
   if (!once) { clearTimeout(timer); timer = setTimeout(poll, 700); }
 }
 async function send() {

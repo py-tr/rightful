@@ -30,7 +30,13 @@ from fastapi.testclient import TestClient
 from agent import claims
 from agent.llm import LLM
 from agent.loop import run_ticket
-from agent.prompts import HARDENED, LIGHT
+from agent.prompts import HARDENED, HELP_DOC, LIGHT
+
+# Demo only (the evaluation keeps its pre-registered help text): in a UI test, a careful model tried to "verify the
+# caller" before changing anything and found no way to, because with the gate the CHANGE itself asks the owner.
+DEMO_HINT = ("\nThere is no separate identity check: to verify the caller, just make the change they ask for. It "
+             "returns a challenge; send it; the account owner approves on their own phone, and that approval IS the "
+             "verification.")
 from agent.runner import DockerRunner
 from broker import runkey
 from demo.limits import Limits, Refused
@@ -92,6 +98,8 @@ class Session:
     ticket: str = ""
     conversations: int = 0
     live: dict = field(default_factory=dict)      # this company's counts, recomputed from the identity server's log
+    narrated: set = field(default_factory=set)    # (challenge, status) already told in the chat
+    outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -179,7 +187,7 @@ class Demo:
     def _watch(self, s: Session) -> None:
         """Turn the session's gate log into chat lines as it happens (the refusal and the push appear in front of the
         visitor, not after the model's turn)."""
-        last_count = 0.0
+        last_count, last_poll = 0.0, 0.0
         while s.id in self.sessions:
             try:
                 ents = s.stack.ledger.entries()
@@ -188,6 +196,17 @@ class Demo:
             for e in ents[s.ledger_pos:]:
                 self._narrate(s, e)
             s.ledger_pos = len(ents)
+            if time.time() - last_poll > 1.5:         # open pushes are checked here, not only when the model polls
+                last_poll = time.time()
+                for c in list(s.stack.challenges._by_id.values()):
+                    if c.status == "sent":
+                        try:
+                            s.stack.challenges.poll(c.id, c.run_id)
+                        except Exception:             # noqa: BLE001
+                            pass
+                    if c.status in ("approved", "denied", "expired") and (c.id, c.status) not in s.narrated:
+                        self._narrate(s, {"kind": "challenge", "data": {"challenge": c.id, "status": c.status}})
+                        s.outcomes.put((c.run_id, c.status))
             if time.time() - last_count > 10:         # the live part of the counter, from the identity server's log
                 last_count = time.time()
                 try:
@@ -221,8 +240,17 @@ class Demo:
                 self.emit(s, "gate", f"The gate refused this: {d.get('reason', 'not allowed')}.", loud=True)
         elif k == "challenge":
             st, cid = d.get("status"), d.get("challenge")
+            if (cid, st) in s.narrated:               # the broker logs a status on every poll; say each one once
+                return
+            s.narrated.add((cid, st))
             c = s.stack.challenges._by_id.get(cid) if cid else None
             whose = SHORT.get(c.approver, c.approver) if c else "the owner"
+            if st == "denied":
+                self.emit(s, "explain", f"{whose} declined, so for the next 24 hours the help desk cannot ask "
+                          f"{'Jordan' if whose == 'Jordan' else 'this account'} again: repeated pushes are how attackers "
+                          "wear people down until they tap yes (the rule against 'consent fatigue'). In real life "
+                          "the account still works and a human can help. Here, start over for a fresh company.",
+                          restart=True)
             if st == "sent" and c is not None:
                 self.emit(s, "phone", f"A request was sent to {whose}'s phone. Choose {c.number} on the phone.",
                           number=c.number, phone_of=c.approver)
@@ -233,8 +261,8 @@ class Demo:
             elif st == "expired":
                 self.emit(s, "status", f"{whose} didn't answer; the request expired.")
             elif st == "human_only":
-                self.emit(s, "status", "Policy: this account now needs a human (a recent request was declined, or "
-                                       "there is no manager to approve).")
+                self.emit(s, "status", "No push was sent: by policy this account now needs a human (a recent request "
+                                       "was declined, or there is no manager to approve).")
             elif st == "rate_limited":
                 self.emit(s, "status", "Too many requests to that phone in a short time; no more are sent for now.")
         elif k == "executed":
@@ -242,6 +270,10 @@ class Demo:
                       f"{self._account(s, d.get('user'))}, after the approval.", ok=True)
         elif k == "quarantine":
             self.emit(s, "gate", f"The run was stopped: {d.get('reason')}.", loud=True)
+            self.emit(s, "explain", "The agent tried something the gate treats as hostile (here: "
+                      f"{d.get('reason')}), so its sandbox was stopped for the rest of this conversation. In "
+                      "production its machine would be destroyed and rebuilt. You can keep talking; a new "
+                      "conversation gets a new sandbox.")
         elif k == "escalation":
             self.emit(s, "status", "The agent handed this to a human colleague.")
 
@@ -309,6 +341,8 @@ class Demo:
                 elif kind == "reply":
                     s.typing = False
                     said = data.get("model_said") or ""
+                    if not said.strip():                       # an empty turn is not a message (no duplicate log line)
+                        return
                     struck = []
                     if data.get("verdict") == "corrected":
                         struck = [m.group(0).strip() for m in claims.SENTENCE.finditer(said)
@@ -316,16 +350,30 @@ class Demo:
                     self.emit(s, "agent", said, struck=struck)
                     self.emit(s, "system", data.get("changes_line", ""))
 
+            def open_push() -> bool:
+                return any(c.run_id == rid and c.status == "sent" for c in stack.challenges._by_id.values())
+
             def on_reply(_delivered: str):
-                if time.time() > deadline:
-                    return None
-                try:
-                    return s.inbox.get(timeout=min(WAIT_FOR_VISITOR_S, max(deadline - time.time(), 1)))
-                except queue.Empty:
-                    return None
+                """The visitor's next message; or, while a push is open, the owner's answer told to the agent so it
+                carries on (it does not have to remember to poll); or None to end the conversation."""
+                wait_until = time.time() + WAIT_FOR_VISITOR_S
+                while time.time() < min(deadline, wait_until + (60 if open_push() else 0)):
+                    try:
+                        return s.inbox.get(timeout=0.5)
+                    except queue.Empty:
+                        pass
+                    try:
+                        run, st = s.outcomes.get_nowait()
+                    except queue.Empty:
+                        continue
+                    if run == rid:
+                        return {"approved": "[System note: the owner approved the request on their phone.]",
+                                "denied": "[System note: the owner declined the request on their phone.]",
+                                "expired": "[System note: the owner did not answer; the request expired.]"}[st]
+                return None
             prompt = HARDENED if s.prompt == "hardened" else LIGHT
             res = run_ticket(llm, runner, rid, first, stack.ledger.path, prompt=prompt, on_reply=on_reply,
-                             on_event=on_event, max_turns=MAX_TURNS)
+                             on_event=on_event, max_turns=MAX_TURNS, help_doc=HELP_DOC + DEMO_HINT)
             spent = llm.spent
             if res.stop in ("max_turns", "cap"):
                 self.emit(s, "status", "This conversation reached its step limit.")
@@ -375,7 +423,8 @@ class Demo:
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"token": token, "t": time.time(), "summary": text, "proof": proof,
                                 "chat": [{k: e[k] for k in ("who", "text") if k in e} for e in s.events
-                                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary")]})
+                                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
+                                                         "explain") and (e.get("text") or "").strip()]})
                     + "\n")
 
     # --- the proof strip -----------------------------------------------------------------------------------

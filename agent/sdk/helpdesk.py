@@ -90,6 +90,12 @@ def change_email(user_id: str, email: str) -> dict:
     return _result(_c().put(_u(user_id), json={"email": email}))
 
 
+def reenroll_authenticator(user_id: str) -> dict:
+    """For a new or replaced phone while the user can still approve on the registered one: the user approves; a
+    re-enrolment link goes to the email on file. (A device that is really lost: lost_device_recovery.)"""
+    return _result(_c().post(f"/gate/v1/actions/mfa-reenroll/{user_id}"))
+
+
 def lost_device_recovery(user_id: str) -> dict:
     """For "I lost my phone": the user's manager approves; a re-enrolment link goes to the email on file."""
     return _result(_c().post(f"/gate/v1/actions/mfa-recovery-lost-device/{user_id}"))

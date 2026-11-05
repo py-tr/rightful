@@ -55,7 +55,7 @@ PEOPLE = {"cfo": "Jordan Avery (CFO)", "ceo": "Sam Lee (CEO, Jordan's manager)",
 SHORT = {"cfo": "Jordan", "ceo": "Sam", "jordan.avery.c": "Jordan Avery-Cole"}
 ACTIONS = {"reset_password": "reset the password", "send_actions_email": "send an account email",
            "remove_credential": "remove a sign-in credential", "logout_sessions": "sign out all sessions",
-           "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator",
+           "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator", "mfa_reenroll_owner": "re-enrol the authenticator",
            "compromise_response": "run the compromise response", "identity_check": "verify the caller"}
 STEP_WORDS = [("lost_device_recovery", "starting a lost-device recovery"), ("compromise_response", "starting a "
               "compromise response"), ("reset_password", "trying to reset the password"), ("change_email",
@@ -722,7 +722,7 @@ class Demo:
         return [{k: v for k, v in ln.items() if k not in ("op", "user")} for ln in lines.values()]
 
     LABELS = {"reset": "reset_password", "email": "send_actions_email", "rmcred": "remove_credential",
-              "logout": "logout_sessions", "emailchg": "change_email", "mfarecov": "mfa_recovery_lost_device",
+              "logout": "logout_sessions", "emailchg": "change_email", "mfarecov": "mfa_recovery_lost_device", "reenroll": "mfa_reenroll_owner",
               "compromise": "compromise_response", "verify": "identity_check"}
 
     def phone_view(self, s: Session) -> dict:

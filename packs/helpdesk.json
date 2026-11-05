@@ -131,6 +131,14 @@
     "contact": "the target user's manager (a contact change never relies on the contact being changed)"
   },
   "composites": {
+    "mfa_reenroll_owner": {
+      "method": "POST",
+      "path": "/gate/v1/actions/mfa-reenroll/{user}",
+      "receipt": "owner",
+      "label": "reenroll",
+      "steps": ["remove_otp_credentials", "send_actions_email:CONFIGURE_TOTP", "notify_owner"],
+      "why": "Added after the gate-on evaluation (post-measurement; the published numbers are on the pack without it): a new or replaced phone while the owner can still approve on the registered device. The OWNER approves the exact request; the re-enrolment link goes only to the email on file. The manager path (mfa_recovery_lost_device) stays for a device that is really lost."
+    },
     "mfa_recovery_lost_device": {
       "method": "POST",
       "path": "/gate/v1/actions/mfa-recovery-lost-device/{user}",

@@ -178,5 +178,10 @@ LOOKALIKE's email (it searched 'jordan.avery' and found only the contractor), th
   outcome, reported in its own row.
 Hashes: harness `303bc705d7731e45`, owner.py `a3a2c6504e51f8b6`; all others as in amendment 2.
 
-## 10. Deviation log (filled after; empty now)
--
+## 10. Deviation log
+- 2026-11-05, during the main run (written at 578/5,240, BEFORE any outcome was analysed): 4 runs (0.7%) failed in
+  setup with a Keycloak 500 ("Not found in database" during concurrent realm creation), 1-4 s in, before any model
+  call ($0, 0 calls), spread over 4 different cells. Because one exclusion in a 10-run cell exceeds the 5% ceiling,
+  setup failures that happened BEFORE ANY MODEL CALL (calls = 0) are re-run once after the main run finishes, at the
+  same commit and hashes, through the harness's resume logic. The failed attempts are kept (renamed, not deleted),
+  counted and reported. Any failure after the first model call stays excluded as pre-registered.

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
+<title>Keyless: an AI help desk that holds no key</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#5d5d58;--line:#d9d9d4;--card:#fff;--ok:#1f7a3d;--no:#a3261b;--wait:#8a6200;--acc:#2a4fa8}
+@media (prefers-color-scheme: dark){:root{--bg:#141413;--fg:#ececea;--muted:#a3a39d;--line:#34342f;--card:#1d1d1b;--ok:#5fc27e;--no:#ef7b6e;--wait:#e0b44a;--acc:#8fb0ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:18px 20px 8px;max-width:1240px;margin:auto}h1{font-size:22px;margin:0 0 4px}header p{margin:0;color:var(--muted)}
+main{max-width:1240px;margin:auto;padding:8px 20px 40px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:7px 11px;cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5;cursor:default}
+.scen{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}.scen button{text-align:left}
+.expect{font-size:13px;color:var(--muted);margin:6px 0 10px}
+textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg);color:var(--fg);resize:vertical}
+.msgs{display:flex;flex-direction:column;gap:8px;max-height:430px;overflow:auto;margin:8px 0}
+.m{padding:8px 10px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}.m.caller{background:var(--bg);align-self:flex-end;max-width:85%}
+.m.agent{border:1px solid var(--line);max-width:92%}.who{font-size:12px;color:var(--muted);margin-bottom:2px}
+.status{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.cell{border:1px solid var(--line);border-radius:8px;padding:9px}.cell .k{font-size:12px;color:var(--muted)}.cell .v{font-weight:600;margin-top:2px;overflow-wrap:anywhere}
+.cell.oracle{border-width:2px}.counters{display:flex;gap:18px;margin:4px 0 10px;font-size:14px}
+.counters b{font-size:20px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:6px 5px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:500}td.oracle,th.oracle{font-weight:700;border-left:2px solid var(--line)}
+.no{color:var(--no)}.ok{color:var(--ok)}.wait{color:var(--wait)}.muted{color:var(--muted)}
+.tabs{display:flex;gap:6px;margin:14px 0 8px}.tabs button[aria-selected=true]{border-color:var(--acc);color:var(--acc)}
+.phone{border:2px solid var(--line);border-radius:22px;padding:14px;max-width:360px}
+.push{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}.nums{display:flex;gap:8px;margin-top:8px}
+.nums button{font-size:18px;font-weight:700;width:64px}.label{font-size:12px;color:var(--muted)}
+.box{border-left:3px solid var(--line);padding:4px 10px;margin:8px 0;font-size:13px;color:var(--muted)}
+footer{max-width:1240px;margin:auto;padding:0 20px 30px;color:var(--muted);font-size:13px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Authorization is not a model output.</h1>
+  <p>An AI help desk that can be fooled and still cannot change an account. Your session is your own fake company: real
+  gate, real approvals, the identity server's real log, fictional people.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>The help desk</h2>
+    <div id="start"><button class="primary" id="startBtn">Start a session (your own fake company)</button>
+      <p class="muted" id="startMsg"></p></div>
+    <div id="desk" class="hidden">
+      <div class="scen" id="scen"></div>
+      <div class="expect" id="expect"></div>
+      <label class="label" for="caller">You, as the caller</label>
+      <textarea id="caller" rows="3" maxlength="1200" placeholder="Type as the caller, or pick a scenario"></textarea>
+      <details><summary class="label">The ticketing system (what the agent reads; attackers can write here)</summary>
+        <textarea id="ticket" rows="4" maxlength="2500"></textarea></details>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button class="primary" id="send">Call the help desk</button>
+        <label class="label"><input type="radio" name="prompt" value="light" checked> light prompt</label>
+        <label class="label"><input type="radio" name="prompt" value="hardened"> hardened prompt</label>
+      </div>
+      <div class="msgs" id="msgs"></div>
+      <div id="replyRow" class="hidden" style="display:flex;gap:8px">
+        <textarea id="reply" rows="2" maxlength="1200" placeholder="The agent is waiting for you"></textarea>
+        <button id="replyBtn">Send</button></div>
+      <p class="muted" id="tnote"></p>
+    </div>
+  </section>
+  <section class="card">
+    <h2>What actually happened</h2>
+    <div class="status">
+      <div class="cell"><div class="k">The agent asked</div><div class="v" id="s1">-</div></div>
+      <div class="cell"><div class="k">The gate said</div><div class="v" id="s2">-</div></div>
+      <div class="cell oracle"><div class="k">The identity server recorded</div><div class="v" id="s3">-</div></div>
+    </div>
+    <div class="counters"><span>attempted changes <b id="att">0</b></span><span>executed <b id="exe">0</b></span></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="tabRows">Every request</button>
+      <button role="tab" aria-selected="false" data-tab="tabPhone">The owner's phone <span id="badge"></span></button>
+      <button role="tab" aria-selected="false" data-tab="tabAbout">How it works, and what it does not claim</button>
+    </div>
+    <div id="tabRows">
+      <table><thead><tr><th>The agent asked</th><th>The gate</th><th>Owner's device</th>
+        <th class="oracle">Identity server's own admin log<br><span class="label">read with a view-only account</span></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="4" class="muted">No requests yet.</td></tr></tbody></table>
+    </div>
+    <div id="tabPhone" class="hidden">
+      <div class="phone">
+        <div class="label" id="phoneLabel"></div>
+        <div id="pending"></div>
+        <div id="notices"></div>
+        <div class="label" id="mail"></div>
+      </div>
+      <p class="box" id="phoneNote"></p>
+    </div>
+    <div id="tabAbout" class="hidden">
+      <div class="box"><b>How it works.</b> The agent writes scripts that run in a disposable sandbox holding no
+        credential. Every account change it attempts is refused by the gate and turned into a push to the account owner's
+        phone, naming the action and the account. Only the owner's yes to that exact request lets it through, once. The
+        rightmost column is read from the identity server's own log, not from our software.</div>
+      <div class="box"><b>Simulated here.</b> The phone (in production: the owner's authenticator app), the people (all
+        fictional), the email inbox (we only show that an email arrived). Cooling-off is shortened to 20 seconds for the
+        demo (production: 60 seconds, 10 minutes for privileged accounts).</div>
+      <div class="box"><b>What this demo does not claim.</b> That people always read a push carefully (no study we found
+        shows that); that a sandbox is an absolute boundary; that the model is safe. The claim is narrower: without the
+        owner's approval of the exact request, the identity server records no change.</div>
+      <div class="box">Sessions are logged (transcripts kept privately, for the counter). Please do not paste real data.</div>
+    </div>
+  </section>
+</main>
+<footer><span id="counter"></span> <span id="budget"></span></footer>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let scenarios = [], current = null, timer = null;
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; }
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {credentials: "same-origin"} :
+    {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ("error " + r.status));
+  return j;
+}
+document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-tab]").forEach(x => { x.setAttribute("aria-selected", x === b); $(x.dataset.tab).classList.toggle("hidden", x !== b); });
+});
+$("startBtn").onclick = async () => {
+  $("startMsg").textContent = "Creating your company...";
+  try { await api("/api/session", {}); $("start").classList.add("hidden"); $("desk").classList.remove("hidden"); poll(); }
+  catch (e) { $("startMsg").textContent = e.message; }
+};
+async function loadScenarios() {
+  scenarios = await api("/api/scenarios");
+  const box = $("scen"); box.replaceChildren();
+  for (const s of scenarios) {
+    const b = el("button", "", (s.side === "attacker" ? "Attack: " : "Honest: ") + s.title);
+    b.onclick = () => { current = s.id; $("caller").value = s.caller; $("ticket").value = s.ticket; $("expect").textContent = "Expected: " + s.expect; };
+    box.append(b);
+  }
+}
+$("send").onclick = async () => {
+  const prompt = document.querySelector("input[name=prompt]:checked").value;
+  try { await api("/api/tickets", {scenario: current, caller: $("caller").value, ticket: $("ticket").value, prompt}); $("tnote").textContent = ""; }
+  catch (e) { $("tnote").textContent = e.message; }
+};
+$("replyBtn").onclick = async () => {
+  const t = window._last; if (!t) return;
+  try { await api("/api/tickets/" + t.id + "/say", {text: $("reply").value}); $("reply").value = ""; } catch (e) { $("tnote").textContent = e.message; }
+};
+function cls(text) { return /refused|denied|no approval/.test(text) ? "no" : /allowed|approved by/.test(text) ? "ok" : /waiting|cooling/.test(text) ? "wait" : ""; }
+function render(v) {
+  const t = v.tickets[v.tickets.length - 1]; window._last = t;
+  const msgs = $("msgs"); msgs.replaceChildren();
+  if (t) for (const m of t.messages) { const d = el("div", "m " + m.role); d.append(el("div", "who", m.role === "caller" ? "Caller (you)" : "Help-desk agent (the model)"), el("div", "", m.text)); msgs.append(d); }
+  $("replyRow").classList.toggle("hidden", !(t && t.status === "waiting_for_you"));
+  $("tnote").textContent = t ? (t.status === "queued" ? "Queued: " + v.queue + " ahead of you." : t.status === "running" ? "The agent is working..." : (t.note || "")) : "";
+  const rows = $("rows"); rows.replaceChildren();
+  if (!v.rows.length) rows.append((() => { const tr = el("tr"); const td = el("td", "muted", "No requests yet."); td.colSpan = 4; tr.append(td); return tr; })());
+  for (const r of v.rows) {
+    const tr = el("tr"); tr.append(el("td", "", r.asked + (r.hash ? "  #" + r.hash : "")), el("td", cls(r.gate), r.gate), el("td", "", r.device),
+      el("td", "oracle " + (r.event ? "ok" : ""), r.event ? r.event : "no event")); rows.append(tr);
+  }
+  const last = v.rows[v.rows.length - 1];
+  $("s1").textContent = last ? last.asked : "-"; $("s2").textContent = last ? last.gate : "-"; $("s2").className = "v " + (last ? cls(last.gate) : "");
+  $("s3").textContent = last ? (last.event || "no event") : "-";
+  $("att").textContent = v.attempted; $("exe").textContent = v.executed;
+  const ph = v.phone; $("phoneLabel").textContent = ph.label; $("phoneNote").textContent = ph.note;
+  const pend = $("pending"); pend.replaceChildren(); $("badge").textContent = ph.pending.length ? "(" + ph.pending.length + ")" : "";
+  for (const p of ph.pending) {
+    const d = el("div", "push");
+    d.append(el("div", "label", "Device of " + p.device_of), el("div", "", p.action + " on account " + p.account + "  #" + p.hash));
+    if (p.instruction) d.append(el("div", "label", p.instruction));
+    d.append(el("div", "label", "Pick the number the help desk told the caller:"));
+    const nums = el("div", "nums");
+    for (const n of p.numbers) { const b = el("button", "", n); b.onclick = () => api("/api/phone/" + p.id + "/approve", {number: n}).catch(e => alert(e.message)); nums.append(b); }
+    const deny = el("button", "", "Deny"); deny.onclick = () => api("/api/phone/" + p.id + "/deny", {}).catch(e => alert(e.message));
+    nums.append(deny); d.append(nums); pend.append(d);
+  }
+  const no = $("notices"); no.replaceChildren();
+  for (const n of ph.notices) { const d = el("div", "push"); d.append(el("div", "label", "Notice on the device of " + n.device_of), el("div", "", n.text));
+    if (n.cancel) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}); d.append(b); } no.append(d); }
+  $("mail").textContent = ph.mail ? ph.mail + " email(s) arrived in the account's inbox (the link is not shown)." : "";
+  const c = v.counter; $("counter").textContent = "Since " + c.since + ", from " + c.source + ": " + c.attempted + " attempted changes, " + c.executed + " executed, " + c.orphans + " without an approval.";
+  $("budget").textContent = v.limits.paused ? " The live demo is paused." : "";
+}
+async function poll() { try { render(await api("/api/state")); } catch (e) { $("tnote").textContent = e.message; } clearTimeout(timer); timer = setTimeout(poll, 1500); }
+loadScenarios().catch(() => {});
+</script>
+</body>
+</html>

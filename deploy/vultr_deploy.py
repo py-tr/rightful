@@ -25,7 +25,8 @@ STATE_DIR = os.path.join(ROOT, "deploy", ".state")
 STATE = os.path.join(STATE_DIR, "state.json")
 API = "https://api.vultr.com/v2"
 REGION, PLAN, OS_ID = os.environ.get("KEYLESS_REGION", "fra"), "vc2-2c-4gb", 2284
-HOURLY = {"vc2-2c-4gb": 0.027}
+CONTROL_PLAN = os.environ.get("KEYLESS_CONTROL_PLAN", PLAN)       # the evaluation night uses vc2-4c-8gb
+HOURLY = {"vc2-2c-4gb": 0.030, "vc2-4c-8gb": 0.060}             # $20 / $40 a month (Vultr API, 2026-11-05)
 
 
 def key() -> str:
@@ -198,11 +199,11 @@ def up() -> None:
         step = "tarball"
         s["tgz"] = tarball()
         step = "control plane"
-        c = call("POST", "/instances", {"region": REGION, "plan": PLAN, "os_id": OS_ID, "label": "keyless-control",
+        c = call("POST", "/instances", {"region": REGION, "plan": CONTROL_PLAN, "os_id": OS_ID, "label": "keyless-control",
                                         "hostname": "keyless-control", "sshkey_id": [s["ssh_key"]],
                                         "backups": "disabled", "attach_vpc": [s["vpc"]],
                                         "firewall_group_id": s["fw_control"], "tags": ["keyless"]})["instance"]
-        s["control"] = c["id"]
+        s["control"], s["control_plan"] = c["id"], CONTROL_PLAN
         save(s)
         inst = wait_instance(c["id"])
         s["control_ip"], s["control_vpc_ip"] = inst["main_ip"], vpc_ip(c["id"])
@@ -230,8 +231,15 @@ def status() -> None:
                 print(f"{k}: {i['status']} {i['main_ip']} vpc {s.get(k + '_vpc_ip')} plan {i['plan']} created {i['date_created']}")
             except RuntimeError as e:
                 print(f"{k}: {e}")
-    n = sum(1 for k in ("control", "worker") if s.get(k))
-    print(f"hourly cost now ~${n * HOURLY[PLAN]:.3f}/h")
+    for w in s.get("fleet", []):
+        try:
+            i = call("GET", f"/instances/{w['id']}")["instance"]
+            print(f"fleet {w['label']}: {i['status']} vpc {w.get('vpc_ip')} ok={w.get('ok')}")
+        except RuntimeError as e:
+            print(f"fleet {w['label']}: {e}")
+    cost = (HOURLY.get(s.get("control_plan", PLAN), 0.06) if s.get("control") else 0) \
+        + (HOURLY[PLAN] if s.get("worker") else 0) + HOURLY[PLAN] * len(s.get("fleet", []))
+    print(f"hourly cost now ~${cost:.3f}/h")
     if s.get("public_host"):
         try:
             print("health:", httpx.get(f"https://{s['public_host']}/healthz", timeout=15).text)
@@ -253,8 +261,124 @@ def recycle_worker() -> None:
     print(f"fresh worker ready in {time.time() - t0:.0f} s")
 
 
+# --- the evaluation night: temporary workers ("throwaway instances"), the harness on the control plane -------------
+def _fleet_one(s: dict, label: str) -> dict:
+    w = call("POST", "/instances", {"region": REGION, "plan": PLAN, "os_id": OS_ID, "label": label, "hostname": label,
+                                    "sshkey_id": [s["ssh_key"]], "backups": "disabled", "attach_vpc": [s["vpc"]],
+                                    "firewall_group_id": s["fw_worker"], "tags": ["keyless", "keyless-fleet"]})["instance"]
+    rec = {"id": w["id"], "label": label, "created": time.time()}
+    inst = wait_instance(w["id"])
+    rec["ip"], rec["vpc_ip"] = inst["main_ip"], vpc_ip(w["id"])
+    wait_ssh(rec["ip"])
+    scp(rec["ip"], s["tgz"], "/root/keyless.tgz")
+    r = ssh(rec["ip"], f"BROKER_VPC_IP={s['control_vpc_ip']} bash -s",
+            input_text=open(os.path.join(ROOT, "deploy", "worker.sh"), encoding="utf-8").read())
+    if "WORKER OK" not in r.stdout:
+        rec["ok"] = False
+        rec["error"] = (r.stdout[-400:] + r.stderr[-400:])
+        return rec
+    pub = ssh(s["control_ip"], "cat /root/.ssh/id_ed25519.pub").stdout.strip()
+    ssh(rec["ip"], "mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys", input_text=pub + "\n")
+    chk = ssh(s["control_ip"], f"ssh -o StrictHostKeyChecking=accept-new root@{rec['vpc_ip']} true && "
+                               f"DOCKER_HOST=ssh://root@{rec['vpc_ip']} docker info --format '{{{{.Runtimes}}}}'")
+    rec["ok"] = "runsc" in chk.stdout
+    rec["provisioned_s"] = round(time.time() - rec["created"])
+    return rec
+
+
+def fleet(n: int) -> None:
+    """Create n temporary workers in parallel (measured: time to ready), wired to the control plane."""
+    from concurrent.futures import ThreadPoolExecutor
+    s = load()
+    if not s.get("control_ok"):
+        sys.exit("no provisioned control plane")
+    s["tgz"] = tarball()
+    have = len(s.get("fleet", []))
+    labels = [f"keyless-eval-w{have + k + 1}" for k in range(n)]
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        recs = list(pool.map(lambda lb: _fleet_one(s, lb), labels))
+    s.setdefault("fleet", []).extend(recs)
+    save(s)
+    for r in recs:
+        print(f"{r['label']}: ok={r.get('ok')} vpc {r.get('vpc_ip')} ready in {r.get('provisioned_s')} s"
+              + (f" ERROR {r['error'][-200:]}" if r.get("error") else ""))
+    print(f"fleet of {n} in {time.time() - t0:.0f} s")
+
+
+def fleet_down() -> None:
+    s = load()
+    for w in s.get("fleet", []):
+        try:
+            call("DELETE", f"/instances/{w['id']}")
+            print(f"deleted {w['label']} (lived {(time.time() - w['created']) / 3600:.2f} h)")
+        except RuntimeError as e:
+            print(f"{w['label']}: {e}")
+    s["fleet"] = []
+    save(s)
+
+
+def eval_setup() -> None:
+    """On the control plane: the demo service off for the night (the harness takes its ports), the model key and the
+    Keycloak admin password into a root-only env file (via stdin, never a command line), the case files uploaded,
+    SSH connection sharing to the workers."""
+    s = load()
+    ip = s["control_ip"]
+    key_line = next(l.strip() for l in open(os.path.join(ROOT, ".env"), encoding="utf-8")
+                    if l.startswith("VULTR_INFERENCE_API_KEY="))
+    ssh(ip, "systemctl stop keyless; mkdir -p /opt/keyless/cases /var/lib/keyless/eval; umask 077; "
+            "{ cat; echo KC_ADMIN_PASSWORD=$(cat /opt/keyless/kc-admin); echo SMTP_HOST=keyless-mail; } "
+            "> /opt/keyless/eval.env; chmod 600 /opt/keyless/eval.env", input_text=key_line + "\n")
+    from eval.cases import FILES, DEFAULT_DIR
+    src = os.environ.get("KEYLESS_CASES_DIR", DEFAULT_DIR)
+    for f in FILES.values():
+        scp(ip, os.path.join(src, f), f"/opt/keyless/cases/{f}")
+    ssh(ip, "chmod 700 /opt/keyless/cases; chmod 600 /opt/keyless/cases/*; mkdir -p /root/.ssh; "
+            "printf 'Host 10.40.0.*\\n  ControlMaster auto\\n  ControlPath /root/.ssh/cm-%%r@%%h:%%p\\n  "
+            "ControlPersist 30m\\n' > /root/.ssh/config; chmod 600 /root/.ssh/config")
+    print("eval setup done (demo service stopped; env file root-only; cases uploaded)")
+
+
+def eval_start(cmd: str, cap: str, per_host: str = "3") -> None:
+    s = load()
+    hosts = ",".join(f"ssh://root@{w['vpc_ip']}" for w in s.get("fleet", []) if w.get("ok"))
+    if s.get("worker_vpc_ip"):
+        hosts = (hosts + "," if hosts else "") + f"ssh://root@{s['worker_vpc_ip']}"
+    v = s["control_vpc_ip"]
+    r = ssh(s["control_ip"],
+            f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_EVAL=1 "
+            f"KEYLESS_CASES_DIR=/opt/keyless/cases && nohup .venv/bin/python -m eval.harness {cmd} --cap {cap} "
+            f"--hosts {hosts} --per-host {per_host} --bind {v} --edge-upstream http://{v}:8090 "
+            f"--out /var/lib/keyless/eval/gateon > /var/lib/keyless/eval/harness-{cmd}.log 2>&1 & echo started")
+    print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
+
+
+def eval_log(cmd: str = "run") -> None:
+    s = load()
+    print(ssh(s["control_ip"], f"tail -n 30 /var/lib/keyless/eval/harness-{cmd}.log; "
+                               "ls /var/lib/keyless/eval/ | head; "
+                               "ls /var/lib/keyless/eval/gateon* 2>/dev/null | grep -c 'r.*[0-9a-f].json$'").stdout)
+
+
+def eval_fetch() -> None:
+    s = load()
+    out = os.path.join(ROOT, "eval", "out")
+    os.makedirs(out, exist_ok=True)
+    ssh(s["control_ip"], "cd /var/lib/keyless/eval && tar -czf /root/eval-out.tgz gateon*")
+    kh = os.path.join(STATE_DIR, "known_hosts")
+    subprocess.run(["scp", "-q", "-i", os.path.join(STATE_DIR, "id_ed25519"), "-o", "StrictHostKeyChecking=no",
+                    "-o", f"UserKnownHostsFile={kh}", f"root@{s['control_ip']}:/root/eval-out.tgz",
+                    os.path.join(out, "eval-out.tgz")], check=True, timeout=1800)
+    with tarfile.open(os.path.join(out, "eval-out.tgz")) as t:
+        t.extractall(out)
+    print("fetched to", out)
+
+
 def down() -> None:
     s = load()
+    if s.get("fleet"):
+        fleet_down()
+        s = load()
     for k in ("worker", "control"):
         if s.get(k):
             try:
@@ -285,4 +409,13 @@ def down() -> None:
 
 
 if __name__ == "__main__":
-    {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down}[sys.argv[1]]()
+    cmds = {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down,
+            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch}
+    if sys.argv[1] == "fleet":
+        fleet(int(sys.argv[2]))
+    elif sys.argv[1] == "eval-start":
+        eval_start(sys.argv[2], sys.argv[3], *(sys.argv[4:5]))
+    elif sys.argv[1] == "eval-log":
+        eval_log(*(sys.argv[2:3]))
+    else:
+        cmds[sys.argv[1]]()

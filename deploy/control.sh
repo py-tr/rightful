@@ -20,6 +20,7 @@ docker run -d --name keyless-kc --network keyless-net --restart unless-stopped -
   quay.io/keycloak/keycloak:26.0.7 start-dev --hostname=http://gate:8080 \
   --spi-ciba-auth-channel-ciba-http-auth-channel-http-authentication-channel-uri=http://host.docker.internal:8099/ciba/notify >/dev/null
 for i in $(seq 1 90); do curl -sf http://127.0.0.1:8089/realms/master >/dev/null && break; sleep 2; done
+( umask 077; printf '%s' "$KC_ADMIN_PW" > /opt/keyless/kc-admin )   # root-only: the evaluation harness creates realms
 echo "=== STEP realm bootstrap"
 cd /opt/keyless && KC_ADMIN_PASSWORD="$KC_ADMIN_PW" SMTP_HOST=keyless-mail .venv/bin/python -m deploy.bootstrap_realm /opt/keyless/secrets.json
 chmod 600 /opt/keyless/secrets.json

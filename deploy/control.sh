@@ -37,6 +37,9 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload && systemctl enable --now keyless >/dev/null
+echo "=== STEP host firewall (Vultr's Ubuntu image has ufw on, SSH only)"
+ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null
+ufw allow from 10.40.0.0/24 to any port 8090 proto tcp >/dev/null      # the broker: the private VPC only
 echo "=== STEP public front door (TLS via Caddy)"
 cat > /etc/caddy/Caddyfile <<EOF
 $PUBLIC_HOST {

@@ -73,6 +73,31 @@ def test_kill_switch_stops_everything_new(tmp_path):
         lim.open_session("b", "5.6.7.8")
 
 
+def test_total_cap_holds_back_the_final_week_reserve(tmp_path):
+    clock = Clock()
+    lim = make(tmp_path, clock=clock, daily_usd=100, total_usd=0.20, final_week_reserve_usd=0.10,
+               final_week_starts=clock.t + 7 * 86400, per_ticket_usd=0.05, per_session_usd=100,
+               tickets_per_session=100, tickets_per_ip_day=100)
+    lim.open_session("a", "1.1.1.1")
+    for _ in range(2):
+        lim.settle_ticket("a", lim.reserve_ticket("a"), 0.05)
+    with pytest.raises(Refused, match="budget is used up"):        # $0.10 of $0.20 used: the rest waits
+        lim.reserve_ticket("a")
+    clock.t += 8 * 86400                                           # the final week: the reserve opens
+    lim.open_session("b", "2.2.2.2")
+    lim.settle_ticket("b", lim.reserve_ticket("b"), 0.05)
+    assert lim.status()["spent_total"] == 0.15
+
+
+def test_tickets_per_ip_per_day(tmp_path):
+    lim = make(tmp_path, tickets_per_ip_day=3, tickets_per_session=100, sessions_per_ip_day=10, per_session_usd=100)
+    lim.open_session("a", "7.7.7.7")
+    lim.open_session("b", "7.7.7.7")
+    lim.reserve_ticket("a"), lim.reserve_ticket("a"), lim.reserve_ticket("b")
+    with pytest.raises(Refused, match="tickets from your address"):
+        lim.reserve_ticket("b")                                     # a second session does not reset the IP's count
+
+
 def test_a_ticket_cannot_settle_more_than_it_reserved(tmp_path):
     lim = make(tmp_path, daily_usd=1.0, per_ticket_usd=0.05)
     lim.open_session("a", "1.2.3.4")

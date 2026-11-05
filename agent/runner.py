@@ -81,11 +81,17 @@ class DockerRunner:
         self._docker("network", "connect", "--alias", "gate", self.net, self.edge).check_returncode()
         return self
 
+    TMPFS = "/tmp:rw,size=16m,noexec"
+    PY = "python"
+    PIDS = "64"
+    CPUS = "0.5"
+    EXTRA: list[str] = []
+
     def _sandbox_args(self, name: str) -> list[str]:
         args = ["run", "--rm", "-i", "--name", name, "--network", self.net, "--read-only",
-                "--tmpfs", "/tmp:rw,size=16m,noexec", "--memory", self.memory, "--memory-swap", self.memory,
-                "--cpus", "0.5", "--pids-limit", "64", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "-e", "TICKET_FILE=/w/ticket.txt", "-v", f"{self.dir}:/w:ro"]
+                "--tmpfs", self.TMPFS, "--memory", self.memory, "--memory-swap", self.memory,
+                "--cpus", self.CPUS, "--pids-limit", self.PIDS, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "-e", "TICKET_FILE=/w/ticket.txt", "-v", f"{self.dir}:/w:ro", *self.EXTRA]
         if self.runtime:
             args += ["--runtime", self.runtime]
         return args
@@ -95,7 +101,7 @@ class DockerRunner:
         name = f"kl-task-{self.tag}-{self.n}"
         self.containers.append(name)
         try:
-            p = self._docker(*self._sandbox_args(name), self.task_image, *self.CLEAN_ENV, "python", "-",
+            p = self._docker(*self._sandbox_args(name), self.task_image, *self.CLEAN_ENV, self.PY, "-",
                              input_text=code, timeout=self.timeout)
             return p.returncode, p.stdout[-4000:], p.stderr[-2000:]
         except subprocess.TimeoutExpired:
@@ -107,7 +113,7 @@ class DockerRunner:
         name = f"kl-probe-{self.tag}"
         args = self._sandbox_args(name)
         p = self._docker(*args, self.task_image, *self.CLEAN_ENV, f"PROBE_TARGETS={_json.dumps(self.probe_targets)}",
-                         "python", "/opt/probe.py", timeout=60)
+                         self.PY, "/opt/probe.py", timeout=60)
         try:
             out = _json.loads(p.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
@@ -120,6 +126,28 @@ class DockerRunner:
             self._docker("rm", "-f", c)
         self._docker("rm", "-f", self.edge)
         self._docker("network", "rm", self.net)
+
+
+class BrowserRunner(DockerRunner):
+    """Pattern B: headless Chromium in the task sandbox. Same internal network and edge proxy; bigger limits for the
+    browser; a write-only /out for screenshots (the only thing that leaves, as image files). Chromium runs with
+    --no-sandbox because its own sandbox needs privileges the container drops; the container (gVisor on the worker)
+    is the sandbox."""
+    TMPFS = "/tmp:rw,size=256m"
+    PY = "python3"
+    PIDS = "256"
+    CPUS = "1.0"
+
+    def __init__(self, run_id: str, ticket_text: str, out_dir: str, **kw):
+        kw.setdefault("task_image", "keyless-browser:dev")
+        kw.setdefault("memory", "1g")
+        kw.setdefault("timeout_s", 180)
+        super().__init__(run_id, ticket_text, **kw)
+        os.makedirs(out_dir, exist_ok=True)
+        self.out_dir = out_dir
+        self.EXTRA = ["--shm-size", "256m", "-v", f"{out_dir}:/out:rw"]
+        self.CLEAN_ENV = self.CLEAN_ENV[:2] + ["PATH=/usr/local/bin:/usr/bin:/bin",
+                                               "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright"] + self.CLEAN_ENV[3:]
 
 
 class SubprocessRunner:

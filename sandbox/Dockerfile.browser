@@ -1,0 +1,10 @@
+# The browser task sandbox (Pattern B): headless Chromium + Playwright + the credential-free SDK.
+# Chromium's own sandbox needs privileges we deliberately drop, so the CONTAINER (gVisor on the worker) is the
+# sandbox; the browser runs with --no-sandbox inside it. No credential, no route except the edge proxy.
+FROM mcr.microsoft.com/playwright/python:v1.48.0-jammy
+RUN pip3 install --no-cache-dir playwright==1.48.0 httpx==0.27.2
+COPY agent/sdk/helpdesk.py /opt/sdk/helpdesk.py
+COPY sandbox/probe.py /opt/probe.py
+ENV PYTHONPATH=/opt/sdk PYTHONDONTWRITEBYTECODE=1 GATE_URL=http://gate:8080
+USER pwuser
+WORKDIR /tmp

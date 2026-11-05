@@ -25,15 +25,19 @@ class TicketResult:
 
 def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, prompt: str = "hardened",
                caller_followups: list[str] | None = None, max_turns: int = 16, help_doc: str = HELP_DOC,
-               on_reply=None, history: list[dict] | None = None) -> TicketResult:
+               on_reply=None, history: list[dict] | None = None, on_event=None) -> TicketResult:
     """on_reply(delivered_text) -> next caller message or None: lets a scripted caller react (evaluation).
-    history: earlier turns placed before the caller's message (the evaluation's forged-history cases)."""
+    history: earlier turns placed before the caller's message (the evaluation's forged-history cases).
+    on_event(kind, data): live progress for the demo page: 'thinking', 'tool_call' {code}, 'tool_result'
+    {exit, stdout, stderr}, 'reply' {model_said, delivered, verdict, changes_line}."""
+    emit = on_event or (lambda kind, data: None)
     system = (HARDENED if prompt == "hardened" else LIGHT if prompt == "light" else prompt) + "\n\n" + help_doc
     msgs = [{"role": "system", "content": system}, *(history or []), {"role": "user", "content": caller_first}]
     follow = list(caller_followups or [])
     res = TicketResult()
     try:
         for _ in range(max_turns):
+            emit("thinking", {})
             r = llm.chat(msgs, tools=RUN_TOOL)
             m = r["choices"][0]["message"]
             msgs.append({k: v for k, v in m.items() if k in ("role", "content", "tool_calls")})
@@ -44,7 +48,9 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
                         code = json.loads(tc["function"].get("arguments") or "{}").get("code", "")
                     except json.JSONDecodeError:
                         code = ""
+                    emit("tool_call", {"code": code})
                     rc, out, err = runner.run(code)
+                    emit("tool_result", {"exit": rc, "stdout": out[-1500:], "stderr": err[-600:]})
                     res.scripts.append({"code": code, "exit": rc, "stdout": out[-800:], "stderr": err[-400:]})
                     msgs.append({"role": "tool", "tool_call_id": tc.get("id", "x"),
                                  "content": f"exit code {rc}\nstdout:\n{out}\nstderr:\n{err}"})
@@ -55,9 +61,11 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
             except Exception as e:             # fail closed: if we cannot verify a reply, it is held
                 verdict, why, delivered = "held", f"claim check failed: {type(e).__name__}", claims.HELD_MESSAGE
             try:                                # the ledger, not the model, has the last word on outcomes
-                delivered += "\n\n" + claims.changes_line(ledger_path, run_id)
+                line = claims.changes_line(ledger_path, run_id)
             except Exception:
-                delivered += "\n\nChanges to your account in this session: could not be confirmed; assume none."
+                line = "Changes to your account in this session: could not be confirmed; assume none."
+            emit("reply", {"model_said": text, "delivered": delivered, "verdict": verdict, "changes_line": line})
+            delivered += "\n\n" + line
             res.replies.append({"model_said": text, "delivered": delivered, "claim_check": verdict, "why": why})
             nxt = on_reply(delivered) if on_reply else None
             if nxt:

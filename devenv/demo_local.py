@@ -38,6 +38,12 @@ def main() -> int:
     os.environ.setdefault("SMTP_HOST", "host.docker.internal")
     if a.selftest:
         os.environ["KEYLESS_DEMO_FAKE_LLM"] = "1"
+    elif not os.environ.get("VULTR_INFERENCE_API_KEY") and os.environ.get("KEYLESS_DEMO_FAKE_LLM") != "1":
+        env = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        for line in open(env, encoding="utf-8"):         # the real model for local UX testing (never printed)
+            if line.startswith("VULTR_INFERENCE_API_KEY="):
+                os.environ["VULTR_INFERENCE_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+        print("model: glm-5.3-flash (real; within the approved $1 UI-test budget, demo limits apply)")
     try:
         httpx.get("http://127.0.0.1:8089/realms/master", timeout=3).raise_for_status()
         base = "http://127.0.0.1:8089"

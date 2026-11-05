@@ -197,6 +197,20 @@ class Challenges:
                 self._trip(c.user_id, "approver declined")     # the decline tripwire
         return c
 
+    def expire_now(self, binding: str) -> bool:
+        """The demo's "the owner doesn't answer" button: the push for this binding message expires at once, as it would
+        after its timeout (an expiry, not a decline: no tripwire, the agent may try again or escalate)."""
+        with self._lock:
+            for c in self._by_id.values():
+                if c.binding == binding and c.status == "sent":
+                    c.status = "expired"
+                    return True
+        return False
+
+    def number_for(self, challenge_id: str) -> str | None:
+        c = self._by_id.get(challenge_id)
+        return c.number if c else None
+
     def cancel(self, cancel_id: str) -> int:
         """The owner pressed cancel (from any device): every pending receipt on the account dies; human-only follows."""
         h = hashlib.sha256(cancel_id.encode()).hexdigest()

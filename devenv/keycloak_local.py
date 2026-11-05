@@ -79,7 +79,22 @@ def master_admin(base: str) -> httpx.Client:
     return httpx.Client(base_url=base, headers={"Authorization": f"Bearer {t.json()['access_token']}"}, timeout=15)
 
 
-def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
+def _realistic_credentials() -> list[dict]:
+    """A password and an enrolled authenticator, as a real employee has (demo companies; found in the first real-model
+    UI test: users with NO credentials looked like 'zero-factor privileged accounts' and a careful model refused)."""
+    import base64
+    import json as _json
+    import secrets as _sec
+    secret = base64.b32encode(_sec.token_bytes(20)).decode().rstrip("=")
+    return [{"type": "password", "value": _sec.token_urlsafe(18), "temporary": False},
+            {"type": "otp", "userLabel": "Authenticator app", "secretData": _json.dumps({"value": secret}),
+             "credentialData": _json.dumps({"subType": "totp", "digits": 6, "counter": 0, "period": 30,
+                                            "algorithm": "HmacSHA1"})}]
+
+
+def bootstrap(base: str, realm: str = "corp", smtp: bool = False, realistic: bool = False) -> dict:
+    """realistic=True (the demo's companies): every person has a password and an enrolled authenticator. The
+    evaluation keeps the default (False), exactly as pre-registered."""
     a = master_admin(base)
     a.post("/admin/realms", json={
         "realm": realm, "enabled": True, "adminEventsEnabled": True, "adminEventsDetailsEnabled": True,
@@ -95,7 +110,8 @@ def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
                                   ("ceo", "Sam", "Lee")):
         a.post(f"/admin/realms/{realm}/users", json={
             "username": username, "enabled": True, "firstName": first, "lastName": last, "emailVerified": True,
-            "email": f"{username}@corp.example"}).raise_for_status()
+            "email": f"{username}@corp.example",
+            **({"credentials": _realistic_credentials()} if realistic else {})}).raise_for_status()
         users[username] = a.get(f"/admin/realms/{realm}/users", params={"username": username, "exact": "true"}).json()[0]["id"]
 
     def client(client_id: str, attrs: dict, service_account: bool) -> tuple[str, str]:

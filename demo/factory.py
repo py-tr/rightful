@@ -46,7 +46,7 @@ class Factory:
         last = None
         for i in range(3):                           # dev-mode Keycloak can fail a creation under concurrency
             try:
-                env = kl.bootstrap(self.kc, realm=realm, smtp=True)
+                env = kl.bootstrap(self.kc, realm=realm, smtp=True, realistic=True)
                 break
             except httpx.HTTPStatusError as e:
                 last = e

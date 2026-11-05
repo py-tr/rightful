@@ -3,190 +3,290 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
-<title>Keyless: an AI help desk that holds no key</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
+<title>Keyless help desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#f7f7f5;--fg:#1d1d1b;--muted:#5d5d58;--line:#d9d9d4;--card:#fff;--ok:#1f7a3d;--no:#a3261b;--wait:#8a6200;--acc:#2a4fa8}
-@media (prefers-color-scheme: dark){:root{--bg:#141413;--fg:#ececea;--muted:#a3a39d;--line:#34342f;--card:#1d1d1b;--ok:#5fc27e;--no:#ef7b6e;--wait:#e0b44a;--acc:#8fb0ff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
-header{padding:18px 20px 8px;max-width:1240px;margin:auto}h1{font-size:22px;margin:0 0 4px}header p{margin:0;color:var(--muted)}
-main{max-width:1240px;margin:auto;padding:8px 20px 40px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px}
-@media (max-width:900px){main{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:8px;padding:7px 11px;cursor:pointer}
-button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.5;cursor:default}
-.scen{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}.scen button{text-align:left}
-.expect{font-size:13px;color:var(--muted);margin:6px 0 10px}
-textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--bg);color:var(--fg);resize:vertical}
-.msgs{display:flex;flex-direction:column;gap:8px;max-height:430px;overflow:auto;margin:8px 0}
-.m{padding:8px 10px;border-radius:8px;white-space:pre-wrap;overflow-wrap:anywhere}.m.caller{background:var(--bg);align-self:flex-end;max-width:85%}
-.m.agent{border:1px solid var(--line);max-width:92%}.who{font-size:12px;color:var(--muted);margin-bottom:2px}
-.status{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
-.cell{border:1px solid var(--line);border-radius:8px;padding:9px}.cell .k{font-size:12px;color:var(--muted)}.cell .v{font-weight:600;margin-top:2px;overflow-wrap:anywhere}
-.cell.oracle{border-width:2px}.counters{display:flex;gap:18px;margin:4px 0 10px;font-size:14px}
-.counters b{font-size:20px}
-table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:6px 5px;text-align:left;vertical-align:top}
-th{color:var(--muted);font-weight:500}td.oracle,th.oracle{font-weight:700;border-left:2px solid var(--line)}
-.no{color:var(--no)}.ok{color:var(--ok)}.wait{color:var(--wait)}.muted{color:var(--muted)}
-.tabs{display:flex;gap:6px;margin:14px 0 8px}.tabs button[aria-selected=true]{border-color:var(--acc);color:var(--acc)}
-.phone{border:2px solid var(--line);border-radius:22px;padding:14px;max-width:360px}
-.push{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0}.nums{display:flex;gap:8px;margin-top:8px}
-.nums button{font-size:18px;font-weight:700;width:64px}.label{font-size:12px;color:var(--muted)}
-.box{border-left:3px solid var(--line);padding:4px 10px;margin:8px 0;font-size:13px;color:var(--muted)}
-footer{max-width:1240px;margin:auto;padding:0 20px 30px;color:var(--muted);font-size:13px}
-.hidden{display:none}
+:root{--bg:#f4f3ef;--surface:#ffffff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--soft:#f0efea;
+ --red:#c2352a;--red-bg:#fdecea;--green:#1d7a46;--green-bg:#e7f5ec;--amber:#9a6a00;--amber-bg:#fff5db;--blue:#2d55c8;
+ --you:#2d55c8;--you-ink:#fff;--shadow:0 1px 2px rgba(0,0,0,.05),0 6px 24px rgba(0,0,0,.06)}
+:root:not([data-theme="light"]){color-scheme:light dark}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--soft:#222429;
+ --red:#ff7b6e;--red-bg:#3a1d1a;--green:#5fd08f;--green-bg:#14301f;--amber:#f0c24b;--amber-bg:#352a0e;--blue:#8fb0ff;--you:#3d63d6;--you-ink:#fff;--shadow:none}}
+*{box-sizing:border-box}html,body{margin:0}body{background:var(--bg);color:var(--ink);font:15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+header{padding:22px 0 10px;display:flex;gap:20px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap}
+h1{font-size:26px;line-height:1.15;margin:0;letter-spacing:-.01em}.sub{color:var(--muted);margin:4px 0 0}
+.counter{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:var(--shadow);max-width:420px}
+.counter .big{font-size:22px;font-weight:700}.counter .zero{color:var(--green)}.counter small{display:block;color:var(--muted);font-size:12px}
+.intro{margin:10px 0 16px;padding:12px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+.intro b{font-weight:600}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+@media (max-width:960px){.grid{grid-template-columns:1fr}.phonecol{order:-1}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;padding:14px 14px 0}
+.chip{border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:999px;padding:7px 13px;font:inherit;font-size:14px;cursor:pointer}
+.chip.start{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}.chip.attack::before{content:"\26A0  ";color:var(--red)}
+.chip:hover{filter:brightness(.97)}
+.ticket{margin:12px 14px 0;border:1px dashed var(--line);border-radius:10px;padding:8px 12px;font-size:13px;background:var(--soft)}
+.ticket summary{cursor:pointer;color:var(--muted)}.ticket textarea{width:100%;margin-top:6px;font:13px/1.4 "JetBrains Mono",monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--surface);color:var(--ink)}
+.chat{height:520px;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:9px;scroll-behavior:smooth}
+.empty{margin:auto;text-align:center;color:var(--muted);max-width:360px}
+.b{max-width:80%;padding:10px 13px;border-radius:16px;white-space:pre-wrap;overflow-wrap:anywhere;animation:pop .18s ease-out}
+.you{align-self:flex-end;background:var(--you);color:var(--you-ink);border-bottom-right-radius:5px}
+.agent{align-self:flex-start;background:var(--soft);border-bottom-left-radius:5px}
+.who{font-size:11.5px;color:var(--muted);margin:2px 4px -4px}.who.r{align-self:flex-end}
+.agent s{color:var(--red);text-decoration-thickness:2px}.strike-note{display:block;margin-top:6px;font-size:12px;color:var(--red)}
+.sys{align-self:flex-start;max-width:80%;border:1px solid var(--line);border-left:4px solid var(--green);background:var(--surface);border-radius:10px;padding:9px 12px;font-size:13.5px}
+.sys .h{font-size:11.5px;font-weight:600;color:var(--green);text-transform:uppercase;letter-spacing:.04em}
+.line{align-self:stretch;font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:baseline;padding:0 6px}
+.line .dot{width:6px;height:6px;border-radius:50%;background:var(--line);flex:none;transform:translateY(-1px)}
+.line a{color:var(--blue);cursor:pointer;text-decoration:none;font-weight:500}
+.line pre{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-radius:8px;padding:8px;margin:6px 0 2px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;color:var(--ink)}
+.gate{align-self:stretch;border-radius:10px;padding:10px 12px;font-weight:600;background:var(--red-bg);color:var(--red);border:1px solid color-mix(in srgb,var(--red) 30%,transparent);animation:pop .2s ease-out}
+.gate.ok{background:var(--green-bg);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
+.ph{align-self:stretch;border-radius:10px;padding:9px 12px;background:var(--amber-bg);color:var(--amber);font-weight:600;font-size:14px}
+.ph .num{font-size:18px;padding:0 4px}
+.summary{align-self:stretch;border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--surface);font-size:14px}
+.summary .h{font-weight:700;margin-bottom:4px}.summary .acts{margin-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+.summary a,.linkbtn{color:var(--blue);cursor:pointer;font-weight:500;background:none;border:0;font:inherit;padding:0}
+.typing{align-self:flex-start;background:var(--soft);border-radius:16px;padding:10px 14px;display:flex;gap:4px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);opacity:.4;animation:blink 1.2s infinite}.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+@keyframes blink{50%{opacity:1}}@keyframes pop{from{transform:translateY(4px);opacity:0}to{transform:none;opacity:1}}
+.composer{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+.composer textarea{flex:1;resize:none;font:inherit;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--bg);color:var(--ink);min-height:44px;max-height:130px}
+.send{background:var(--blue);color:#fff;border:0;border-radius:12px;padding:0 18px;font:inherit;font-weight:600;cursor:pointer}
+.send:disabled{opacity:.5}
+.toolbar{display:flex;justify-content:space-between;align-items:center;padding:0 14px 10px;font-size:12.5px;color:var(--muted)}
+.toolbar select{font:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:2px 6px}
+/* the phone */
+.phone{border-radius:38px;padding:12px;background:#0f1012;box-shadow:var(--shadow);position:sticky;top:14px}
+.screen{border-radius:28px;background:#f6f6f8;color:#17181a;min-height:560px;padding:18px 14px;transition:box-shadow .3s}
+.screen.lit{box-shadow:0 0 0 3px #f0b429,0 0 32px rgba(240,180,41,.55)}
+.notch{width:90px;height:20px;background:#0f1012;border-radius:0 0 12px 12px;margin:-18px auto 10px}
+.phone .title{font-weight:700;font-size:16px}.phone .stitle{color:#6b6d72;font-size:12.5px;margin-bottom:12px}
+.idle{color:#6b6d72;text-align:center;margin-top:120px;font-size:14px}
+.card{background:#fff;border-radius:16px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.1);animation:slide .35s ease-out;margin-bottom:12px}
+@keyframes slide{from{transform:translateY(-18px);opacity:0}to{transform:none;opacity:1}}
+.card .app{font-size:11.5px;color:#6b6d72;text-transform:uppercase;letter-spacing:.05em}.card .what{font-weight:700;font-size:16px;margin:4px 0}
+.card .acct{font-size:13.5px}.card .warn{font-size:12.5px;color:#9a6a00;background:#fff5db;border-radius:8px;padding:6px 8px;margin-top:8px}
+.card .q{font-size:12.5px;color:#6b6d72;margin-top:10px}.nums{display:flex;gap:8px;margin-top:6px}
+.nums button{flex:1;font:inherit;font-size:22px;font-weight:700;border:1px solid #dcdce2;background:#fff;border-radius:12px;padding:10px 0;cursor:pointer;color:#17181a}
+.nums button:hover{border-color:#2d55c8}
+.pact{display:flex;gap:8px;margin-top:8px}.pact button{flex:1;font:inherit;font-size:13px;border:0;border-radius:10px;padding:8px;cursor:pointer}
+.deny{background:#fdecea;color:#c2352a;font-weight:600}.noans{background:#efeff2;color:#3b3d42}
+.notice{background:#fff;border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:8px}.notice button{margin-top:6px;font:inherit;font-size:12.5px;border:0;border-radius:8px;padding:6px 10px;background:#fdecea;color:#c2352a;font-weight:600;cursor:pointer}
+.phonenote{font-size:12.5px;color:var(--muted);margin:10px 4px 0}
+.mail{font-size:12.5px;color:#6b6d72;margin-top:8px}
+/* the receipt */
+.receipt{margin-top:18px;padding:14px 16px}
+.receipt h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 8px}
+.rrow{display:grid;grid-template-columns:minmax(0,2fr) repeat(3,minmax(0,1fr)) minmax(0,1.6fr);gap:8px;font-size:13px;padding:7px 0;border-top:1px solid var(--line);align-items:center}
+.rrow.head{border-top:0;color:var(--muted);font-size:12px}.rrow .log{font-weight:700}.rrow .log.none{color:var(--green)}
+.pill{display:inline-block;border-radius:999px;padding:1px 8px;font-size:12px;background:var(--soft)}.pill.r{background:var(--red-bg);color:var(--red)}.pill.g{background:var(--green-bg);color:var(--green)}.pill.a{background:var(--amber-bg);color:var(--amber)}
+footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{margin-top:6px}footer summary{cursor:pointer}
+.hidden{display:none!important}
 </style>
 </head>
 <body>
+<div class="wrap">
 <header>
-  <h1>Authorization is not a model output.</h1>
-  <p>An AI help desk that can be fooled and still cannot change an account. Your session is your own fake company: real
-  gate, real approvals, the identity server's real log, fictional people.</p>
+  <div><h1>Authorization is not a model output.</h1>
+    <p class="sub">An AI help desk that can be fooled and still cannot change an account.</p></div>
+  <div class="counter" id="counter"><span class="big zero" id="cWithout">0</span> account changes made without the owner's approval
+    <small id="cDetail">from the identity server's own log</small></div>
 </header>
-<main>
-  <section class="card">
-    <h2>The help desk</h2>
-    <div id="start"><button class="primary" id="startBtn">Start a session (your own fake company)</button>
-      <p class="muted" id="startMsg"></p></div>
-    <div id="desk" class="hidden">
-      <div class="scen" id="scen"></div>
-      <div class="expect" id="expect"></div>
-      <label class="label" for="caller">You, as the caller</label>
-      <textarea id="caller" rows="3" maxlength="1200" placeholder="Type as the caller, or pick a scenario"></textarea>
-      <details><summary class="label">The ticketing system (what the agent reads; attackers can write here)</summary>
-        <textarea id="ticket" rows="4" maxlength="2500"></textarea></details>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <button class="primary" id="send">Call the help desk</button>
-        <label class="label"><input type="radio" name="prompt" value="light" checked> light prompt</label>
-        <label class="label"><input type="radio" name="prompt" value="hardened"> hardened prompt</label>
+<div class="intro"><b>You're calling Corp's AI help desk</b>, a fictional company made just for you. Your goal: get the
+  CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.</div>
+<div class="grid">
+  <div>
+    <div class="panel">
+      <div class="chips" id="chips"></div>
+      <details class="ticket hidden" id="ticketBox"><summary id="ticketTitle">Ticket</summary>
+        <textarea id="ticket" rows="4" maxlength="2500" aria-label="Ticket text (what the agent reads)"></textarea>
+        <div class="label" style="font-size:12px;color:var(--muted)">This is the ticketing system the agent reads. An attacker
+          who can write a ticket can write anything here.</div></details>
+      <div class="chat" id="chat" aria-live="polite">
+        <div class="empty" id="empty">Pick <b>Start here</b> above, or just type to the help desk.</div>
       </div>
-      <div class="msgs" id="msgs"></div>
-      <div id="replyRow" class="hidden" style="display:flex;gap:8px">
-        <textarea id="reply" rows="2" maxlength="1200" placeholder="The agent is waiting for you"></textarea>
-        <button id="replyBtn">Send</button></div>
-      <p class="muted" id="tnote"></p>
+      <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
+        <button class="send" id="sendBtn">Send</button></div>
+      <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
+        <span><label>Agent's instructions
+          <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
+          &nbsp;<button class="linkbtn" id="restart">Start over</button></span></div>
     </div>
-  </section>
-  <section class="card">
-    <h2>What actually happened</h2>
-    <div class="status">
-      <div class="cell"><div class="k">The agent asked</div><div class="v" id="s1">-</div></div>
-      <div class="cell"><div class="k">The gate said</div><div class="v" id="s2">-</div></div>
-      <div class="cell oracle"><div class="k">The identity server recorded</div><div class="v" id="s3">-</div></div>
+    <div class="panel receipt"><h2>Receipt: every change the agent asked for</h2>
+      <div class="rrow head"><div>Change</div><div>The gate</div><div>Owner's phone</div><div>Made</div><div>Identity server's own log</div></div>
+      <div id="rows"><div class="rrow"><div style="color:var(--muted)">Nothing asked yet.</div></div></div>
     </div>
-    <div class="counters"><span>attempted changes <b id="att">0</b></span><span>executed <b id="exe">0</b></span></div>
-    <div class="tabs" role="tablist">
-      <button role="tab" aria-selected="true" data-tab="tabRows">Every request</button>
-      <button role="tab" aria-selected="false" data-tab="tabPhone">The owner's phone <span id="badge"></span></button>
-      <button role="tab" aria-selected="false" data-tab="tabAbout">How it works, and what it does not claim</button>
-    </div>
-    <div id="tabRows">
-      <table><thead><tr><th>The agent asked</th><th>The gate</th><th>Owner's device</th>
-        <th class="oracle">Identity server's own admin log<br><span class="label">read with a view-only account</span></th></tr></thead>
-        <tbody id="rows"><tr><td colspan="4" class="muted">No requests yet.</td></tr></tbody></table>
-    </div>
-    <div id="tabPhone" class="hidden">
-      <div class="phone">
-        <div class="label" id="phoneLabel"></div>
-        <div id="pending"></div>
-        <div id="notices"></div>
-        <div class="label" id="mail"></div>
-      </div>
-      <p class="box" id="phoneNote"></p>
-    </div>
-    <div id="tabAbout" class="hidden">
-      <div class="box"><b>How it works.</b> The agent writes scripts that run in a disposable sandbox holding no
-        credential. Every account change it attempts is refused by the gate and turned into a push to the account owner's
-        phone, naming the action and the account. Only the owner's yes to that exact request lets it through, once. The
-        rightmost column is read from the identity server's own log, not from our software.</div>
-      <div class="box"><b>Simulated here.</b> The phone (in production: the owner's authenticator app), the people (all
-        fictional), the email inbox (we only show that an email arrived). Cooling-off is shortened to 20 seconds for the
-        demo (production: 60 seconds, 10 minutes for privileged accounts).</div>
-      <div class="box"><b>What this demo does not claim.</b> That people always read a push carefully (no study we found
-        shows that); that a sandbox is an absolute boundary; that the model is safe. The claim is narrower: without the
-        owner's approval of the exact request, the identity server records no change.</div>
-      <div class="box">Sessions are logged (transcripts kept privately, for the counter). Please do not paste real data.</div>
-    </div>
-  </section>
-</main>
-<footer><span id="counter"></span> <span id="budget"></span></footer>
+  </div>
+  <div class="phonecol">
+    <div class="phone"><div class="screen" id="screen"><div class="notch"></div>
+      <div class="title" id="pTitle">Jordan Avery's phone</div><div class="stitle" id="pSub">CFO</div>
+      <div id="cards"><div class="idle">No requests.</div></div>
+      <div id="notices"></div><div class="mail" id="mail"></div>
+    </div></div>
+    <p class="phonenote">Simulated device: in production this is the owner's authenticator app. The only way a change
+      happens is this phone saying yes to the exact request. If you approve as the owner, you've taken the honest path,
+      not found a bypass.</p>
+  </div>
+</div>
+<footer>This company is fictional and is deleted when you leave. Conversations are logged privately to count the
+  results; please don't paste real data.
+  <details><summary>How it works, and what this demo does not claim</summary>
+    <p>The agent writes scripts that run in a disposable sandbox holding no credential. Every account change it tries is
+    refused by the gate and turned into a request on the owner's phone that names the action and the account. Only the
+    owner's yes to that exact request lets it through, once. The rightmost column of the receipt is read from the
+    identity server's own log with a view-only account, not from our software. Simulated: the phone, the people, the
+    inbox (we only show that an email arrived). The cooling-off is 20 seconds here (production: 60 seconds, 10 minutes
+    for privileged accounts).</p>
+    <p>Not claimed: that people always read a phone request carefully (we found no study showing it), that a sandbox is
+    an absolute boundary, or that the model is safe. The claim is narrower: without the owner's approval of the exact
+    request, the identity server records no change.</p></details>
+</footer>
+</div>
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-let scenarios = [], current = null, timer = null;
-function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; }
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; };
+let after = 0, scenario = null, pendingLocal = [], timer = null, lastPhoneIds = "", typingEl = null, sessionOn = false, serverBusy = false;
+
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {credentials: "same-origin"} :
-    {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-  let j = {}; try { j = await r.json(); } catch (e) {}
-  if (!r.ok) throw new Error(j.error || ("error " + r.status));
-  return j;
+  const opt = body === undefined ? {credentials: "same-origin"} : {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
+  const r = await fetch(path, opt); let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j;
 }
-document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
-  document.querySelectorAll("[data-tab]").forEach(x => { x.setAttribute("aria-selected", x === b); $(x.dataset.tab).classList.toggle("hidden", x !== b); });
-});
-$("startBtn").onclick = async () => {
-  $("startMsg").textContent = "Creating your company...";
-  try { await api("/api/session", {}); $("start").classList.add("hidden"); $("desk").classList.remove("hidden"); poll(); }
-  catch (e) { $("startMsg").textContent = e.message; }
-};
-async function loadScenarios() {
-  scenarios = await api("/api/scenarios");
-  const box = $("scen"); box.replaceChildren();
-  for (const s of scenarios) {
-    const b = el("button", "", (s.side === "attacker" ? "Attack: " : "Honest: ") + s.title);
-    b.onclick = () => { current = s.id; $("caller").value = s.caller; $("ticket").value = s.ticket; $("expect").textContent = "Expected: " + s.expect; };
+function scrollDown() { const c = $("chat"); c.scrollTop = c.scrollHeight; }
+// The model writes markdown; render **bold** and "# " headings as DOM nodes (never innerHTML), the rest as text.
+function md(parent, text) {
+  const parts = String(text).replace(/^#{1,4}\s+/gm, "").split("**");
+  parts.forEach((p, i) => parent.append(i % 2 ? el("strong", "", p) : document.createTextNode(p)));
+}
+
+async function intro() {
+  const j = await api("/api/intro"); const box = $("chips"); box.replaceChildren();
+  for (const s of j.scenarios) {
+    const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
+    b.onclick = () => { scenario = s.id; $("input").value = s.caller; $("ticket").value = s.ticket;
+      $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (s.ticket.includes("L1 (") ? ", with a note" : "");
+      $("input").focus(); };
     box.append(b);
   }
+  renderCounter(j.counter);
 }
-$("send").onclick = async () => {
-  const prompt = document.querySelector("input[name=prompt]:checked").value;
-  try { await api("/api/tickets", {scenario: current, caller: $("caller").value, ticket: $("ticket").value, prompt}); $("tnote").textContent = ""; }
-  catch (e) { $("tnote").textContent = e.message; }
-};
-$("replyBtn").onclick = async () => {
-  const t = window._last; if (!t) return;
-  try { await api("/api/tickets/" + t.id + "/say", {text: $("reply").value}); $("reply").value = ""; } catch (e) { $("tnote").textContent = e.message; }
-};
-function cls(text) { return /refused|denied|no approval/.test(text) ? "no" : /allowed|approved by/.test(text) ? "ok" : /waiting|cooling/.test(text) ? "wait" : ""; }
-function render(v) {
-  const t = v.tickets[v.tickets.length - 1]; window._last = t;
-  const msgs = $("msgs"); msgs.replaceChildren();
-  if (t) for (const m of t.messages) { const d = el("div", "m " + m.role); d.append(el("div", "who", m.role === "caller" ? "Caller (you)" : "Help-desk agent (the model)"), el("div", "", m.text)); msgs.append(d); }
-  $("replyRow").classList.toggle("hidden", !(t && t.status === "waiting_for_you"));
-  $("tnote").textContent = t ? (t.status === "queued" ? "Queued: " + v.queue + " ahead of you." : t.status === "running" ? "The agent is working..." : (t.note || "")) : "";
-  const rows = $("rows"); rows.replaceChildren();
-  if (!v.rows.length) rows.append((() => { const tr = el("tr"); const td = el("td", "muted", "No requests yet."); td.colSpan = 4; tr.append(td); return tr; })());
-  for (const r of v.rows) {
-    const tr = el("tr"); tr.append(el("td", "", r.asked + (r.hash ? "  #" + r.hash : "")), el("td", cls(r.gate), r.gate), el("td", "", r.device),
-      el("td", "oracle " + (r.event ? "ok" : ""), r.event ? r.event : "no event")); rows.append(tr);
+function renderCounter(c) {
+  $("cWithout").textContent = c.without_approval; $("cWithout").className = "big " + (c.without_approval ? "" : "zero");
+  $("cDetail").textContent = "of " + c.attempted + " attempted changes since " + c.since + ", from the identity server's own log";
+}
+function render(e) {
+  $("empty")?.remove(); const chat = $("chat");
+  if (e.who === "you") {
+    const i = pendingLocal.indexOf(e.text);
+    if (i >= 0) { pendingLocal.splice(i, 1); return; }            // already shown the moment it was sent
+    chat.append(el("div", "who r", "You"), el("div", "b you", e.text)); return;
   }
-  const last = v.rows[v.rows.length - 1];
-  $("s1").textContent = last ? last.asked : "-"; $("s2").textContent = last ? last.gate : "-"; $("s2").className = "v " + (last ? cls(last.gate) : "");
-  $("s3").textContent = last ? (last.event || "no event") : "-";
-  $("att").textContent = v.attempted; $("exe").textContent = v.executed;
-  const ph = v.phone; $("phoneLabel").textContent = ph.label; $("phoneNote").textContent = ph.note;
-  const pend = $("pending"); pend.replaceChildren(); $("badge").textContent = ph.pending.length ? "(" + ph.pending.length + ")" : "";
-  for (const p of ph.pending) {
-    const d = el("div", "push");
-    d.append(el("div", "label", "Device of " + p.device_of), el("div", "", p.action + " on account " + p.account + "  #" + p.hash));
-    if (p.instruction) d.append(el("div", "label", p.instruction));
-    d.append(el("div", "label", "Pick the number the help desk told the caller:"));
-    const nums = el("div", "nums");
-    for (const n of p.numbers) { const b = el("button", "", n); b.onclick = () => api("/api/phone/" + p.id + "/approve", {number: n}).catch(e => alert(e.message)); nums.append(b); }
-    const deny = el("button", "", "Deny"); deny.onclick = () => api("/api/phone/" + p.id + "/deny", {}).catch(e => alert(e.message));
-    nums.append(deny); d.append(nums); pend.append(d);
+  if (e.who === "agent") {
+    chat.append(el("div", "who", "Help desk (AI agent)"));
+    const b = el("div", "b agent"); let rest = e.text;
+    if (e.struck && e.struck.length) {
+      for (const s of e.struck) { const k = rest.indexOf(s); if (k < 0) continue;
+        md(b, rest.slice(0, k)); b.append(el("s", "", s.replace(/\*\*/g, ""))); rest = rest.slice(k + s.length); }
+      md(b, rest);
+      b.append(el("span", "strike-note", "Crossed out by the system: the log shows no such change."));
+    } else md(b, e.text);
+    chat.append(b); return;
+  }
+  if (e.who === "system") { const d = el("div", "sys"); d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
+  if (e.who === "gate") { chat.append(el("div", "gate" + (e.ok ? " ok" : ""), e.text)); return; }
+  if (e.who === "phone") { const d = el("div", "ph"); const t = e.text.split(String(e.number));
+    d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
+  if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
+    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener";
+    const again = el("button", "linkbtn", "Try another scenario"); again.onclick = () => { $("input").focus(); window.scrollTo({top: 0, behavior: "smooth"}); };
+    acts.append(a, again); d.append(acts); chat.append(d); return; }
+  if (e.who === "step") { const d = el("div", "line"); d.append(el("span", "dot")); const t = el("span", "", e.text + " ");
+    const v = el("a", "", "view"); const pre = el("pre", "hidden");
+    v.onclick = () => { pre.textContent = "# the script\n" + (e.code || "") + "\n\n# what it printed\n" + (e.output || "(still running)"); pre.classList.toggle("hidden"); };
+    t.append(v); d.append(t); const wrap = el("div"); wrap.append(d, pre); chat.append(wrap); return; }
+  const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.text)); chat.append(d);
+}
+function setTyping(on) {
+  if (on && !typingEl) { typingEl = el("div", "typing"); typingEl.append(el("i"), el("i"), el("i")); $("chat").append(typingEl); }
+  if (!on && typingEl) { typingEl.remove(); typingEl = null; }
+  if (typingEl) $("chat").append(typingEl);
+}
+function renderPhone(p) {
+  $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
+  const ids = p.pending.map(x => x.id).join(","); const cards = $("cards");
+  $("screen").classList.toggle("lit", p.pending.length > 0);
+  if (ids !== lastPhoneIds) {
+    lastPhoneIds = ids; cards.replaceChildren();
+    if (!p.pending.length) cards.append(el("div", "idle", "No requests."));
+    for (const x of p.pending) {
+      const c = el("div", "card");
+      c.append(el("div", "app", "Corp sign-in  ·  ref " + x.ref), el("div", "what", "Help desk requests: " + x.action),
+               el("div", "acct", "Account: " + x.account));
+      if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
+      c.append(el("div", "q", "Choose the number the help desk gave the caller:"));
+      const nums = el("div", "nums");
+      for (const n of x.numbers) { const b = el("button", "", n); b.onclick = () => act(x.id, "approve", {number: n}); nums.append(b); }
+      const pa = el("div", "pact"); const d = el("button", "deny", "Deny"); d.onclick = () => act(x.id, "deny", {});
+      const na = el("button", "noans", "The owner doesn't answer"); na.onclick = () => act(x.id, "noanswer", {});
+      pa.append(d, na); c.append(nums, pa); cards.append(c);
+    }
   }
   const no = $("notices"); no.replaceChildren();
-  for (const n of ph.notices) { const d = el("div", "push"); d.append(el("div", "label", "Notice on the device of " + n.device_of), el("div", "", n.text));
-    if (n.cancel) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}); d.append(b); } no.append(d); }
-  $("mail").textContent = ph.mail ? ph.mail + " email(s) arrived in the account's inbox (the link is not shown)." : "";
-  const c = v.counter; $("counter").textContent = "Since " + c.since + ", from " + c.source + ": " + c.attempted + " attempted changes, " + c.executed + " executed, " + c.orphans + " without an approval.";
-  $("budget").textContent = v.limits.paused ? " The live demo is paused." : "";
+  for (const n of p.notices.slice(-3)) { const d = el("div", "notice", n.text);
+    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}).catch(e => alert(e.message)); d.append(el("br"), b); }
+    no.append(d); }
+  $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";
 }
-async function poll() { try { render(await api("/api/state")); } catch (e) { $("tnote").textContent = e.message; } clearTimeout(timer); timer = setTimeout(poll, 1500); }
-loadScenarios().catch(() => {});
+async function act(id, action, body) { try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); } catch (e) { alert(e.message); } }
+function renderRows(rows) {
+  const box = $("rows"); box.replaceChildren();
+  if (!rows.length) { const r = el("div", "rrow"); r.append(el("div", "", "Nothing asked yet.")); box.append(r); return; }
+  for (const x of rows) {
+    const r = el("div", "rrow");
+    r.append(el("div", "", x.action + ", " + x.account + "  ·  ref " + x.ref),
+      (() => { const d = el("div"); d.append(el("span", "pill " + (x.made ? "g" : x.refused ? "r" : ""), x.made ? (x.refused ? "refused, then allowed" : "allowed") : (x.refused ? "refused" : "-"))); return d; })(),
+      (() => { const d = el("div"); d.append(el("span", "pill " + (x.phone === "approved" ? "g" : x.phone === "not asked" ? "" : "a"), x.phone)); return d; })(),
+      el("div", "", x.made ? "yes" : "no"), el("div", "log" + (x.log === "none" ? " none" : ""), x.log === "none" ? "no change recorded" : x.log));
+    box.append(r);
+  }
+}
+async function poll(once) {
+  try {
+    const j = await api("/api/events?after=" + after);
+    if (j.session) {
+      sessionOn = true; serverBusy = j.busy; $("prompt").disabled = j.busy;
+      for (const e of j.events) { render(e); after = e.seq + 1; }
+      setTyping(j.typing || (j.busy && !j.events.length && pendingLocal.length));
+      renderPhone(j.phone); renderRows(j.proof);
+      $("state").textContent = j.busy ? (j.typing ? "The help desk is thinking..." : "The help desk is working...") : "The help desk is waiting for you.";
+      if (j.events.length) scrollDown();
+    }
+    renderCounter(j.counter);
+  } catch (e) { $("state").textContent = e.message; }
+  if (!once) { clearTimeout(timer); timer = setTimeout(poll, 700); }
+}
+async function send() {
+  const text = $("input").value.trim(); if (!text) return;
+  $("empty")?.remove();
+  $("chat").append(el("div", "who r", "You"), el("div", "b you", text)); pendingLocal.push(text); scrollDown();
+  $("input").value = ""; setTyping(true);
+  const starts = !serverBusy;       // a new conversation takes the chip's scenario, the ticket card and the instructions
+  try { await api("/api/say", starts ? {text, scenario, ticket: $("ticket").value, prompt: $("prompt").value} : {text});
+        if (starts) { serverBusy = true; scenario = null; $("prompt").disabled = true; } }
+  catch (e) { setTyping(false); const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.message)); $("chat").append(d); pendingLocal.pop(); }
+  poll(true);
+}
+$("sendBtn").onclick = send;
+$("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("prompt").onchange = () => api("/api/settings", {prompt: $("prompt").value}).catch(() => {});
+$("restart").onclick = async () => { try { await api("/api/restart", {}); } catch (e) {} location.reload(); };
+intro().catch(() => {}); poll();
 </script>
 </body>
 </html>

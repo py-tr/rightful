@@ -887,7 +887,11 @@ def create_demo_app(demo: Demo) -> FastAPI:
     def intro():
         return {"scenarios": [{"id": k, **{x: v[x] for x in ("chip", "kind", "caller", "ticket", "order")},
                                "compare_default": bool(v.get("compare_default")),
-                               "compare_chip": v.get("compare_chip"), "then": v.get("then")}
+                               "compare_chip": v.get("compare_chip"), "then": v.get("then"),
+                               # the measured rate for THE MODEL THIS DEMO RUNS, or nothing (never another setup's)
+                               "measured": ({"date": v["measured"]["date"], "model": demo.model,
+                                             "n": v["measured"][demo.model]}
+                                            if demo.model in (v.get("measured") or {}) else None)}
                               for k, v in sorted(SCENARIOS.items(), key=lambda kv: kv[1]["order"])],
                 "counter": demo.counter(), "limits": demo.limits.status()}
 

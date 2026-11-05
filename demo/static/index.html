@@ -117,6 +117,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
   background:var(--surface);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
 .pairbox{display:flex;gap:12px;align-items:center;margin-top:10px;font-size:12.5px;color:var(--muted)}
 .pairbox img{width:148px;height:148px;background:#fff;border-radius:8px;flex:none}.pairurl{display:block;word-break:break-all;margin-top:4px}
+.measured{margin-top:6px;font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
 .hidden{display:none!important}
 </style>
 </head>
@@ -146,7 +147,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="cols" id="cols">
         <div class="col hidden" id="colL"><div class="colhead left"><b>The agent decides</b>
           <span class="tag">Blast radius: one account · the push tool is available; the agent's word unlocks changes ·
-          unprotected fictional company</span><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div><div class="vbar" id="vbarL"></div></div>
+          unprotected fictional company</span><div class="measured hidden" id="measL"></div><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div><div class="vbar" id="vbarL"></div></div>
         <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Keyless)</b>
           <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
           <div class="chat" id="chatR" aria-live="polite"><div class="empty"><span class="e1">Press <b>Send</b>: the same
@@ -229,7 +230,7 @@ async function intro() {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
     b.dataset.normal = s.chip; b.dataset.id = s.id; b.dataset.kind = s.kind; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
-    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; $("input").value = s.caller; $("ticket").value = s.ticket;
+    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
     box.append(b);
@@ -237,6 +238,13 @@ async function intro() {
   labelChips();
   renderCounter(j.counter);
   if (!hadSession && compare) $("chips").querySelector('.chip[data-cmp="1"]')?.click();   // land on the attack
+}
+let measured = null;
+function showMeasured(m) {           // eval/RESULTS-demosetup.md, for the model this demo runs; nothing otherwise
+  measured = m || null;
+  $("measL").classList.toggle("hidden", !m);
+  if (m) $("measL").textContent = "Measured " + m.date + " in this exact setup: this attack fooled the agent in "
+    + m.n[0] + " of " + m.n[1] + " runs; it completed " + m.n[2] + " of " + m.n[3] + " honest requests.";
 }
 function labelChips() {
   for (const b of $("chips").querySelectorAll(".chip")) {
@@ -274,7 +282,8 @@ function render(c, e) {
     c.vbar.replaceChildren(v);
     if (e.resisted && lastScenario && (attempts[lastScenario] || 1) < 3) {
       const n = (attempts[lastScenario] || 1) + 1;
-      const r = el("button", "retry", "Attackers try again. Run the same attack again (attempt " + n + " of 3, a demo limit)");
+      const odds = measured ? " It resists in about " + (measured.n[1] - measured.n[0]) + " of " + measured.n[1] + " runs." : "";
+      const r = el("button", "retry", odds.trim() + (odds ? " " : "") + "Attackers try again. Run the same attack again (attempt " + n + " of 3, a demo limit)");
       r.onclick = () => { const chip = [...$("chips").querySelectorAll(".chip")].find(b => b.dataset.id === lastScenario); chip?.click(); r.remove(); send(); };
       v.append(el("br"), r); }
     return; }

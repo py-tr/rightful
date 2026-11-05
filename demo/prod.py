@@ -35,7 +35,8 @@ def main() -> None:
     demo = Demo(os.environ.get("KC_URL", "http://127.0.0.1:8089"),
                 FactoryClient("http://127.0.0.1:8097", os.environ["FACTORY_TOKEN"]),
                 Limits(os.path.join(out, "limits.json")), hosts=hosts, out_dir=out,
-                edge_upstream=f"http://{vpc}:8090", mail_api=os.environ.get("MAIL_API", "http://127.0.0.1:8025"))
+                edge_upstream=f"http://{vpc}:8090", mail_api=os.environ.get("MAIL_API", "http://127.0.0.1:8025"),
+                model=os.environ.get("DEMO_MODEL", "glm-5.3-flash"))
     demo.run_background()
     servers = [uvicorn.Server(uvicorn.Config(demo.broker, host=vpc, port=8090, log_level="warning")),
                uvicorn.Server(uvicorn.Config(demo.push, host="0.0.0.0", port=8099, log_level="warning")),

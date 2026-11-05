@@ -58,7 +58,12 @@ def ssh_base(ip: str) -> list[str]:
 
 
 def ssh(ip: str, cmd: str, input_text: str | None = None, timeout: int = 2400) -> subprocess.CompletedProcess:
-    return subprocess.run(ssh_base(ip) + [cmd], input=input_text, capture_output=True, text=True, timeout=timeout)
+    # Bytes, not text: on Windows, text-mode stdin turns every \n into \r\n and bash then fails ("pipefail\r").
+    data = input_text.replace("\r", "").encode("utf-8") if input_text is not None else None
+    p = subprocess.run(ssh_base(ip) + [cmd], input=data, capture_output=True, timeout=timeout)
+    p.stdout = p.stdout.decode("utf-8", "replace")
+    p.stderr = p.stderr.decode("utf-8", "replace")
+    return p
 
 
 def scp(ip: str, local: str, remote: str) -> None:
@@ -130,6 +135,34 @@ def create_worker(s: dict) -> None:
     print("control -> worker docker runtimes:", chk.stdout.strip()[:200], chk.stderr.strip()[:200])
 
 
+def provision_control(s: dict) -> None:
+    s["tgz"] = tarball()
+    scp(s["control_ip"], s["tgz"], "/root/keyless.tgz")
+    pw = secrets.token_urlsafe(18)
+    r = ssh(s["control_ip"], f"VPC_IP={s['control_vpc_ip']} PUBLIC_HOST={s['public_host']} KC_ADMIN_PW={pw} bash -s",
+            input_text=open(os.path.join(ROOT, "deploy", "control.sh"), encoding="utf-8").read())
+    print(r.stdout[-2000:], r.stderr[-800:])
+    if "CONTROL OK" not in r.stdout:
+        raise RuntimeError("control setup failed")
+    s["control_ok"] = True
+    save(s)
+
+
+def provision() -> None:
+    """Continue a deployment from the state file (after a fixed failure), without creating duplicates."""
+    s = load()
+    if not s.get("control"):
+        sys.exit("no control plane in the state file; use up")
+    if not s.get("control_ok"):
+        print("provisioning the control plane...", flush=True)
+        provision_control(s)
+    if not s.get("worker"):
+        print("creating the worker...", flush=True)
+        s["tgz"] = tarball()
+        create_worker(s)
+    print(f"\nUP. Public URL: https://{s['public_host']}/healthz  (state: {STATE})")
+
+
 def up() -> None:
     s = load()
     if s.get("control") or s.get("worker"):
@@ -172,13 +205,7 @@ def up() -> None:
         s["public_host"] = s["control_ip"].replace(".", "-") + ".sslip.io"
         save(s)
         wait_ssh(s["control_ip"])
-        scp(s["control_ip"], s["tgz"], "/root/keyless.tgz")
-        pw = secrets.token_urlsafe(18)
-        r = ssh(s["control_ip"], f"VPC_IP={s['control_vpc_ip']} PUBLIC_HOST={s['public_host']} KC_ADMIN_PW={pw} bash -s",
-                input_text=open(os.path.join(ROOT, "deploy", "control.sh"), encoding="utf-8").read().replace("\r", ""))
-        print(r.stdout[-2000:], r.stderr[-800:])
-        if "CONTROL OK" not in r.stdout:
-            raise RuntimeError("control setup failed")
+        provision_control(s)
         step = "worker"
         create_worker(s)
         print(f"\nUP. Public URL: https://{s['public_host']}/healthz  (state: {STATE})")
@@ -254,4 +281,4 @@ def down() -> None:
 
 
 if __name__ == "__main__":
-    {"up": up, "status": status, "recycle-worker": recycle_worker, "down": down}[sys.argv[1]]()
+    {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down}[sys.argv[1]]()

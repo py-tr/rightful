@@ -127,7 +127,7 @@
   },
   "approvers": {
     "owner": "the account owner's registered device (CIBA push to the target user)",
-    "manager": "the target user's manager, read from the user attribute 'manager' (visible to the broker, not editable by it)",
+    "manager": "the target user's manager, read from the managed user-profile attribute 'manager' (admins, including the broker, can view it; edit permission is granted to nobody, so no admin-API caller can change it; measured by devenv/invariant_probe.py)",
     "contact": "the target user's manager (a contact change never relies on the contact being changed)"
   },
   "composites": {

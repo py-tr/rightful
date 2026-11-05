@@ -121,15 +121,24 @@ def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
     r_id, r_secret = client("gate-reconciler", {}, True)
     grant(r_id, ["view-events"])
 
-    # The manager relationship (HR data). Unmanaged attributes are made editable just long enough to set it, then
-    # switched to ADMIN_VIEW: admins (and the broker) can read it, nobody can change it through the admin API.
+    # The manager relationship and the privileged flag (HR data) are MANAGED user-profile attributes. They are editable
+    # by admins just long enough to set them, then edit permission is granted to NOBODY: admins (and the broker) can
+    # read them, no admin-API caller can change them. (Measured: the earlier unmanaged-attribute policy ADMIN_VIEW did
+    # NOT stop the broker's manage-users account from changing the manager; devenv/invariant_probe.py checks this.)
     prof = a.get(f"/admin/realms/{realm}/users/profile").json()
-    prof["unmanagedAttributePolicy"] = "ADMIN_EDIT"
-    a.put(f"/admin/realms/{realm}/users/profile", json=prof).raise_for_status()
+
+    def protect(edit: list[str]) -> None:
+        names = {"manager", "privileged"}
+        prof["attributes"] = [x for x in prof["attributes"] if x["name"] not in names] + [
+            {"name": n, "displayName": n, "multivalued": False,
+             "permissions": {"view": ["admin"], "edit": edit}} for n in sorted(names)]
+        a.put(f"/admin/realms/{realm}/users/profile", json=prof).raise_for_status()
+    protect(["admin"])
     for user, mgr in (("cfo", "ceo"), ("jordan.avery.c", "cfo")):
         u = a.get(f"/admin/realms/{realm}/users/{users[user]}").json()
         u["attributes"] = {**(u.get("attributes") or {}), "manager": [mgr]}
         a.put(f"/admin/realms/{realm}/users/{users[user]}", json=u).raise_for_status()
+    protect([])
     prof["unmanagedAttributePolicy"] = "ADMIN_VIEW"
     a.put(f"/admin/realms/{realm}/users/profile", json=prof).raise_for_status()
 

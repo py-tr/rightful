@@ -396,6 +396,71 @@ def eval_start(cmd: str, cap: str, per_host: str = "3") -> None:
     print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
 
 
+DEMO_UNITS = r"""
+cat > /etc/systemd/system/keyless-factory.service <<'EOF'
+[Unit]
+Description=Keyless realm factory (the only holder of Keycloak's master admin)
+After=docker.service
+[Service]
+WorkingDirectory=/opt/keyless
+EnvironmentFile=/opt/keyless/factory.env
+ExecStart=/opt/keyless/.venv/bin/python -m demo.factory
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+cat > /etc/systemd/system/keyless-demo.service <<'EOF'
+[Unit]
+Description=Keyless public demo (web app, per-company brokers, device service)
+After=keyless-factory.service
+[Service]
+WorkingDirectory=/opt/keyless
+EnvironmentFile=/opt/keyless/demo.env
+ExecStart=/opt/keyless/.venv/bin/python -m demo.prod
+Restart=always
+[Install]
+WantedBy=multi-user.target
+EOF
+"""
+
+
+def demo_deploy() -> None:
+    """The public demo, AFTER the evaluation (it takes the harness's ports): fresh code on the control plane and the
+    worker (sandbox images rebuilt from the same code), the factory and the demo as two services with separate
+    root-only env files (the demo never gets Keycloak's admin password), Caddy in front, the old single-realm service
+    off. Visitors' scripts run on the worker under gVisor."""
+    s = load()
+    ip, wip, vpc, wvpc = s["control_ip"], s["worker_ip"], s["control_vpc_ip"], s["worker_vpc_ip"]
+    tgz = tarball()
+    for host in (ip, wip):
+        scp(host, tgz, "/root/keyless.tgz")
+    r = ssh(wip, "mkdir -p /opt/keyless && tar -xzf /root/keyless.tgz -C /opt/keyless && cd /opt/keyless && "
+                 "docker build -q -f sandbox/Dockerfile.task -t keyless-task:dev . >/dev/null && "
+                 "docker build -q -f sandbox/Dockerfile.edge -t keyless-edge:dev . >/dev/null && "
+                 "docker run --rm --entrypoint python keyless-task:dev -c "
+                 "'import helpdesk; print(\"sdk_ok\", hasattr(helpdesk, \"verify_caller\"))'")
+    print("worker:", r.stdout.strip()[-200:], r.stderr.strip()[-200:])
+    key_line = next(l.strip() for l in open(os.path.join(ROOT, ".env"), encoding="utf-8")
+                    if l.startswith("VULTR_INFERENCE_API_KEY="))
+    ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && mkdir -p /var/lib/keyless/demo && umask 077 && "
+            "TOKEN=$(openssl rand -hex 24) && "
+            "{ echo KC_ADMIN_PASSWORD=$(cat /opt/keyless/kc-admin); echo FACTORY_TOKEN=$TOKEN; "
+            "  echo KC_URL=http://127.0.0.1:8089; echo SMTP_HOST=keyless-mail; } > /opt/keyless/factory.env && "
+            f"{{ cat; echo FACTORY_TOKEN=$TOKEN; echo VPC_IP={vpc}; echo DEMO_DOCKER_HOSTS=ssh://root@{wvpc}; "
+            "  echo KEYLESS_DEMO_CONTRAST=1; echo DEMO_DIR=/var/lib/keyless/demo; } > /opt/keyless/demo.env && "
+            "chmod 600 /opt/keyless/factory.env /opt/keyless/demo.env", input_text=key_line + "\n")
+    host = s.get("public_host") or f"{ip.replace('.', '-')}.sslip.io"
+    caddy = (f"{host} {{\n  request_body {{\n    max_size 64KB\n  }}\n  reverse_proxy 127.0.0.1:8000\n}}\n")
+    r = ssh(ip, DEMO_UNITS + "systemctl stop keyless 2>/dev/null; systemctl disable keyless 2>/dev/null; "
+                f"cat > /etc/caddy/Caddyfile <<'EOF'\n{caddy}EOF\n"
+                "systemctl daemon-reload && systemctl enable --now keyless-factory keyless-demo >/dev/null && "
+                "systemctl reload caddy || systemctl restart caddy; "
+                "for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/healthz >/dev/null && break; sleep 2; done; "
+                "curl -s http://127.0.0.1:8000/healthz; echo; systemctl is-active keyless-factory keyless-demo")
+    print(r.stdout.strip()[-600:], r.stderr.strip()[-300:])
+    print(f"public URL: https://{host}/")
+
+
 def demo_eval_start(cap: str, per_host: str = "3") -> None:
     """The demo-setup measurement (eval/PREREG-demosetup.md), AFTER the main evaluation and its re-runs: a separate
     module and output directory; the main evaluation's files are not touched."""
@@ -472,7 +537,7 @@ def down() -> None:
 
 if __name__ == "__main__":
     cmds = {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down,
-            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch}
+            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy}
     if sys.argv[1] == "fleet":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":

@@ -852,7 +852,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
         return resp
 
     def ip_of(request: Request) -> str:
-        return request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[0].strip()
+        # the LAST entry is the one our own proxy (Caddy, the only route in) appended; earlier ones are client-supplied
+        return request.headers.get("x-forwarded-for", request.client.host if request.client else "?").split(",")[-1].strip()
 
     @app.get("/")
     def page():

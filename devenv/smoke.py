@@ -1,0 +1,90 @@
+"""Post-deploy smoke test against the PUBLIC demo (mentor's checklist): run after every deploy.
+
+  python -m devenv.smoke https://<host>            one honest conversation in both columns (about one cent)
+
+Checks, each printed PASS/FAIL with the reason; exits non-zero on any FAIL:
+  the page and health; a compare session; the honest path completes in BOTH columns when the phone answers with the
+  number its own column shows; the share link renders both columns, carries no session token and masks the temporary
+  password; the counters answer; a phone link opens once and a second device is refused.
+"""
+from __future__ import annotations
+
+import re
+import sys
+import time
+
+import httpx
+
+FAILS: list[str] = []
+
+
+def check(name: str, ok: bool, why: str = "") -> None:
+    print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  ({why})"))
+    if not ok:
+        FAILS.append(name)
+
+
+def main(base: str) -> int:
+    base = base.rstrip("/")
+    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin"})
+    r = c.get("/")
+    check("page loads", r.status_code == 200 and "Authorization is not a model output" in r.text, str(r.status_code))
+    h = c.get("/healthz").json()
+    check("health", h.get("ok") is True, str(h))
+    intro = c.get("/api/intro").json()
+    check("intro lists the measured models", set(intro.get("models", [])) >= {"qwen3.8-27b", "glm-5.3-flash"},
+          str(intro.get("models")))
+    r = c.post("/api/compare", json={"on": True})
+    check("compare session", r.status_code == 200 and r.json().get("compare") is True, r.text[:120])
+    honest = next(s for s in intro["scenarios"] if s["id"] == "honest")
+    r = c.post("/api/say", json={"text": honest["caller"], "scenario": "honest", "ticket": honest["ticket"],
+                                  "prompt": "light", "model": intro.get("default_model")})
+    check("message accepted", r.status_code == 200, r.text[:160])
+    answered, t0, j = set(), time.time(), {}
+    while time.time() - t0 < 240:
+        time.sleep(3)
+        j = c.get("/api/events", params={"after": 0, "after_left": 0}).json()
+        shown = {"right": {e.get("number") for e in j.get("events", []) if e.get("who") == "phone"},
+                 "left": {e.get("number") for e in (j.get("left") or {}).get("events", []) if e.get("who") == "phone"}}
+        for card in j.get("phone", {}).get("pending", []):
+            side = card.get("company") or "right"
+            n = next((x for x in card["numbers"] if x in shown.get(side, set())), None)
+            if n and card["id"] not in answered:
+                answered.add(card["id"])
+                c.post(f"/api/phone/{card['id']}/approve", json={"number": n})
+        done_r = any(e.get("who") == "summary" for e in j.get("events", []))
+        done_l = any(e.get("who") == "summary" for e in (j.get("left") or {}).get("events", []))
+        if done_r and done_l:
+            break
+    verdicts = [e.get("text", "") for e in j.get("events", []) if e.get("who") == "gate" and e.get("verdict")]
+    check("right column completed with approval", any("Changed only with approval" in v for v in verdicts),
+          str(verdicts)[:200])
+    check("phone was answered with each column's own number", len(answered) >= 1, f"answered {len(answered)}")
+    link = next((e.get("permalink") for e in j.get("events", []) if e.get("who") == "summary"), None)
+    if link:
+        tok = link.rsplit("/", 1)[-1]
+        p = httpx.get(f"{base}/api/proof/{tok}", timeout=30).json()
+        check("share link has both columns", bool(p.get("pair")) and p.get("other") is not None, str(p.get("pair")))
+        flat = str(p)
+        check("share link carries no session cookie", "ks=" not in flat and c.cookies.get("ks", "~") not in flat)
+        pw = re.findall(r"[A-Za-z0-9_-]{16}", " ".join(m.get("text", "") for m in p.get("chat", [])))
+        check("share link shows no 16-character password in full", not any(
+            "•" not in w and re.search(r"[a-z]", w) and re.search(r"[A-Z]", w) for w in pw), str(pw[:3]))
+    else:
+        check("share link exists", False, "no summary permalink")
+    cnt = c.get("/api/intro").json().get("counter", {})
+    check("counter answers", "without_approval" in cnt and "left" in cnt, str(cnt)[:120])
+    r = c.post("/api/phone-link", json={})
+    url = r.json().get("url", "") if r.status_code == 200 else ""
+    check("phone link issued", url.startswith("https://") or url.startswith("http://"), r.text[:120])
+    if url:
+        d1 = httpx.Client(timeout=30)
+        d2 = httpx.Client(timeout=30)
+        check("phone link opens on the first device", d1.get(url).status_code == 200)
+        check("second device refused", d2.get(url).status_code == 409)
+    print(f"\n{'ALL PASS' if not FAILS else f'{len(FAILS)} FAILED: ' + ', '.join(FAILS)}")
+    return 1 if FAILS else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1]))

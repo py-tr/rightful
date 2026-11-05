@@ -19,6 +19,11 @@ def test_sandbox_args_are_locked_down(tmp_path):
     assert "gate:10.0.0.2" in r._sandbox_args("c")                         # a hosts entry, not DNS (gVisor)
 
 
+def test_probe_targets_follow_the_real_broker_address():
+    r = DockerRunner("t", "x", upstream="http://10.40.0.3:8090")       # the control plane's VPC address on Vultr
+    assert r.probe_targets == {"broker": ["10.40.0.3", 8090], "keycloak": ["10.40.0.3", 8089]}
+
+
 def test_run_key_goes_to_the_edge_never_to_the_sandbox(tmp_path):
     r = DockerRunner("t", "x", run_key="ab" * 32)
     calls = []

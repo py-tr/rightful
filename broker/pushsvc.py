@@ -29,9 +29,11 @@ def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | Non
         data = await request.json()
         pid = "push_" + secrets.token_urlsafe(8)
         msg = data.get("binding_message", "")
+        # <number>-<label>-<username>.<id prefix>-<hash8>: the number is first, the label second (pack labels have
+        # no hyphen), the hash last; the target is everything between, so a hyphenated username stays whole.
         parts = msg.split("-")
         label = parts[1] if len(parts) > 2 else ""
-        target = parts[2] if len(parts) > 3 else ""
+        target = "-".join(parts[2:-1]) if len(parts) > 3 else ""
         approver = data.get("login_hint")
         instruction = None
         if label in ("mfarecov", "emailchg") or (target and approver and not target.startswith(f"{approver}.")):

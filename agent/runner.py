@@ -59,8 +59,12 @@ class DockerRunner:
         self.net, self.edge = f"kl-net-{self.tag}", f"kl-edge-{self.tag}"
         self.task_image, self.edge_image, self.runtime = task_image, edge_image, runtime
         self.timeout, self.memory, self.upstream = timeout_s, memory, upstream
-        self.probe_targets = probe_targets or {"broker": ["host.docker.internal", 8090],
-                                               "keycloak": ["host.docker.internal", 8089]}
+        # What the scorecard checks is UNREACHABLE from the sandbox: by default, the real broker address (from the
+        # upstream URL, so it is right on the Vultr worker too) and Keycloak on the same host.
+        from urllib.parse import urlsplit as _us
+        _up = _us(upstream)
+        self.probe_targets = probe_targets or {"broker": [_up.hostname, _up.port or 80],
+                                               "keycloak": [_up.hostname, 8089]}
         # Remote mode: DOCKER_HOST=ssh://root@<worker> means mounted paths live on the WORKER, so task files are
         # created there over the same SSH link (measured: a local temp path mounted remotely shows up empty).
         dh = os.environ.get("DOCKER_HOST", "")

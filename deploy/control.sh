@@ -41,13 +41,23 @@ echo "=== STEP host firewall (Vultr's Ubuntu image has ufw on, SSH only)"
 ufw allow 80/tcp >/dev/null && ufw allow 443/tcp >/dev/null
 ufw allow from 10.40.0.0/24 to any port 8090 proto tcp >/dev/null      # the broker: the private VPC only
 echo "=== STEP public front door (TLS via Caddy)"
+# Only the health check is public until the demo UI with per-session roles exists (mentor review finding #1: the
+# device API was public and unauthenticated). The CIBA callback (/ciba/notify) is never routed publicly.
 cat > /etc/caddy/Caddyfile <<EOF
 $PUBLIC_HOST {
-  reverse_proxy 127.0.0.1:8099
+  handle /healthz {
+    reverse_proxy 127.0.0.1:8099
+  }
+  handle {
+    respond "not public yet" 404
+  }
 }
 EOF
 systemctl restart caddy
 echo "=== STEP host firewall: the broker port only on the VPC address, the device service only via Caddy"
+# These iptables rules are NOT persisted across a reboot. That is acceptable here because the Vultr firewall group
+# in front of this VM already allows only SSH (operator IP), 80 and 443; 8099 is unreachable from outside either way.
+# They are a second layer against other hosts inside the VPC.
 iptables -I INPUT 1 -p tcp --dport 8099 -j DROP
 iptables -I INPUT 1 -p tcp --dport 8099 -s 172.16.0.0/12 -j ACCEPT      # Keycloak's container (CIBA channel)
 iptables -I INPUT 1 -p tcp --dport 8099 -s 127.0.0.1 -j ACCEPT          # Caddy

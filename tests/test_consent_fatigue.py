@@ -163,6 +163,21 @@ def test_manager_push_carries_an_instruction(tmp_path):
     assert own["instruction"] is None                                    # your own account: no extra warning
 
 
+def test_hyphenated_username_is_parsed_whole(tmp_path):
+    """A hyphenated username once split into the wrong field: 'mary-ann' showed as 'mary', and her own push got the
+    someone-else warning (or another user's push could look like hers)."""
+    clock, fake, c, phone = build(tmp_path)
+    phone.post("/ciba/notify", json={"login_hint": "mary-ann", "binding_message": "41-reset-mary-ann.a0a0-11112222"},
+               headers={"Authorization": "Bearer X"})
+    p = phone.get("/phone/mary-ann").json()["pending"][0]
+    assert p["target"] == "mary-ann.a0a0" and p["label"] == "reset" and p["number"] == "41"
+    assert p["instruction"] is None
+    phone.post("/ciba/notify", json={"login_hint": "mary", "binding_message": "42-reset-mary-ann.a0a0-11112222"},
+               headers={"Authorization": "Bearer X"})
+    q = phone.get("/phone/mary").json()["pending"][0]
+    assert q["instruction"] is not None                                  # 'mary' approving mary-ann's account
+
+
 def test_email_change_notifies_the_previous_contact(tmp_path):
     clock, fake, c, phone = build(tmp_path)
     path = f"/admin/realms/corp/users/{CFO}"
@@ -184,6 +199,11 @@ def test_email_change_notifies_the_previous_contact(tmp_path):
     ("PUT", "/admin/realms/corp/events/config", b"{}", True),
     ("POST", f"/admin/realms/corp/users/{CFO}/role-mappings/realm", b"[]", True),
     ("PUT", "/admin/realms/corp", b"{}", True),
+    ("PUT", f"/admin/realms/corp/users/{CFO}/reset-password/", b'{"type":"password","temporary":true}', False),
+    ("PUT", f"/admin/realms/corp/users/{CFO}/reset-password", b'{"type":"password",', False),    # broken JSON
+    # ('..' is not listed: the HTTP test client resolves dot segments before sending; test_grammar covers it raw.)
+    ("PUT", f"/admin/realms/corp/users/%64{CFO[1:]}/reset-password", b"{}", True),
+    ("PUT", f"/admin/realms/corp/users/{CFO}/execute-actions-email?lifespan=%zz", b"[]", True),
 ])
 def test_quarantine_only_on_hostile_signals(tmp_path, method, path, body, hostile):
     clock, fake, c, _ = build(tmp_path)
@@ -314,6 +334,17 @@ def test_poll_has_a_server_side_minimum_interval(tmp_path):
     clock.t += 1.0
     c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
     assert len(polls) == 2
+
+
+def test_harmless_malformed_writes_are_strikes_and_survive_a_restart(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    bad = f"/admin/realms/corp/users/{CFO}/reset-password/"           # trailing slash: a mistake, not a trick
+    for _ in range(2):
+        assert not c.put(bad, content=b"{}", headers=H).json().get("quarantined")
+    clock, fake, c, _ = restart(tmp_path, clock, fake)
+    assert not c.put(bad, content=b"{}", headers=H).json().get("quarantined")
+    assert c.put(bad, content=b"{}", headers=H).json().get("quarantined")      # the 4th strike, across a restart
+    assert fake.calls == []
 
 
 def test_retrying_a_declined_change_quarantines(tmp_path):

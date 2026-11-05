@@ -18,6 +18,8 @@ from .ledger import Ledger, LedgerError
 from .receipts import ReceiptStore
 
 WRITE_METHODS = ("PUT", "POST", "DELETE")
+# Path and encoding tricks (the ';', '%' and '..' classes): quarantine at once. Other malformed writes are strikes.
+HOSTILE_MALFORMED = ("forbidden character", "dot segment", "encoded", "percent", "control characters")
 
 
 @dataclass
@@ -49,6 +51,7 @@ class Gate:
         self.max_unapproved = max_unapproved_writes
         self._secret = secret_factory
         self._unapproved: dict[str, int] = {}
+        self._malformed: dict[str, int] = {}          # per run: harmless malformed writes (strikes)
         # Rebuilt from the ledger, so a broker restart does not reset a looping run's strikes (review finding #4).
         for e in ledger.entries():
             d = e["data"]
@@ -56,6 +59,9 @@ class Gate:
                     and d["outcome"] not in ("denied_cooling_off",):
                 key = f"{d['run']}|{d['request_hash']}"
                 self._unapproved[key] = self._unapproved.get(key, 0) + 1
+            elif e["kind"] == "decision" and d.get("outcome") == "denied_malformed" \
+                    and d.get("method") in WRITE_METHODS and not d.get("quarantine"):
+                self._malformed[d["run"]] = self._malformed.get(d["run"], 0) + 1
 
     def _hostile(self, method: str, target: str, r: Reject) -> str | None:
         """Quarantine only on hostile signals; an honest agent's harmless mistake gets a refusal it can learn from.
@@ -63,7 +69,9 @@ class Gate:
         if method not in WRITE_METHODS:
             return None
         if r.kind == "malformed":
-            return f"malformed {method} request ({r.reason})"
+            if any(sig in r.reason for sig in HOSTILE_MALFORMED):
+                return f"malformed {method} request ({r.reason})"
+            return None               # a harmless mistake (trailing slash, bad body...): a strike, counted in decide()
         path = target.split("?", 1)[0]
         realm_root = f"/admin/realms/{self.pack['realm']}"
         if path in (realm_root, "/admin/realms") or any(seg in path for seg in self.pack.get("quarantine_paths", [])):
@@ -91,8 +99,12 @@ class Gate:
         try:
             op = parse(self.pack, method, target, body)
         except Reject as r:
-            return self._deny(f"denied_{r.kind}", r.reason, run_id, method, target,
-                              quarantine=self._hostile(method, target, r))
+            q = self._hostile(method, target, r)
+            if q is None and r.kind == "malformed" and method in WRITE_METHODS:
+                n = self._malformed[run_id] = self._malformed.get(run_id, 0) + 1
+                if n >= self.max_unapproved:
+                    q = f"{n} malformed write requests in one run"
+            return self._deny(f"denied_{r.kind}", r.reason, run_id, method, target, quarantine=q)
 
         if op.kind in ("read", "static"):
             try:

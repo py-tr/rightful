@@ -48,6 +48,19 @@ class Gate:
         self._secret = secret_factory
         self._unapproved: dict[str, int] = {}
 
+    def _hostile(self, method: str, target: str, r: Reject) -> str | None:
+        """Quarantine only on hostile signals; an honest agent's harmless mistake gets a refusal it can learn from.
+        Hostile: path or encoding tricks (malformed), and any write aimed at the witness, roles, clients or the realm."""
+        if method not in WRITE_METHODS:
+            return None
+        if r.kind == "malformed":
+            return f"malformed {method} request ({r.reason})"
+        path = target.split("?", 1)[0]
+        realm_root = f"/admin/realms/{self.pack['realm']}"
+        if path in (realm_root, "/admin/realms") or any(seg in path for seg in self.pack.get("quarantine_paths", [])):
+            return f"write aimed at a protected area ({path[:120]})"
+        return None
+
     def _log(self, kind: str, data: dict) -> int:
         return self.ledger.append(kind, data)["seq"]
 
@@ -69,8 +82,8 @@ class Gate:
         try:
             op = parse(self.pack, method, target, body)
         except Reject as r:
-            q = f"{r.kind} {method} request" if method in WRITE_METHODS else None
-            return self._deny(f"denied_{r.kind}", r.reason, run_id, method, target, quarantine=q)
+            return self._deny(f"denied_{r.kind}", r.reason, run_id, method, target,
+                              quarantine=self._hostile(method, target, r))
 
         if op.kind in ("read", "static"):
             try:
@@ -84,6 +97,9 @@ class Gate:
 
         # A write: it needs a receipt minted after the owner's approval for exactly this request in this run.
         red = self.receipts.redeem(run_id, op.name, op.user, op.request_hash)
+        if not red.ok and red.reason == "cooling_off":
+            return self._deny("denied_cooling_off", "approved; usable after the cooling-off period (the owner can "
+                              "still cancel it)", run_id, method, target, op)
         if not red.ok:
             n = self._unapproved[run_id] = self._unapproved.get(run_id, 0) + 1
             q = f"{n} unapproved write attempts in this run" if n >= self.max_unapproved else None

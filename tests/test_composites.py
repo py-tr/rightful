@@ -57,7 +57,8 @@ def build(tmp_path, fail_on=None):
     receipts = ReceiptStore(":memory:")
     gate = Gate(load_pack("helpdesk"), receipts, Ledger(str(tmp_path / "l.jsonl")))
     notices, secrets_out = [], []
-    app = create_app(gate, kc, Challenges(kc, receipts), deliver_secret=lambda u, s: secrets_out.append((u, s)),
+    ch = Challenges(kc, receipts, pack={"cooling_off_seconds": {"default": 0, "privileged": 0}})
+    app = create_app(gate, kc, ch, deliver_secret=lambda u, s: secrets_out.append((u, s)),
                      notify=lambda u, t: notices.append((u, t)))
     return fake, TestClient(app), notices, secrets_out
 
@@ -75,14 +76,14 @@ def test_lost_device_goes_to_the_manager_not_the_lost_phone(tmp_path):
     ch, s, st = approve_flow(fake, c, LOST)
     assert ch["approver"] == "manager" and s["status"] == "sent" and st == "approved"
     assert fake.ciba_req[0]["login_hint"] == "ceo"                     # the manager's phone, not the cfo's
-    assert "-mfarecov-cfo-" in fake.ciba_req[0]["binding_message"]     # the manager sees whose account
+    assert "-mfarecov-cfo.d02c-" in fake.ciba_req[0]["binding_message"]   # the manager sees whose account (+ id)
     r = c.post(LOST, headers=H)
     assert r.status_code == 200 and r.json()["completed"]
     methods = [(m, p.rsplit("/", 1)[-1]) for m, p, *_ in fake.calls]
     assert ("DELETE", OTP) in methods                                  # the lost authenticator removed
     email = [x for x in fake.calls if x[1].endswith("execute-actions-email")][0]
-    assert json.loads(email[3]) == ["CONFIGURE_TOTP"] and email[2] == {"lifespan": "900"}   # no redirect_uri, no client_id
-    assert ("POST", "logout") in methods
+    assert json.loads(email[3]) == ["CONFIGURE_TOTP"] and email[2] == {"lifespan": "600"}   # 10 minutes   # no redirect_uri, no client_id
+    assert ("POST", "logout") not in methods                           # sessions kept: the mailbox is the way back in
     assert any(u == "cfo" and "recovery" in t.lower() for u, t in notices)   # NIST 800-63B-4 4.2.3
     assert c.post(LOST, headers=H).status_code == 403                  # single use
 
@@ -105,7 +106,7 @@ def test_manager_equal_to_target_is_human_only(tmp_path):
 def test_the_agent_cannot_parameterise_a_composite(tmp_path, suffix, body):
     fake, c, *_ = build(tmp_path)
     r = c.post(LOST + suffix, content=body, headers=H)
-    assert r.status_code == 403 and r.json().get("quarantined") and fake.calls == []
+    assert r.status_code == 403 and not r.json().get("quarantined") and fake.calls == []   # refused, fed back
 
 
 def test_owner_approval_does_not_unlock_the_manager_path(tmp_path):
@@ -134,8 +135,9 @@ def test_compromise_response_one_approval_fixed_steps_secret_out_of_band(tmp_pat
 
 
 def test_a_failed_step_stops_and_tells_the_owner(tmp_path):
-    fake, c, notices, _ = build(tmp_path, fail_on="/logout")
+    fake, c, notices, _ = build(tmp_path, fail_on="execute-actions-email")
     approve_flow(fake, c, LOST)
     r = c.post(LOST, headers=H)
-    assert r.status_code == 502 and r.json()["completed"] is False and r.json()["failed_step"] == "logout_sessions"
+    assert r.status_code == 502 and r.json()["completed"] is False
+    assert r.json()["failed_step"] == "send_actions_email:CONFIGURE_TOTP"
     assert any("part-way" in t for _, t in notices)

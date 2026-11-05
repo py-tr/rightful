@@ -133,10 +133,9 @@
       "steps": [
         "remove_otp_credentials",
         "send_actions_email:CONFIGURE_TOTP",
-        "logout_sessions",
         "notify_owner"
       ],
-      "why": "The caller says the registered device is lost, so the owner cannot approve on it. A manager approves; the re-enrolment link goes only to the email on file; the owner is notified (NIST SP 800-63B-4 4.2.3)."
+      "why": "The caller says the registered device is lost, so the owner cannot approve on it. A manager approves after confirming through a channel they already trust; the re-enrolment link (10 minutes, single use) goes only to the email on file; the owner is notified on every channel, including the device said to be lost, with a cancel button during the cooling-off. Sessions are NOT ended: the corporate mailbox sits behind the lost MFA, so the existing session is the honest user's way in."
     },
     "compromise_response": {
       "method": "POST",
@@ -149,7 +148,25 @@
         "send_actions_email:CONFIGURE_TOTP",
         "notify_owner"
       ],
-      "why": "The password may have leaked: one approval for a fixed, pre-declared set, executed by the broker."
+      "why": "The password may have leaked: one owner approval for a fixed, pre-declared set executed by the broker. Sessions ARE ended here, because the threat is a known password."
     }
-  }
+  },
+  "action_link_lifespan_seconds": 600,
+  "cooling_off_seconds": {
+    "default": 60,
+    "privileged": 600
+  },
+  "privileged_attribute": "privileged",
+  "decline_tripwire_seconds": 86400,
+  "quarantine_paths": [
+    "/events",
+    "/admin-events",
+    "/role-mappings",
+    "/clients",
+    "/authentication",
+    "/identity-provider",
+    "/roles",
+    "/components",
+    "/keys"
+  ]
 }

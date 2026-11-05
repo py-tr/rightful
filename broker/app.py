@@ -23,7 +23,7 @@ DROP_RESPONSE_HEADERS = {"set-cookie", "authorization", "www-authenticate", "con
 
 def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username, secret: None,
                on_quarantine=lambda run_id, reason: None, console=None,
-               notify=lambda username, text: None) -> FastAPI:
+               notify=lambda username, text, cancel_id=None: None) -> FastAPI:
     from .composites import execute as run_composite
     app = FastAPI(title="Keyless broker", docs_url=None, redoc_url=None, openapi_url=None)
     quarantined: dict[str, str] = {}
@@ -115,7 +115,7 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             if d.challenge:
                 c = challenges.create(run_id, d.challenge)
                 if c.status == "human_only":
-                    view["challenge_required"].update({"challenge": c.id, "status": "human_only",
+                    view["challenge_required"].update({"challenge": c.id, "status": "human_only", "why": c.why,
                                                        "how": "This ticket cannot be closed by the agent. Escalate it to a human."})
                     gate.ledger.append("challenge", {"run": run_id, "challenge": c.id, "op": c.operation,
                                                      "user": c.user_id, "status": "human_only"})
@@ -127,12 +127,29 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
 
         if d.op.kind == "composite":
             f = d.forward
+            # Snapshot at approval, re-check at execution: if the email on file or the manager changed in between,
+            # the approval no longer describes what would happen.
+            ch = challenges.find(run_id, d.op.name, f["user"], d.op.request_hash)
+            if ch is not None and ch.snapshot and keycloak.user_snapshot(f["user"]) != ch.snapshot:
+                gate.ledger.append("composite_aborted", {"run": run_id, "op": d.op.name, "user": f["user"],
+                                                         "reason": "email or manager changed after approval"})
+                notify(ch.username, f"A recovery on your account was stopped: your account details changed after "
+                                    f"it was approved. IT security has been alerted.")
+                return JSONResponse({"allowed": False, "outcome": "aborted_changed_since_approval"}, status_code=409)
             result = run_composite(keycloak, gate.ledger, gate.pack["realm"], f["user"], f["steps"], f["receipt"],
-                                   run_id, notify, deliver_secret)
+                                   run_id, notify, deliver_secret,
+                                   lifespan=int(gate.pack.get("action_link_lifespan_seconds", 600)))
             return JSONResponse({"allowed": True, "outcome": "allowed_composite", "action": d.op.name, **result},
                                 status_code=200 if result["completed"] else 502)
 
+        old_email = None
+        if d.op.kind == "write" and d.op.name == "change_email":
+            old_email = keycloak.user_snapshot(d.op.user).get("email")
         up = keycloak.forward(d.forward, with_token=d.op.kind != "static")
+        if old_email is not None and 200 <= up.status_code < 300:
+            # Recovery guidance: tell the PREVIOUS contact too, so a hijacked change is noticed where it matters.
+            notify(keycloak.username(d.op.user), f"The email on your account was changed from {old_email}. If this "
+                                                 f"was not you, contact IT security now.")
         content = up.content
         if d.op.kind != "static":
             leaks = [s for s in (keycloak.service_token_if_cached(), d.oob_secret) if s]

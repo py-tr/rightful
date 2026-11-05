@@ -78,7 +78,7 @@ def test_full_honest_loop(env):
     assert ch["operation"] == "reset_password" and fake.upstream == []
     s = c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H).json()   # 2. push to the owner
     assert s["status"] == "sent" and s["number"] == ch["number"]
-    assert "binding_message=" + ch["number"] + "-reset-cfo-" in fake.ciba_requests[0]
+    assert "binding_message=" + ch["number"] + "-reset-cfo.d02c-" in fake.ciba_requests[0]
     assert c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H).json()["status"] == "sent"   # pending
     fake.ciba["req1"] = "approved"                                  # 3. the owner approves on the phone
     assert c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H).json()["status"] == "approved"

@@ -15,7 +15,7 @@ class CompositeError(RuntimeError):
 
 
 def execute(kc, ledger, realm: str, user_id: str, steps: list[str], receipt_id: str, run_id: str,
-            notify, deliver_secret) -> dict:
+            notify, deliver_secret, lifespan: int = 600) -> dict:
     """Returns a redacted result: which steps ran, and whether all completed."""
     auth = {"Authorization": f"Bearer {kc.service_token()}"}
     base = f"/admin/realms/{realm}/users/{user_id}"
@@ -40,7 +40,7 @@ def execute(kc, ledger, realm: str, user_id: str, steps: list[str], receipt_id: 
                 if action not in ("CONFIGURE_TOTP", "UPDATE_PASSWORD"):
                     raise CompositeError(f"unknown action {action}")
                 # No redirect_uri and no client_id: the link goes only to the email already on file.
-                kc.http.put(f"{base}/execute-actions-email", params={"lifespan": "900"}, json=[action],
+                kc.http.put(f"{base}/execute-actions-email", params={"lifespan": str(lifespan)}, json=[action],
                             headers=auth).raise_for_status()
                 log(step, "ok")
             elif step == "logout_sessions":

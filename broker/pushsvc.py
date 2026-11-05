@@ -29,10 +29,19 @@ def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | Non
         data = await request.json()
         pid = "push_" + secrets.token_urlsafe(8)
         msg = data.get("binding_message", "")
+        parts = msg.split("-")
+        label = parts[1] if len(parts) > 2 else ""
+        target = parts[2] if len(parts) > 3 else ""
+        approver = data.get("login_hint")
+        instruction = None
+        if label in ("mfarecov", "emailchg") or (target and approver and not target.startswith(f"{approver}.")):
+            # Someone else's account: the approver must not take the caller's word for it.
+            instruction = (f"You are approving a change on {target}'s account, not your own. Before approving, confirm "
+                           "with them through a channel you already trust (in person, or a number you already know).")
         with lock:
-            pending[pid] = {"id": pid, "username": data.get("login_hint"), "binding": msg,
-                            "number": msg.split("-", 1)[0] if msg else "", "callback_token": auth.split(" ", 1)[1],
-                            "at": clock(), "state": "pending"}
+            pending[pid] = {"id": pid, "username": approver, "binding": msg, "label": label, "target": target,
+                            "instruction": instruction, "number": parts[0] if msg else "",
+                            "callback_token": auth.split(" ", 1)[1], "at": clock(), "state": "pending"}
         return JSONResponse({}, status_code=201)
 
     def _answer(pid: str, status: str) -> int:
@@ -74,13 +83,24 @@ def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | Non
         with lock:
             inbox.setdefault(username, []).append({"kind": "temporary password", "value": secret, "at": clock()})
 
-    def notify(username: str, text: str) -> None:
-        """Account notices (NIST SP 800-63B-4 4.2.3: recovery SHALL notify the subscriber). The demo shows them in the
-        phone inbox; in production they also go to every address on file."""
+    def notify(username: str, text: str, cancel_id: str | None = None) -> None:
+        """Account notices (NIST SP 800-63B-4 4.2.3: recovery SHALL notify the subscriber). They go to EVERY device on
+        file, including one the caller said was lost, so a false "I lost my phone" reaches the real owner. In the demo
+        they appear in the phone inbox; a cancel id makes a cancel button."""
         with lock:
-            inbox.setdefault(username, []).append({"kind": "notice", "value": text, "at": clock()})
+            inbox.setdefault(username, []).append({"kind": "notice", "value": text, "cancel_id": cancel_id,
+                                                   "at": clock()})
+
+    @app.post("/phone/{username}/cancel/{cancel_id}")
+    def cancel(username: str, cancel_id: str):
+        with lock:
+            mine = any(n.get("cancel_id") == cancel_id for n in inbox.get(username, []))
+        if not mine or app.state.on_cancel is None:
+            return JSONResponse({"error": "no such notice"}, status_code=404)
+        return {"cancelled_receipts": app.state.on_cancel(cancel_id)}
 
     app.state.deliver = deliver
     app.state.notify = notify
+    app.state.on_cancel = None          # wired to Challenges.cancel by whoever assembles the services
     app.state.pending = pending
     return app

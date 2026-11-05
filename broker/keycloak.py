@@ -64,6 +64,15 @@ class Keycloak:
     def username(self, user_id: str) -> str:
         return self._user(user_id)["username"]
 
+    def attribute(self, user_id: str, name: str) -> str | None:
+        vals = (self._user(user_id).get("attributes") or {}).get(name) or []
+        return str(vals[0]).lower() if vals else None
+
+    def user_snapshot(self, user_id: str) -> dict:
+        """What must not change between approval and execution."""
+        u = self._user(user_id)
+        return {"email": u.get("email"), "manager": ((u.get("attributes") or {}).get("manager") or [None])[0]}
+
     def manager_of(self, user_id: str) -> str | None:
         """The manager's username from the user attribute 'manager' (set by HR; the broker can read, not edit it)."""
         vals = (self._user(user_id).get("attributes") or {}).get("manager") or []

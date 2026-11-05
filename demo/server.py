@@ -284,6 +284,12 @@ class Demo:
         return PEOPLE.get(names.get(user_id or "", ""), "an account")
 
     @staticmethod
+    def _phones(pushes: list) -> str:
+        names = sorted({SHORT.get(c.approver, c.approver) for c in pushes})
+        return (f"{names[0]}'s phone was" if len(names) == 1 else
+                " and ".join(n + "'s" for n in names) + " phones were")
+
+    @staticmethod
     def _owner_asked(s: Session, run_id: str | None) -> str:
         """Was Jordan's own phone asked in this run, and how did it end: never | no answer | declined | approved."""
         st = [c.status for c in (s.stack.challenges._by_id.values() if s.stack else [])
@@ -443,7 +449,7 @@ class Demo:
                 from eval.fake_llm import FakeLLM
                 llm = FakeLLM(self.model)
             else:
-                llm = LLM(models=[self.model], cap_usd=reserved)
+                llm = LLM(models=[self.model], cap_usd=reserved, max_tokens=8000)
             deadline = time.time() + CONVERSATION_WALL_S
             n = {"script": 0}
 
@@ -599,8 +605,7 @@ class Demo:
                           verdict="bad")
         elif proof and not made:
             s.verdict = ("Nothing changed. Jordan's account is intact."
-                         + (f" {' and '.join(sorted({SHORT.get(c.approver, c.approver) + chr(39) + 's' for c in pushes}))}"
-                            f" phone was asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
+                         + (f" {self._phones(pushes)} asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
                             " No phone approved anything.")
                          + (" The agent handed the ticket to a human." if escalated else ""))
             self.emit(s, "gate", s.verdict, verdict="good")

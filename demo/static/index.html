@@ -105,6 +105,8 @@ footer{color:var(--muted);font-size:12.5px;padding:18px 0 36px}footer details{ma
 body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .card.side-left{border-top:5px solid var(--red)}.card.side-right{border-top:5px solid var(--green)}
 .sidetag{font-size:11px;font-weight:700;letter-spacing:.04em;margin:-4px 0 6px}.sidetag.left{color:#c2352a}.sidetag.right{color:#1d7a46}
+.stepgroup .tog{color:var(--blue);cursor:pointer;font-size:12px;margin-left:4px}.stepgroup .steps{margin-left:14px}
+.retry{align-self:stretch;border:1px dashed var(--red);background:var(--surface);color:var(--red);border-radius:10px;padding:10px 12px;font:inherit;font-weight:600;cursor:pointer}
 .hidden{display:none!important}
 </style>
 </head>
@@ -191,11 +193,11 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 "use strict";
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; };
-let thenArmed = false, nextThen = null, hadSession = false, serverCompare = false, scenario = null, timer = null, lastPhoneIds = "", serverBusy = false, polling = false, compare = false;
+let lastScenario = null, lastScenarioKind = null, attempts = {}, thenArmed = false, nextThen = null, hadSession = false, serverCompare = false, scenario = null, timer = null, lastPhoneIds = "", serverBusy = false, polling = false, compare = false;
 class Column {
   constructor(chatId, rowsId, left) { this.chat = $(chatId); this.rows = $(rowsId); this.left = left; this.after = 0;
-    this.drawn = new Set(); this.pending = []; this.typingEl = null; }
-  clear() { this.chat.replaceChildren(); this.after = 0; this.drawn.clear(); this.pending = []; this.typingEl = null; }
+    this.drawn = new Set(); this.pending = []; this.typingEl = null; this.group = null; }
+  clear() { this.chat.replaceChildren(); this.after = 0; this.drawn.clear(); this.pending = []; this.typingEl = null; this.group = null; }
 }
 const R = new Column("chatR", "rowsR", false), L = new Column("chatL", "rowsL", true);
 
@@ -212,7 +214,7 @@ async function intro() {
   for (const s of j.scenarios) {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
-    b.dataset.normal = s.chip; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
+    b.dataset.normal = s.chip; b.dataset.id = s.id; b.dataset.kind = s.kind; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
     b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
@@ -239,6 +241,7 @@ function renderCounter(c) {
 }
 function render(c, e) {
   c.chat.querySelector(".empty")?.remove(); const chat = c.chat;
+  if (e.who !== "step") c.group = null;          // any other line ends the current run of script lines
   if (e.who === "you") { const i = c.pending.indexOf(e.text); if (i >= 0) { c.pending.splice(i, 1); return; }
     chat.append(el("div", "who r", "You"), el("div", "b you", e.text)); return; }
   if (e.who === "agent") { if (!e.text || !e.text.trim()) return;
@@ -260,12 +263,29 @@ function render(c, e) {
   if (e.who === "phone") { const d = el("div", "ph"); const t = e.text.split(String(e.number));
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
-    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d); return; }
-  if (e.who === "step") { const wrap = el("div"); const d = el("div", "line"); d.append(el("span", "dot")); const t = el("span", "", e.text + " ");
+    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d);
+    const resisted = c.left && /no account change|no change in the end/.test(e.text);
+    if (resisted && lastScenario && lastScenarioKind === "attack" && (attempts[lastScenario] || 1) < 3) {
+      const n = (attempts[lastScenario] || 1) + 1;
+      const r = el("button", "retry", "The agent resisted this time. Try again, as an attacker would (attempt " + n + " of 3)");
+      r.onclick = () => { const chip = [...$("chips").querySelectorAll(".chip")].find(b => b.dataset.id === lastScenario); chip?.click(); r.remove(); send(); };
+      chat.append(r); }
+    return; }
+  if (e.who === "step") {
+    if (!c.group) { const g = el("div", "stepgroup"); const h = el("div", "line"); const ht = el("span", ""); const tog = el("a", "tog", "");
+      const body = el("div", "steps hidden"); h.append(el("span", "dot"), ht, tog); g.append(h, body); chat.append(g);
+      const G = {ht, tog, body, n: 0}; tog.onclick = () => { body.classList.toggle("hidden"); label(G); }; c.group = G; }
+    const G = c.group; G.n += 1;
+    const wrap = el("div"); const d = el("div", "line"); d.append(el("span", "dot")); const t = el("span", "", e.text + " ");
     const v = el("a", "", "view"); const pre = el("pre", "code hidden");
     v.onclick = () => { pre.textContent = "# the script\n" + (e.code || "") + "\n\n# what it printed\n" + (e.output || "(still running)"); pre.classList.toggle("hidden"); };
-    t.append(v); d.append(t); wrap.append(d, pre); chat.append(wrap); return; }
+    t.append(v); d.append(t); wrap.append(d, pre); G.body.append(wrap);
+    G.ht.textContent = e.text.replace(/ \(script \d+ in a fresh sandbox\)/, "") + " "; label(G); return; }
   const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.text)); chat.append(d);
+}
+function label(G) {
+  const open = !G.body.classList.contains("hidden");
+  G.tog.textContent = open ? "hide" : (G.n > 1 ? G.n + " scripts, each in a fresh sandbox" : "1 script in a fresh sandbox") + " · show";
 }
 function setTyping(c, on) {
   if (on && !c.typingEl) { c.typingEl = el("div", "typing"); c.typingEl.append(el("i"), el("i"), el("i")); }
@@ -379,7 +399,10 @@ async function send() {
   $("input").value = "";
   const starts = !serverBusy;
   try { await api("/api/say", starts ? {text, scenario, ticket: $("ticket").value, prompt: $("prompt").value} : {text});
-        if (starts) { serverBusy = true; if (scenario && nextThen) thenArmed = true; scenario = null; $("prompt").disabled = true; } }
+        if (starts) { serverBusy = true; if (scenario && nextThen) thenArmed = true;
+          if (scenario) { attempts[scenario] = scenario === lastScenario ? (attempts[scenario] || 1) + 1 : 1;
+            lastScenario = scenario; lastScenarioKind = $("chips").querySelector('.chip[data-id="' + scenario + '"]')?.dataset.kind || null; }
+          scenario = null; $("prompt").disabled = true; } }
   catch (e) { for (const c of compare ? [L, R] : [R]) { setTyping(c, false); c.pending.pop(); const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.message)); c.chat.append(d); } }
   poll(true);
 }

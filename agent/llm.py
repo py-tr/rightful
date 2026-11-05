@@ -31,6 +31,8 @@ class LLM:
     models: list[str] = field(default_factory=lambda: list(DEFAULT_MODELS))
     cap_usd: float = 0.25
     reasoning_effort: str | None = None
+    max_tokens: int | None = None   # overrides chat()'s default; the demo raises it (11-05: the model spent all 3,000
+                                    # tokens reasoning, finish_reason "length", and returned an empty reply)
     api_key: str | None = None
     http: httpx.Client | None = None
     spent: float = 0.0
@@ -46,7 +48,7 @@ class LLM:
             raise CapReached(f"spent ${self.spent:.4f} of the ${self.cap_usd} cap")
         last_err = None
         for model in self.models:
-            body = {"model": model, "messages": messages, "max_tokens": max_tokens}
+            body = {"model": model, "messages": messages, "max_tokens": self.max_tokens or max_tokens}
             if tools:
                 body["tools"] = tools
             if self.reasoning_effort:

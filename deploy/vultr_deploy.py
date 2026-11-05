@@ -457,7 +457,10 @@ def demo_deploy() -> None:
     caddy = (f"{host} {{\n  request_body {{\n    max_size 64KB\n  }}\n  reverse_proxy 127.0.0.1:8000\n}}\n")
     r = ssh(ip, DEMO_UNITS + "systemctl stop keyless 2>/dev/null; systemctl disable keyless 2>/dev/null; "
                 f"cat > /etc/caddy/Caddyfile <<'EOF'\n{caddy}EOF\n"
-                "systemctl daemon-reload && systemctl enable --now keyless-factory keyless-demo >/dev/null && "
+                # enable --now does NOTHING to a running service (11-06: a redeploy kept the old code running), so
+                # restart explicitly, the factory first
+                "systemctl daemon-reload && systemctl enable keyless-factory keyless-demo >/dev/null 2>&1; "
+                "systemctl restart keyless-factory && sleep 3 && systemctl restart keyless-demo && "
                 "systemctl reload caddy || systemctl restart caddy; "
                 "for i in $(seq 1 60); do curl -sf http://127.0.0.1:8000/healthz >/dev/null && break; sleep 2; done; "
                 "curl -s http://127.0.0.1:8000/healthz; echo; systemctl is-active keyless-factory keyless-demo")

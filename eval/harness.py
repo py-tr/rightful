@@ -63,6 +63,8 @@ def sha(b: bytes) -> str:
 
 
 def git_commit() -> str:
+    if os.environ.get("KEYLESS_COMMIT"):              # the server copy has no .git; the start command passes it
+        return os.environ["KEYLESS_COMMIT"]
     try:
         return subprocess.run(["git", "-C", REPO, "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
                               timeout=10).stdout.strip()

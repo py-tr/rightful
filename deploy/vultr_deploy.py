@@ -450,7 +450,8 @@ def demo_deploy() -> None:
             "{ echo KC_ADMIN_PASSWORD=$(cat /opt/keyless/kc-admin); echo FACTORY_TOKEN=$TOKEN; "
             "  echo KC_URL=http://127.0.0.1:8089; echo SMTP_HOST=keyless-mail; } > /opt/keyless/factory.env && "
             f"{{ cat; echo FACTORY_TOKEN=$TOKEN; echo VPC_IP={vpc}; echo DEMO_DOCKER_HOSTS=ssh://root@{wvpc}; "
-            "  echo KEYLESS_DEMO_CONTRAST=1; echo DEMO_DIR=/var/lib/keyless/demo; } > /opt/keyless/demo.env && "
+            "  echo KEYLESS_DEMO_CONTRAST=1; echo DEMO_DIR=/var/lib/keyless/demo; echo DEMO_MODEL=qwen3.8-27b; "
+            "  echo DEMO_TOTAL_USD=15; } > /opt/keyless/demo.env && "
             "chmod 600 /opt/keyless/factory.env /opt/keyless/demo.env", input_text=key_line + "\n")
     host = s.get("public_host") or f"{ip.replace('.', '-')}.sslip.io"
     caddy = (f"{host} {{\n  request_body {{\n    max_size 64KB\n  }}\n  reverse_proxy 127.0.0.1:8000\n}}\n")

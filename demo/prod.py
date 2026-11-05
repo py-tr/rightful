@@ -34,7 +34,9 @@ def main() -> None:
     os.makedirs(out, exist_ok=True)
     demo = Demo(os.environ.get("KC_URL", "http://127.0.0.1:8089"),
                 FactoryClient("http://127.0.0.1:8097", os.environ["FACTORY_TOKEN"]),
-                Limits(os.path.join(out, "limits.json")), hosts=hosts, out_dir=out,
+                Limits(os.path.join(out, "limits.json"),
+                       total_usd=float(os.environ.get("DEMO_TOTAL_USD", "15"))),   # owner-approved total, 11-05
+                hosts=hosts, out_dir=out,
                 edge_upstream=f"http://{vpc}:8090", mail_api=os.environ.get("MAIL_API", "http://127.0.0.1:8025"),
                 model=os.environ.get("DEMO_MODEL", "glm-5.3-flash"))
     demo.run_background()

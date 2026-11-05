@@ -442,7 +442,8 @@ def demo_deploy() -> None:
     print("worker:", r.stdout.strip()[-200:], r.stderr.strip()[-200:])
     key_line = next(l.strip() for l in open(os.path.join(ROOT, ".env"), encoding="utf-8")
                     if l.startswith("VULTR_INFERENCE_API_KEY="))
-    ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && mkdir -p /var/lib/keyless/demo && umask 077 && "
+    ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && /opt/keyless/.venv/bin/pip install -q segno==1.6.1 && "
+            "mkdir -p /var/lib/keyless/demo && umask 077 && "
             "TOKEN=$(openssl rand -hex 24) && "
             "{ echo KC_ADMIN_PASSWORD=$(cat /opt/keyless/kc-admin); echo FACTORY_TOKEN=$TOKEN; "
             "  echo KC_URL=http://127.0.0.1:8089; echo SMTP_HOST=keyless-mail; } > /opt/keyless/factory.env && "

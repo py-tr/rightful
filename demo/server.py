@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.testclient import TestClient
 
 from agent import claims
@@ -45,6 +45,7 @@ from demo.stack import SessionStack
 from eval.dispatch import BrokerDispatch, PushDispatch, Timing
 
 IDLE_S, MAX_S = 20 * 60, 60 * 60
+PHONE_LINK_S = 15 * 60          # a "scan to become the phone" link lives this long (and never longer than its session)
 MAX_TEXT, MAX_TICKET = 1200, 2500
 MAX_TURNS, CONVERSATION_WALL_S = 10, 240   # 8 cut the honest path short after an approved verification (11-05)
 WAIT_FOR_VISITOR_S = 20       # after the agent's reply: then the summary comes; a later message starts a new conversation
@@ -123,6 +124,8 @@ class Demo:
         self.broker, self.push = BrokerDispatch(), PushDispatch()
         self.sessions: dict[str, Session] = {}
         self.cookies: dict[str, str] = {}
+        self.link_tokens: dict[str, dict] = {}      # QR link token -> {sid, exp, claimed}
+        self.phone_links: dict[str, dict] = {}      # device cookie -> {sid, exp, token}
         self.lock = threading.Lock()
         self.slots = threading.Semaphore(max_in_flight)
         self.waiting = 0
@@ -958,6 +961,9 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, e = need(request)
         if e:
             return e
+        return await answer(s, push_id, action, request)
+
+    async def answer(s: Session, push_id: str, action: str, request: Request):
         if action not in ("approve", "deny", "noanswer"):
             return err("nothing to answer")
         found = None                                   # this session's phone covers its company and, in compare
@@ -991,12 +997,97 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, e = need(request)
         if e:
             return e
+        return cancel_on(s, cancel_id)
+
+    def cancel_on(s: Session, cancel_id: str):
         if s.stack is None:
             return err("nothing to cancel")
         ok = TestClient(s.stack.push).post(f"/phone/cfo/cancel/{cancel_id}").status_code == 200
         if ok:
             demo.emit(s, "status", "Jordan cancelled the pending change from the phone.")
         return {"ok": ok}
+
+    # --- "scan to become the phone": a visitor's own phone answers this session's requests --------------------------
+    # A link is bound to ONE session, claimed by the FIRST device that opens it (a device cookie), expires after
+    # PHONE_LINK_S, and dies with the session. It can answer requests and cancel; it can never send a message, see the
+    # chat, or reach another session. Nothing here exists on a judge's laptop unless they press the button.
+    def phone_session(request: Request):
+        rec = demo.phone_links.get(request.cookies.get("kp", ""))
+        if rec is None or time.time() > rec["exp"]:
+            return None, err("this phone link has expired; scan a new code", 401)
+        s = demo.sessions.get(rec["sid"])
+        if s is None:
+            return None, err("that session has ended", 410)
+        if request.method == "POST" and not same_site(request):
+            return None, err("cross-site request refused", 403)
+        return s, None
+
+    @app.post("/api/phone-link")
+    def phone_link(request: Request):
+        if not same_site(request):
+            return err("cross-site request refused", 403)
+        s, cookie = demo.session_of(request), None
+        if s is None:                                  # pairing the phone can be the first thing a visitor does
+            try:
+                s, cookie = demo.new_session(ip_of(request))
+            except Refused as x:
+                return err(x.reason, 429)
+        token = secrets.token_urlsafe(18)
+        with demo.lock:                                # one live link per session: a new one replaces the old
+            for k, v in list(demo.phone_links.items()):
+                if v["sid"] == s.id:
+                    demo.phone_links.pop(k)
+            demo.link_tokens = {k: v for k, v in demo.link_tokens.items() if v["sid"] != s.id}
+            demo.link_tokens[token] = {"sid": s.id, "exp": time.time() + PHONE_LINK_S, "claimed": False}
+        host = request.headers.get("host", "127.0.0.1:8000")
+        scheme = "http" if host.split(":")[0] in ("127.0.0.1", "localhost") else "https"
+        url = f"{scheme}://{host}/m/{token}"
+        import segno
+        svg = segno.make(url, error="m").svg_data_uri(scale=5, border=2)
+        return with_cookie(JSONResponse({"url": url, "qr": svg, "expires_in": PHONE_LINK_S}), cookie)
+
+    @app.get("/m/{token}")
+    def phone_page(token: str, request: Request):
+        rec = demo.link_tokens.get(token)
+        mine = request.cookies.get("kp", "")
+        if rec is None or time.time() > rec["exp"] or demo.sessions.get(rec["sid"]) is None:
+            return HTMLResponse("<p style='font:16px system-ui;padding:24px'>This phone link has expired. Scan a new "
+                                "code from the demo page.</p>", status_code=410)
+        if rec["claimed"] and demo.phone_links.get(mine, {}).get("token") != token:
+            return HTMLResponse("<p style='font:16px system-ui;padding:24px'>This link was already opened on another "
+                                "device. Scan a new code from the demo page.</p>", status_code=409)
+        resp = FileResponse(os.path.join(HERE, "static", "phone.html"), headers={"Cache-Control": "no-store"})
+        if not rec["claimed"]:
+            dev = secrets.token_urlsafe(32)
+            with demo.lock:
+                rec["claimed"] = True
+                demo.phone_links[dev] = {"sid": rec["sid"], "exp": rec["exp"], "token": token}
+            resp.set_cookie("kp", dev, httponly=True, secure=True, samesite="strict", max_age=PHONE_LINK_S)
+            s = demo.sessions.get(rec["sid"])
+            if s is not None:
+                demo.emit(s, "status", "A phone joined: requests can now be answered on it.")
+        return resp
+
+    @app.get("/api/m/view")
+    def phone_view_remote(request: Request):
+        s, e = phone_session(request)
+        if e:
+            return e
+        return {**demo.phone_view(s), "left_s": max(0, int(demo.phone_links[request.cookies["kp"]]["exp"] - time.time()))}
+
+    @app.post("/api/m/answer/{push_id}/{action}")
+    async def phone_answer_remote(push_id: str, action: str, request: Request):
+        s, e = phone_session(request)
+        if e:
+            return e
+        return await answer(s, push_id, action, request)
+
+    @app.post("/api/m/cancel/{cancel_id}")
+    def phone_cancel_remote(cancel_id: str, request: Request):
+        s, e = phone_session(request)
+        if e:
+            return e
+        return cancel_on(s, cancel_id)
 
     @app.post("/api/restart")
     def restart(request: Request):

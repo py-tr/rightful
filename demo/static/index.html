@@ -113,6 +113,10 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .gate.verdict.bad{font-size:16px;padding:14px}
 .vbar .retry{margin-top:10px;width:100%}
 .card .to{font-size:11.5px;font-weight:600;color:#6b6d72;margin-bottom:2px}
+.pair{margin:12px 4px 0}.pairbtn{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.pairbox{display:flex;gap:12px;align-items:center;margin-top:10px;font-size:12.5px;color:var(--muted)}
+.pairbox img{width:148px;height:148px;background:#fff;border-radius:8px;flex:none}.pairurl{display:block;word-break:break-all;margin-top:4px}
 .hidden{display:none!important}
 </style>
 </head>
@@ -175,6 +179,10 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div id="cards"><div class="idle">No requests.</div></div>
       <div id="notices"></div><div class="mail" id="mail"></div>
     </div></div>
+    <div class="pair"><button class="pairbtn" id="pairBtn">Use your own phone</button>
+      <div class="pairbox hidden" id="pairBox"><img id="pairQr" alt="QR code that opens this session's phone page">
+        <div>Scan with your phone's camera. The page answers this session's requests; it works once, on one device,
+        for 15 minutes. <span id="pairUrl" class="pairurl"></span></div></div></div>
     <p class="phonenote">Simulated device: in production this is the owner's authenticator app. The only way a change
       happens with Keyless is this phone saying yes to the exact request. If you approve as the owner, you've taken the
       honest path, not found a bypass.</p>
@@ -417,6 +425,12 @@ async function send() {
   poll(true);
 }
 $("sendBtn").onclick = send;
+$("pairBtn").onclick = async () => {
+  try { if (compare && !serverCompare) { await api("/api/compare", {on: true}); serverCompare = true; }   // keep the landing's two columns
+    const j = await api("/api/phone-link", {}); $("pairQr").src = j.qr; $("pairUrl").textContent = j.url;
+    $("pairBox").classList.remove("hidden"); $("pairBtn").textContent = "New code (the old one stops working)"; poll(true); }
+  catch (e) { alert(e.message); }
+};
 $("thenBtn").onclick = () => { if (nextThen) { $("input").value = nextThen; send(); } };
 $("input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
 $("restart").onclick = async () => { try { await api("/api/restart", {}); } catch (e) {} location.reload(); };

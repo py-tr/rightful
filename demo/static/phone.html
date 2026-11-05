@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#f4f3ef">
+<title>Corp sign-in</title>
+<style>
+:root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--red:#c2352a;--red-bg:#fdecea;
+  --green:#1d7a46;--green-bg:#e7f5ec;--amber:#9a6a00;--amber-bg:#fff5db;--blue:#2d55c8}
+@media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1c1d20;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;
+  --red:#ff7b6e;--red-bg:#3a1d1a;--green:#5fd08f;--green-bg:#14301f;--amber:#f0c24b;--amber-bg:#352a0e;--blue:#8fb0ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,system-ui,sans-serif;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom))}
+h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin-bottom:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:14px;
+  box-shadow:0 4px 18px rgba(0,0,0,.08);animation:slide .3s ease-out}
+@keyframes slide{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}
+.card.side-left{border-top:6px solid var(--red)}.card.side-right{border-top:6px solid var(--green)}
+.tag{font-size:12px;font-weight:700;letter-spacing:.04em}.tag.left{color:var(--red)}.tag.right{color:var(--green)}
+.to{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
+.app{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:6px}
+.what{font-size:19px;font-weight:700;margin:6px 0 2px}.acct{font-size:15px}
+.warn{font-size:14px;color:var(--amber);background:var(--amber-bg);border-radius:10px;padding:8px 10px;margin-top:10px}
+.q{font-size:14px;color:var(--muted);margin:14px 0 8px}
+.nums{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.nums button{font:700 26px/1 -apple-system,system-ui,sans-serif;padding:18px 0;border-radius:14px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink)}
+.deny{margin-top:10px;width:100%;padding:14px;border-radius:14px;border:0;background:var(--red-bg);color:var(--red);
+  font:600 16px -apple-system,system-ui,sans-serif}
+.idle{color:var(--muted);text-align:center;padding:48px 8px}
+.past{font-size:13px;color:var(--muted);background:var(--surface);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.notice{font-size:14px;background:var(--surface);border-left:4px solid var(--blue);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.notice button{margin-top:8px;padding:10px 14px;border-radius:10px;border:0;background:var(--red);color:#fff;font:600 15px -apple-system,system-ui,sans-serif}
+.foot{font-size:12px;color:var(--muted);margin-top:18px}
+.toast{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);
+  border-radius:12px;padding:12px 14px;font-size:14px;display:none}
+</style>
+</head>
+<body>
+<h1 id="title">Your phone</h1>
+<div class="sub" id="sub">Connected to the Keyless demo</div>
+<div id="cards"><div class="idle">No requests yet. Keep this page open; requests appear here.</div></div>
+<div id="notices"></div>
+<div class="foot" id="foot">This page answers the help desk's requests for the demo session you scanned it from. It cannot
+  send messages or see the chat. Fictional company; nothing here touches a real account.</div>
+<div class="toast" id="toast"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x !== undefined) e.textContent = String(x); return e; };
+const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Keyless"};
+let last = "", dead = false;
+function toast(t) { const d = $("toast"); d.textContent = t; d.style.display = "block"; setTimeout(() => d.style.display = "none", 2600); }
+async function post(path, body) {
+  const r = await fetch(path, {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j;
+}
+async function act(id, action, body) {
+  try { const j = await post("/api/m/answer/" + encodeURIComponent(id) + "/" + action, body);
+    if (navigator.vibrate) navigator.vibrate(30);
+    toast(action === "deny" ? "Declined." : j.ok ? "Approved." : "That number did not match; nothing was approved.");
+    last = ""; poll(); } catch (e) { toast(e.message); }
+}
+function render(v) {
+  $("title").textContent = v.title || "Your phone";
+  $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min";
+  const key = JSON.stringify([v.pending.map(x => x.id), (v.history || []).length, v.notices.length]);
+  if (key === last) return; last = key;
+  const cards = $("cards"); cards.replaceChildren();
+  if (!v.pending.length && !(v.history || []).length) cards.append(el("div", "idle", "No requests yet. Keep this page open; requests appear here."));
+  for (const x of v.pending) {
+    const c = el("div", "card" + (x.company ? " side-" + x.company : ""));
+    if (x.company) c.append(el("div", "tag " + x.company, SIDE[x.company]));
+    if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
+    c.append(el("div", "app", "Corp sign-in · ref " + x.ref), el("div", "what", "Help desk requests: " + x.action), el("div", "acct", "Account: " + x.account));
+    if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
+    c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
+    const nums = el("div", "nums");
+    for (const n of x.numbers) { const b = el("button", "", n); b.onclick = () => act(x.id, "approve", {number: n}); nums.append(b); }
+    const d = el("button", "deny", "Deny"); d.onclick = () => act(x.id, "deny", {});
+    c.append(nums, d); cards.append(c);
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+  }
+  if (!v.pending.length) for (const h of (v.history || []).slice().reverse())
+    cards.append(el("div", "past", (h.company ? (h.company === "left" ? "LEFT · " : "RIGHT · ") : "") + h.at + " · to " + h.who + "'s phone: " + h.action + " · " + h.outcome));
+  const no = $("notices"); no.replaceChildren();
+  for (const n of v.notices.slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
+    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => post("/api/m/cancel/" + encodeURIComponent(n.cancel_id)).then(() => toast("Cancelled.")).catch(e => toast(e.message)); d.append(el("br"), b); }
+    no.append(d); }
+}
+async function poll() {
+  if (dead) return;
+  try { const r = await fetch("/api/m/view", {credentials: "same-origin"}); const j = await r.json();
+    if (!r.ok) { dead = true; $("cards").replaceChildren(el("div", "idle", j.error || "This link is no longer valid.")); return; }
+    render(j);
+  } catch (e) {}
+}
+poll(); setInterval(poll, 1000);
+</script>
+</body></html>

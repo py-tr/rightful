@@ -114,6 +114,7 @@ def main() -> int:
         os.path.join(OUT, "browser-state.json")) else ""
     report["real_token_in_browser"] = any(t in state for t in console.real_tokens)
     report["console_leaks_withheld"] = console.leaks
+    report["console_route_refused"] = console.refused
     print(json.dumps(report, indent=1))
     kl.stop()
     return 0

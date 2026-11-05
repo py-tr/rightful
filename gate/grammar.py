@@ -186,6 +186,8 @@ def parse(pack: dict, method: str, target: str, body: bytes) -> Operation:
             raise Reject("malformed", "GET with a body")
         rq = pack["read_query"]
         for k, v in query:
+            if k in rq.get("empty_only", []) and v == "":
+                continue            # the console always sends e.g. `q=`; a value (an attribute search) is refused
             if k not in rq["keys"] or not re.match(rq["value_regex"], v):
                 raise Reject("not_allowlisted", f"read query parameter {k!r} not allowed")
         for tpl in pack["reads"]:

@@ -39,8 +39,11 @@ class FakeKeycloak:
             self.ciba_requests.append(req.content.decode())
             return httpx.Response(200, json={"auth_req_id": rid, "expires_in": 120})
         if req.method == "GET" and p == f"/admin/realms/corp/users/{U}":
-            return httpx.Response(200, json={"id": U, "username": "cfo"},
+            return httpx.Response(200, json={"id": U, "username": "cfo", "attributes": {"manager": ["ceo"]},
+                                             "federationLink": "ldap-1"},
                                   headers={"Set-Cookie": "KEYCLOAK_IDENTITY=secret"})
+        if req.method == "GET" and p == "/admin/realms/corp/users":
+            return httpx.Response(200, json=[{"id": U, "username": "cfo", "attributes": {"privileged": ["true"]}}])
         self.upstream.append({"method": req.method, "path": p, "auth": req.headers.get("authorization"),
                               "body": req.content.decode()})
         if getattr(self, "fail_writes", False):
@@ -101,6 +104,15 @@ def test_sandbox_never_sees_token_cookie_or_secret(env):
     assert TOKEN not in r.text
     r = c.put(RESET, content=BODY, headers=H)
     assert TOKEN not in r.text and "BROKER-PW" not in r.text and "rcpt_" not in r.text
+
+
+def test_user_reads_show_only_allowlisted_fields(env):
+    """The sandbox never sees attributes (the manager the approver logic depends on, privileged flags) or links."""
+    fake, c, *_ = env
+    one = c.get(f"/admin/realms/corp/users/{U}", headers=H).json()
+    assert one == {"id": U, "username": "cfo"}
+    many = c.get("/admin/realms/corp/users?search=cfo", headers=H).json()
+    assert many == [{"id": U, "username": "cfo"}]
 
 
 def test_approval_in_one_run_does_not_help_another_run(env):

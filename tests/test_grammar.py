@@ -26,7 +26,11 @@ def test_legit_operations_parse():
     assert kind("POST", f"/admin/realms/corp/users/{U}/logout") == "logout_sessions"
     assert kind("PUT", f"/admin/realms/corp/users/{U}", b'{"email":"jordan.avery@corp.example"}') == "change_email"
     assert kind("GET", f"/admin/realms/corp/users?search=jordan&max=20") == "read"
-    assert kind("GET", "/resources/abc123/admin/keycloak.v2/app.js") == "static"
+    # The static route is closed (mentor's review: same shape as the old console route). Console assets go only
+    # through the console route's allowlist; without a console, nothing outside the admin API is reachable.
+    assert kind("GET", "/resources/abc123/admin/keycloak.v2/app.js") == "REJECT:not_allowlisted"
+    assert kind("GET", "/admin/realms/corp/users?q=manager:ceo") == "REJECT:not_allowlisted"     # no attribute search
+    assert kind("GET", "/admin/realms/corp/users?first=0&max=11&q=") == "read"     # what the real console sends
 
 
 @pytest.mark.parametrize("target", [

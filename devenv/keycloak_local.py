@@ -84,6 +84,8 @@ def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
     a.post("/admin/realms", json={
         "realm": realm, "enabled": True, "adminEventsEnabled": True, "adminEventsDetailsEnabled": True,
         "eventsEnabled": True,
+        # Brute-force protection (start-dev leaves it off): repeated wrong passwords lock the account temporarily.
+        "bruteForceProtected": True, "failureFactor": 5, "permanentLockout": False,
         **({"smtpServer": {"host": os.environ.get("SMTP_HOST", "host.docker.internal"), "port": "1025", "from": "helpdesk@corp.example",
                            "fromDisplayName": "Corp IT (fictional)"}} if smtp else {}),
         "attributes": {"cibaBackchannelTokenDeliveryMode": "poll", "cibaExpiresIn": "180", "cibaInterval": "1",

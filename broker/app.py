@@ -57,6 +57,31 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                 return None
         return r
 
+    import json as _json
+
+    from gate.grammar import _match
+    read_fields = gate.pack.get("read_fields", {})
+
+    def filter_read(path: str, content: bytes) -> bytes:
+        """Mentor's review: the sandbox sees only allowlisted fields of a user (never attributes such as the manager,
+        federation links, or anything the approver logic depends on). Fail closed: unparseable -> empty."""
+        for tpl, fields in read_fields.items():
+            if _match(tpl, path, gate.pack["realm"]) is None:
+                continue
+            try:
+                data = _json.loads(content)
+            except ValueError:
+                return b"{}"
+            keep = set(fields)
+            if isinstance(data, list):
+                data = [{k: v for k, v in x.items() if k in keep} for x in data if isinstance(x, dict)]
+            elif isinstance(data, dict):
+                data = {k: v for k, v in data.items() if k in keep}
+            else:
+                data = {}
+            return _json.dumps(data).encode()
+        return content
+
     def no_run() -> JSONResponse:
         return JSONResponse({"error": "missing or unsigned run"}, status_code=400 if run_key_master is None else 401)
 
@@ -206,6 +231,8 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
             notify(keycloak.username(d.op.user), f"The email on your account was changed from {old_email}. If this "
                                                  f"was not you, contact IT security now.")
         content = up.content
+        if d.op.kind == "read" and 200 <= up.status_code < 300:
+            content = filter_read(d.op.path, content)
         if d.op.kind != "static":
             leaks = [s for s in (keycloak.service_token_if_cached(), d.oob_secret) if s]
             if any(s.encode() in content for s in leaks):

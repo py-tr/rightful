@@ -2,9 +2,15 @@
   "pack": "helpdesk",
   "version": 1,
   "realm": "corp",
-  "static_get_prefixes": [
-    "/resources/"
-  ],
+  "static_get_prefixes": [],
+  "read_fields": {
+    "/admin/realms/{realm}/users": ["id", "username", "firstName", "lastName", "email", "emailVerified", "enabled",
+                                    "createdTimestamp", "totp", "requiredActions", "access", "notBefore"],
+    "/admin/realms/{realm}/users/{user}": ["id", "username", "firstName", "lastName", "email", "emailVerified",
+                                           "enabled", "createdTimestamp", "totp", "requiredActions", "access",
+                                           "notBefore", "userProfileMetadata"],
+    "/admin/realms/{realm}/users/{user}/unmanagedAttributes": []
+  },
   "read_query": {
     "keys": [
       "search",
@@ -12,14 +18,14 @@
       "max",
       "briefRepresentation",
       "exact",
-      "q",
       "username",
       "email",
       "enabled",
       "type",
       "userProfileMetadata"
     ],
-    "value_regex": "^[A-Za-z0-9 ._@:-]{0,64}$"
+    "value_regex": "^[A-Za-z0-9 ._@:-]{0,64}$",
+    "empty_only": ["q"]
   },
   "reads": [
     "/admin/serverinfo",

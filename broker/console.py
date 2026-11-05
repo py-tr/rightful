@@ -1,8 +1,11 @@
 """The admin console's session, held by the broker (from the Nov 3 broker spike, made least-privilege).
 
 The browser in the sandbox drives the real Keycloak admin console for realm corp, but holds no usable credential:
-- the broker performs the console login itself as `helpdesk-console` (manage-users + view-users only); the
-  password never reaches the browser;
+- the broker performs the console login itself as `helpdesk-console` (VIEW-ONLY: view-users; it can change nothing);
+  the password never reaches the browser. Invariant: nothing reachable from the sandbox holds a credential that can
+  write;
+- the console route is an allowlist and every upstream request is BUILT from checked fields (headers allowlisted,
+  the token endpoint limited to the console's own client and its two grants);
 - Keycloak's cookies live in the broker's jar; every Set-Cookie is stripped except the KEYCLOAK_SESSION marker
   (a session-status marker that cannot authenticate);
 - tokens sent to the browser are copies with a destroyed signature (replayed against Keycloak: 401);
@@ -29,6 +32,7 @@ class ConsoleSession:
         self._fake2real: dict[str, str] = {}
         self.real_tokens: set[str] = set()
         self.leaks: list[str] = []
+        self.refused: list[str] = []          # what the console route refused (shown by the probes)
         self._lock = threading.Lock()
         self.routes = (f"/realms/{realm}/", f"/admin/{realm}/console", "/resources/")
         self.token_path = f"/realms/{realm}/protocol/openid-connect/token"
@@ -80,7 +84,12 @@ class ConsoleSession:
         with self._lock:
             self._fake2real[f] = tok
             self.real_tokens.add(tok)
+            while len(self._fake2real) > self.MAX_TOKENS:      # bounded: the oldest mapping is forgotten first
+                old_fake = next(iter(self._fake2real))
+                self.real_tokens.discard(self._fake2real.pop(old_fake))
         return f
+
+    MAX_TOKENS = 256
 
     def _swap_in(self, s: str) -> str:
         with self._lock:
@@ -96,22 +105,66 @@ class ConsoleSession:
         action = m.group(1).replace("&amp;", "&").replace(self.pub, self.up)
         return self._send("POST", action, data={"username": self._user, "password": self._pw, "credentialId": ""})
 
+    # --- the token endpoint: one client, two grants, a body rebuilt from parsed fields ------------------------
+    CONSOLE_CLIENT = "security-admin-console"
+    TOKEN_GRANTS = {"authorization_code": {"grant_type", "client_id", "code", "redirect_uri", "code_verifier"},
+                    "refresh_token": {"grant_type", "client_id", "refresh_token", "scope"}}
+    FORWARD_HEADERS = ("accept", "accept-language", "content-type")
+
+    def token_body(self, body: bytes) -> tuple[bytes | None, str]:
+        """Mentor's review: the one allowed POST must not be a password-guessing oracle (the realm's admin-cli accepts
+        password grants by default). Only the console's own client and its two grants pass, each with only its own
+        fields; the body forwarded is rebuilt from those fields. Returns (body, '') or (None, reason)."""
+        from urllib.parse import parse_qsl, urlencode
+        try:
+            pairs = parse_qsl(body.decode("ascii"), keep_blank_values=True, strict_parsing=True)
+        except (UnicodeDecodeError, ValueError):
+            return None, "token request body is not a plain form"
+        form = dict(pairs)
+        if len(form) != len(pairs):
+            return None, "repeated field in token request"
+        grant = form.get("grant_type", "")
+        if grant not in self.TOKEN_GRANTS:
+            return None, f"grant {grant[:40]!r} is not allowed on the console route"
+        if form.get("client_id") != self.CONSOLE_CLIENT:
+            return None, "only the admin console's own client may use the console route"
+        extra = set(form) - self.TOKEN_GRANTS[grant]
+        if extra:
+            return None, f"unexpected field(s) {sorted(extra)[:3]} in token request"
+        if grant == "refresh_token":            # only the refresh field is ever swapped back to the real token
+            form["refresh_token"] = self._swap_in(form.get("refresh_token", ""))
+        return urlencode(form).encode(), ""
+
     # --- one request from the browser -----------------------------------------------------------------------
     def handle(self, method: str, path_qs: str, headers: dict, body: bytes) -> tuple[int, list[tuple[str, str]], bytes]:
-        path = path_qs.split("?", 1)[0]
+        def refuse(reason: str):
+            with self._lock:
+                self.refused.append(f"{method} {path_qs[:100]} -> {reason}")
+                del self.refused[:-200]
+            return 403, [("Content-Type", "application/json")], json.dumps({"error": reason}).encode()
+        path, _, qs = path_qs.partition("?")
         refusal = self.allowed(method, path)
         if refusal:
-            return 403, [("Content-Type", "application/json")], json.dumps({"error": refusal}).encode()
-        hdrs = {k: v for k, v in headers.items()
-                if k.lower() not in ("host", "cookie", "content-length", "accept-encoding", "connection", "x-gate-run")}
-        for k in list(hdrs):
-            if k.lower() == "authorization":
-                hdrs[k] = self._swap_in(hdrs[k])
-        if body and path == self.token_path:          # only the token endpoint's refresh field is ever swapped
-            try:
-                body = self._swap_in(body.decode()).encode()
-            except UnicodeDecodeError:
-                pass
+            return refuse(refusal)
+        if path == f"/realms/{self.realm}/protocol/openid-connect/auth":
+            from urllib.parse import parse_qs
+            if parse_qs(qs).get("client_id") != [self.CONSOLE_CLIENT]:
+                return refuse("only the admin console's own client may sign in through the console route")
+        # The upstream request is BUILT, not forwarded: a header allowlist, the (swapped) bearer, and for the token
+        # endpoint a body rebuilt from parsed fields. Nothing else from the sandbox reaches Keycloak.
+        hdrs = {k: v for k, v in headers.items() if k.lower() in self.FORWARD_HEADERS}
+        auth = next((v for k, v in headers.items() if k.lower() == "authorization"), None)
+        if auth:
+            hdrs["Authorization"] = self._swap_in(auth)
+        if method == "POST":
+            body, why = self.token_body(body or b"")
+            if body is None:
+                return refuse(why)
+            hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+        else:
+            if body:
+                return refuse("GET with a body")
+            body = b""
         r = self._send(method, self.up + path_qs, headers=hdrs, content=body or None)
         if path == f"/realms/{self.realm}/protocol/openid-connect/auth" and r.status_code == 200 \
                 and "kc-form-login" in r.text:
@@ -126,9 +179,10 @@ class ConsoleSession:
                     j[k] = self._fake(j[k])
             data = json.dumps(j).encode()
         if path == self.whoami_path and r.status_code == 200 and "json" in r.headers.get("content-type", ""):
-            # The console user is VIEW-ONLY (its token cannot change anything). The console UI decides which buttons
-            # to show from whoami, so the display gets manage-users here; every real write still goes through the
-            # gate with the broker's service account. Display only, never authority.
+            # DISPLAY ONLY, NEVER AUTHORITY. The console user is view-only (its token cannot change anything). The
+            # console UI decides which buttons to show from whoami, so the display gets manage-users here; every real
+            # write still goes through the gate with the broker's service account and needs a receipt.
+            # The console, like the model, believes it has authority; the gate decides.
             j = r.json()
             ra = j.setdefault("realm_access", {}).setdefault(self.realm, [])
             for role in ("manage-users", "view-users"):

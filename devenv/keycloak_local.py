@@ -139,8 +139,10 @@ def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
         "email": "helpdesk-console@corp.example", "emailVerified": True,
         "credentials": [{"type": "password", "value": console_pw, "temporary": False}]}).raise_for_status()
     hc = a.get(f"/admin/realms/{realm}/users", params={"username": "helpdesk-console", "exact": "true"}).json()[0]["id"]
+    # VIEW-ONLY: this account's token can read but never change anything, so even a console token that slips past
+    # the console route's allowlist is harmless (a measured bypass existed while it held manage-users).
     a.post(f"/admin/realms/{realm}/users/{hc}/role-mappings/clients/{rm}",
-           json=[roles["manage-users"], roles["view-users"]]).raise_for_status()
+           json=[roles["view-users"]]).raise_for_status()
     return {"base": base, "realm": realm, "users": users,
             "broker": ("gate-broker", b_secret), "ciba": ("gate-ciba", c_secret),
             "reconciler": ("gate-reconciler", r_secret), "console": ("helpdesk-console", console_pw)}

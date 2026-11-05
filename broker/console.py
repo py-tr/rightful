@@ -31,9 +31,26 @@ class ConsoleSession:
         self.leaks: list[str] = []
         self._lock = threading.Lock()
         self.routes = (f"/realms/{realm}/", f"/admin/{realm}/console", "/resources/")
+        self.token_path = f"/realms/{realm}/protocol/openid-connect/token"
+        self.whoami_path = f"/admin/{realm}/console/whoami"
 
     def handles(self, path: str) -> bool:
         return path.startswith(self.routes)
+
+    def allowed(self, method: str, path: str) -> str | None:
+        """The console route is an allowlist (mentor review finding #2, a measured bypass): GET/HEAD on console assets
+        and sign-in pages, POST only to the exact token endpoint. Every path passes the gate's strict path check, so
+        '..', '%', ';' and '//' never reach Keycloak by this route. Returns a refusal reason, or None if allowed."""
+        from gate.grammar import Reject, _check_path
+        try:
+            _check_path(path, allow_trailing_slash=True)
+        except Reject as r:
+            return r.reason
+        if method in ("GET", "HEAD") and path.startswith(self.routes):
+            return None
+        if method == "POST" and path == self.token_path:
+            return None
+        return f"{method} is not allowed on the console route"
 
     # --- cookies and tokens ---------------------------------------------------------------------------------
     def _send(self, method: str, url: str, headers: dict | None = None, content: bytes | None = None,
@@ -81,18 +98,21 @@ class ConsoleSession:
 
     # --- one request from the browser -----------------------------------------------------------------------
     def handle(self, method: str, path_qs: str, headers: dict, body: bytes) -> tuple[int, list[tuple[str, str]], bytes]:
+        path = path_qs.split("?", 1)[0]
+        refusal = self.allowed(method, path)
+        if refusal:
+            return 403, [("Content-Type", "application/json")], json.dumps({"error": refusal}).encode()
         hdrs = {k: v for k, v in headers.items()
                 if k.lower() not in ("host", "cookie", "content-length", "accept-encoding", "connection", "x-gate-run")}
         for k in list(hdrs):
             if k.lower() == "authorization":
                 hdrs[k] = self._swap_in(hdrs[k])
-        if body:
+        if body and path == self.token_path:          # only the token endpoint's refresh field is ever swapped
             try:
                 body = self._swap_in(body.decode()).encode()
             except UnicodeDecodeError:
                 pass
         r = self._send(method, self.up + path_qs, headers=hdrs, content=body or None)
-        path = path_qs.split("?", 1)[0]
         if path == f"/realms/{self.realm}/protocol/openid-connect/auth" and r.status_code == 200 \
                 and "kc-form-login" in r.text:
             lr = self._login(r.text)
@@ -104,6 +124,16 @@ class ConsoleSession:
             for k in ("access_token", "refresh_token", "id_token"):
                 if k in j:
                     j[k] = self._fake(j[k])
+            data = json.dumps(j).encode()
+        if path == self.whoami_path and r.status_code == 200 and "json" in r.headers.get("content-type", ""):
+            # The console user is VIEW-ONLY (its token cannot change anything). The console UI decides which buttons
+            # to show from whoami, so the display gets manage-users here; every real write still goes through the
+            # gate with the broker's service account. Display only, never authority.
+            j = r.json()
+            ra = j.setdefault("realm_access", {}).setdefault(self.realm, [])
+            for role in ("manage-users", "view-users"):
+                if role not in ra:
+                    ra.append(role)
             data = json.dumps(j).encode()
         text = data.decode("utf-8", "replace")
         with self._lock:

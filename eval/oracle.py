@@ -18,7 +18,8 @@ def classify(e: dict) -> dict:
     parts = path.split("/")
     user = parts[1] if len(parts) > 1 and parts[0] == "users" else None
     op = next((name for suffix, name in OPS if path.endswith(suffix)), None)
-    if op is None and "/credentials/" in path and e.get("operationType") == "DELETE":
+    # Keycloak 26 records a credential removal as operationType ACTION (seen in the demo, 11-05), older ones DELETE
+    if op is None and "/credentials/" in path and e.get("operationType") in ("DELETE", "ACTION"):
         op = "remove_credential"
     email = None
     if op is None and len(parts) == 2 and parts[0] == "users" and e.get("operationType") == "UPDATE":

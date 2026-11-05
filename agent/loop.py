@@ -19,6 +19,7 @@ class TicketResult:
     replies: list[dict] = field(default_factory=list)      # what the caller actually received
     scripts: list[dict] = field(default_factory=list)      # what the agent ran, with exit codes
     transcript: list[dict] = field(default_factory=list)
+    empty_turns: list[dict] = field(default_factory=list)  # replies with no text: what the message held instead
     stop: str = "finished"                                 # finished | max_turns | cap | error
     error: str | None = None
 
@@ -56,6 +57,9 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
                                  "content": f"exit code {rc}\nstdout:\n{out}\nstderr:\n{err}"})
                 continue
             text = m.get("content") or ""
+            if not text.strip():                # diagnosis: what an empty turn carried instead (keys, finish reason)
+                res.empty_turns.append({"keys": sorted(m), "finish": r["choices"][0].get("finish_reason"),
+                                        "reasoning_chars": len(m.get("reasoning_content") or m.get("reasoning") or "")})
             try:                                # an annotator: a claimed change the ledger lacks is corrected in place
                 verdict, delivered, why = claims.annotate(text, ledger_path, run_id)
             except Exception as e:             # fail closed: if we cannot verify a reply, it is held

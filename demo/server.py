@@ -111,7 +111,7 @@ class Session:
 class Demo:
     def __init__(self, kc_base: str, factory: FactoryClient, limits: Limits, hosts: list[str | None], out_dir: str,
                  edge_upstream: str, model: str = "glm-5.3-flash", max_in_flight: int = 4, mail_api: str | None = None,
-                 counter_since: str = "2026-11-08"):
+                 counter_since: str | None = None):
         self.kc_base, self.factory, self.limits, self.hosts = kc_base, factory, limits, hosts
         self.out_dir, self.edge_upstream, self.model, self.mail_api = out_dir, edge_upstream, model, mail_api
         self.master = secrets.token_bytes(32)
@@ -123,8 +123,14 @@ class Demo:
         self.waiting = 0
         self.counter_path = os.path.join(out_dir, "counter.jsonl")
         self.proofs_path = os.path.join(out_dir, "proofs.jsonl")
-        self.counter_since = counter_since
         os.makedirs(out_dir, exist_ok=True)
+        since_path = os.path.join(out_dir, "counter_since.txt")   # the day this counter started, written once
+        if counter_since is None:
+            if not os.path.exists(since_path):
+                with open(since_path, "w", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d", time.gmtime()))
+            counter_since = open(since_path, encoding="utf-8").read().strip()
+        self.counter_since = counter_since
 
     # --- sessions ----------------------------------------------------------------------------------------------
     def new_session(self, ip: str) -> tuple[Session, str]:
@@ -263,8 +269,12 @@ class Demo:
     def _narrate(self, s: Session, e: dict) -> None:
         k, d = e["kind"], e["data"]
         if k == "agent_claimed_verification":
-            self.emit(s, "gate", f"The agent marked the caller as verified, on its own judgment: \"{d.get('how', '')}\"",
-                      warn=True)
+            if s.mode == "agent_decides":
+                self.emit(s, "gate", f"The agent marked the caller as verified, on its own judgment: "
+                          f"\"{d.get('how', '')}\"", warn=True)
+            else:                                     # with Keyless the note is an audit record and unlocks nothing
+                self.emit(s, "status", f"The agent noted for the audit how it verified the caller (this authorizes "
+                          f"nothing): \"{d.get('how', '')[:160]}\"")
             return
         if k == "executed" and s.mode == "agent_decides":
             self.emit(s, "gate", f"Change made: {ACTIONS.get(d.get('op'), d.get('op'))} on "
@@ -301,6 +311,12 @@ class Demo:
                           number=c.number, phone_of=c.approver)
             elif st == "approved":
                 self.emit(s, "status", f"{whose} approved on the phone.")
+                if c is not None and c.approver != c.username:
+                    self.emit(s, "explain", f"{whose} approved a change on Jordan's account. By policy a manager may "
+                              "approve a lost-device or contact change, because Jordan's own phone is the thing in "
+                              "question. Two protections still hold: the real Jordan gets a notice with a Cancel button "
+                              "on every device during the cooling-off, and the re-enrolment link goes only to Jordan's "
+                              "own email on file, never to the caller. A fooled manager is the residual risk we list.")
             elif st == "denied":
                 self.emit(s, "status", f"{whose} declined on the phone.")
             elif st == "expired":
@@ -364,7 +380,8 @@ class Demo:
             self.broker.register(rid, stack.app, Timing())
             host = self.hosts[secrets.randbelow(len(self.hosts))]
             runner = DockerRunner(rid, s.ticket, upstream=self.edge_upstream, run_key=runkey.task_key(self.master, rid),
-                                  realm=stack.realm, docker_host=host, timeout_s=60,
+                                  realm=stack.realm, docker_host=host, timeout_s=100,   # > a push's 60 s life:
+                                  # at 60 a script that waits on the phone was killed before it saw the answer (11-05)
                                   runtime="runsc" if (host or "").startswith("ssh://") else None).start()
             if os.environ.get("KEYLESS_DEMO_FAKE_LLM") == "1":
                 from eval.fake_llm import FakeLLM
@@ -402,7 +419,10 @@ class Demo:
                         struck = [m.group(0).strip() for m in claims.SENTENCE.finditer(said)
                                   if claims.claims_a_change(m.group(0))]
                     self.emit(s, "agent", said, struck=struck)
-                    self.emit(s, "system", data.get("changes_line", ""))
+                    line = data.get("changes_line", "")
+                    if s.mode == "agent_decides":             # there the reset's password goes back to the agent
+                        line = line.replace("(sent to your registered phone)", "(handed to the agent)")
+                    self.emit(s, "system", line)
                     leaked = [p for p in stack.generated if p and p in said]
                     if leaked and s.mode == "agent_decides":
                         s.taken_over = True
@@ -444,6 +464,12 @@ class Demo:
             res = run_ticket(llm, runner, rid, first, stack.ledger.path, prompt=prompt, on_reply=on_reply,
                              on_event=on_event, max_turns=MAX_TURNS, help_doc=help_doc)
             spent = llm.spent
+            try:                                       # operator diagnosis (fictional company data only)
+                with open(os.path.join(self.out_dir, f"transcript-{rid}.json"), "w", encoding="utf-8") as f:
+                    json.dump({"mode": s.mode, "stop": res.stop, "error": res.error, "empty_turns": res.empty_turns,
+                               "transcript": res.transcript}, f, indent=1, default=str)
+            except OSError:
+                pass
             if res.stop in ("max_turns", "cap"):
                 self.emit(s, "status", "This conversation reached its step limit.")
             elif res.stop == "error":
@@ -479,14 +505,22 @@ class Demo:
         refused = sum(1 for p in proof if p["refused"])
         asked = [p for p in proof if p["phone"] != "not asked"]
         done = [p for p in proof if p["log"] != "none"]
+        made = [p for p in proof if p["made"]]
         if not proof:
             text = "The agent made no account change and asked for none. The identity server's log is unchanged."
+        elif s.mode == "agent_decides":
+            text = (f"The agent tried to {', '.join(tried)}. "
+                    + (f"It made {len(made)} change(s) on its own word alone; Jordan was never asked. "
+                       + ("The identity server's log recorded them." if len(done) == len(made) else
+                          f"The identity server's log shows {len(done)} of them so far.")
+                       if made else "It made no change in the end; the identity server's log recorded nothing.")
+                    + (" The caller was given Jordan's temporary password." if s.taken_over else ""))
         else:
-            text = (f"The agent tried to {', '.join(tried)}. The gate refused {refused} of {len(proof)} until the "
-                    f"owner's phone answered. The phone was asked {len(asked)} time(s) "
+            text = (f"The agent tried to {', '.join(tried)}. The gate refused {refused} of {len(proof)} until a "
+                    f"phone answered. The phone was asked {len(asked)} time(s) "
                     f"({', '.join(p['phone'] for p in asked) or 'never'}). "
-                    + (f"The identity server's log recorded {len(done)} change(s), each after an approval."
-                       if done else "The identity server's log recorded nothing."))
+                    + (f"The identity server's log recorded {len(done)} change(s), each after an approval of that "
+                       "exact request." if done else "The identity server's log recorded nothing."))
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
@@ -538,16 +572,22 @@ class Demo:
                                    "expired": "no answer", "rate_limited": "rate limited",
                                    "human_only": "needs a human"}.get(st, st)
         used = set()
-        for ln in lines.values():
-            if not ln["made"]:
-                continue
-            for i, ev in enumerate(events):
-                k = "change_email" if ev["op"] == "user_update" else ev["op"]
-                if i not in used and ev["user"] == ln["user"] and (k == ln["op"] or ln["op"] in (
-                        "mfa_recovery_lost_device", "compromise_response")):
-                    used.add(i)
-                    ln["log"] = f"{ev['op'].replace('_', ' ')} at {time.strftime('%H:%M:%S', time.gmtime(ev['time'] / 1000))} UTC"
-                    break
+        composite = {"mfa_recovery_lost_device": ("remove_credential", "send_actions_email"),
+                     "compromise_response": ("reset_password", "logout_sessions", "send_actions_email")}
+        # two passes: single operations claim their exact event first, then a composite takes one of its steps' events
+        # from what is left (one pass let a composite swallow the password reset's event: 11-05 compare run)
+        for single in (True, False):
+            for ln in lines.values():
+                if not ln["made"] or (ln["op"] not in composite) != single:
+                    continue
+                for i, ev in enumerate(events):
+                    k = "change_email" if ev["op"] == "user_update" else ev["op"]
+                    if i not in used and ev["user"] == ln["user"] and (
+                            k == ln["op"] if single else k in composite[ln["op"]]):
+                        used.add(i)
+                        ln["log"] = (f"{ev['op'].replace('_', ' ')} at "
+                                     f"{time.strftime('%H:%M:%S', time.gmtime(ev['time'] / 1000))} UTC")
+                        break
         return [{k: v for k, v in ln.items() if k not in ("op", "user")} for ln in lines.values()]
 
     def phone_view(self, s: Session) -> dict:
@@ -682,7 +722,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
 
     @app.get("/api/intro")
     def intro():
-        return {"scenarios": [{"id": k, **{x: v[x] for x in ("chip", "kind", "caller", "ticket", "order")}}
+        return {"scenarios": [{"id": k, **{x: v[x] for x in ("chip", "kind", "caller", "ticket", "order")},
+                               "compare_default": bool(v.get("compare_default"))}
                               for k, v in sorted(SCENARIOS.items(), key=lambda kv: kv[1]["order"])],
                 "counter": demo.counter(), "limits": demo.limits.status()}
 

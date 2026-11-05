@@ -195,6 +195,7 @@ async function intro() {
   const j = await api("/api/intro"); const box = $("chips"); box.replaceChildren();
   for (const s of j.scenarios) {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
+    if (s.compare_default) b.dataset.cmp = "1";
     b.onclick = () => { scenario = s.id; $("input").value = s.caller; $("ticket").value = s.ticket;
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (s.ticket.includes("L1 (") ? ", with a note" : ""); $("input").focus(); };
     box.append(b);
@@ -317,7 +318,7 @@ $("cmpBtn").onclick = async () => {
     if (!compare) {
       await api("/api/compare", {on: true});
       L.clear(); setCompare(true);
-      if (!scenario) $("chips").querySelector(".chip.attack")?.click();
+      if (!scenario || scenario === "honest") ($("chips").querySelector('.chip[data-cmp="1"]') || $("chips").querySelector(".chip.attack"))?.click();
     } else { await api("/api/compare", {on: false}); setCompare(false); }
   } catch (e) { alert(e.message); }
   poll(true);

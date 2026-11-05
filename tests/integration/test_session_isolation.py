@@ -18,14 +18,16 @@ pytestmark = pytest.mark.skipif(os.environ.get("KEYLESS_LIVE") != "1", reason="s
 
 @pytest.fixture(scope="module")
 def two_sessions():
+    from demo.factory import Factory
     from demo.stack import SessionStack
     from devenv import keycloak_local as kl
     os.environ.setdefault("SMTP_HOST", "host.docker.internal")
     base = kl.start()
     master = secrets.token_bytes(32)
     out = tempfile.mkdtemp()
-    a = SessionStack(base, out, master).create()
-    b = SessionStack(base, out, master).create()
+    fac = Factory(base, pool_size=0)
+    a = SessionStack(base, out, master, fac.take()).create()
+    b = SessionStack(base, out, master, fac.take()).create()
     import threading
 
     import uvicorn
@@ -40,8 +42,25 @@ def two_sessions():
         time.sleep(0.1)
     yield a, b, master
     srv.should_exit = True
-    a.close()
-    b.close()
+    assert fac.give_back(a.realm) and fac.give_back(b.realm)
+    assert not fac._delete("corp")                    # the factory never deletes anything but a demo company
+
+
+def test_factory_pool_and_cap(two_sessions):
+    from demo.factory import Factory
+    from devenv import keycloak_local as kl
+    f = Factory("http://127.0.0.1:8089", pool_size=2, max_companies=2)
+    f.refill_once()
+    assert len(f.pool) == 2                                    # a warm pool, made ahead of any visitor
+    c1, c2 = f.take(), f.take()
+    assert c1 and c2 and f.take() is None                      # the cap: no third company
+    f.refill_once()
+    assert len(f.pool) == 2                                    # in use 2 + pool 2: the total stays bounded
+    names = {c1["realm"], c2["realm"], *(c["realm"] for c in f.pool)}
+    for r in names:
+        f.give_back(r)
+    left = {r["realm"] for r in kl.master_admin("http://127.0.0.1:8089").get("/admin/realms").json()}
+    assert not (names & left)
 
 
 def client(stack, master, run_id):

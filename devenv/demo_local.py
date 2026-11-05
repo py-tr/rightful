@@ -36,6 +36,7 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     os.environ.setdefault("SMTP_HOST", "host.docker.internal")
+    os.environ.setdefault("KEYLESS_DEMO_CONTRAST", "1")   # the side-by-side's unprotected column (demo-u companies only)
     if a.selftest:
         os.environ["KEYLESS_DEMO_FAKE_LLM"] = "1"
     elif not os.environ.get("VULTR_INFERENCE_API_KEY") and os.environ.get("KEYLESS_DEMO_FAKE_LLM") != "1":

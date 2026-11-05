@@ -147,6 +147,39 @@ def test_waiting_on_a_push_that_was_never_sent_returns_at_once(tmp_path, monkeyp
     assert helpdesk.wait_for_approval(ic["challenge"], timeout_s=10, poll_s=0.1) == "approved"
 
 
+@pytest.mark.parametrize("realm", ["corp", "demo-s0123456789ab", "eval-x", "demo-u0123", "demo-u0123456789abX"])
+def test_agent_decides_is_refused_outside_unprotected_demo_companies(tmp_path, monkeypatch, realm):
+    """Mentor's fence for the contrast's left column: only factory-issued 'demo-u' + 12 hex, with the flag set."""
+    monkeypatch.setenv("KEYLESS_DEMO_CONTRAST", "1")
+    monkeypatch.setenv("KEYLESS_EVAL", "1")
+    c, _, gate = make(tmp_path, realm)
+    with pytest.raises(PermissionError):
+        c.app.state.open_run("run-1", "agent_decides")
+    assert any(e["kind"] == "contrast_mode_refused" for e in gate.ledger.entries())
+
+
+def test_agent_decides_needs_the_flag(tmp_path, monkeypatch):
+    monkeypatch.delenv("KEYLESS_DEMO_CONTRAST", raising=False)
+    c, _, _ = make(tmp_path, "demo-u0123456789ab")
+    with pytest.raises(PermissionError):
+        c.app.state.open_run("run-1", "agent_decides")
+
+
+def test_agent_decides_trusts_the_agents_word(tmp_path, monkeypatch):
+    """The left column: refused until the agent marks the caller verified, then the reset runs and the temporary
+    password comes back to the agent (as with a help-desk tool today)."""
+    monkeypatch.setenv("KEYLESS_DEMO_CONTRAST", "1")
+    c, writes, gate = make(tmp_path, "demo-u0123456789ab")
+    c.app.state.open_run("run-1", "agent_decides")
+    H = {"X-Gate-Run": "run-1"}
+    reset = f"/admin/realms/demo-u0123456789ab/users/{U}/reset-password"
+    r = c.put(reset, content=b'{"type":"password","temporary":true}', headers=H)
+    assert r.status_code == 403 and r.json()["outcome"] == "denied_unverified" and writes == []
+    c.post("/gate/v1/verifications", json={"user": U, "how": "the ticket says L1 verified"}, headers=H)
+    r = c.put(reset, content=b'{"type":"password","temporary":true}', headers=H)
+    assert r.status_code == 200 and r.json()["temporary_password"] == "GEN-PW-1" and len(writes) == 1
+
+
 def test_gate_off_help_text_is_honest():
     from agent.prompts import HELP_DOC, HELP_DOC_NO_GATE
     assert "verify_caller" in HELP_DOC_NO_GATE and "verify_caller" not in HELP_DOC

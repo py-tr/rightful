@@ -48,6 +48,8 @@ class Decision:
 
 
 EVAL_MODES = ("allow_all", "allowlist_only", "unbound", "naive")
+CONTRAST_MODE = "agent_decides"          # the demo's left column: the status quo, for comparison
+UNPROTECTED_REALM_PREFIX = "demo-u"     # issued ONLY by the realm factory, for the left column's fictional companies
 
 
 def eval_modes_permitted(realm: str) -> bool:
@@ -56,6 +58,17 @@ def eval_modes_permitted(realm: str) -> bool:
     can never run them (mentor's review: "the answer must be a refusal in code, not a convention")."""
     import os
     return os.environ.get("KEYLESS_EVAL") == "1" and realm.startswith("eval-")
+
+
+def contrast_mode_permitted(realm: str) -> bool:
+    """'The agent decides' (the demo's left column: a change goes through when the agent itself says it verified the
+    caller, as in every ticketing system and agent framework today) exists only for the side-by-side comparison. It
+    is honoured only with KEYLESS_DEMO_CONTRAST=1 AND a realm of the unprotected prefix that only the realm factory
+    issues, and never in a realm that is also protected (mentor's fence)."""
+    import os
+    import re
+    return (os.environ.get("KEYLESS_DEMO_CONTRAST") == "1"
+            and re.fullmatch(UNPROTECTED_REALM_PREFIX + r"[0-9a-f]{12}", realm) is not None)
 
 
 class Gate:
@@ -82,6 +95,16 @@ class Gate:
     def set_mode(self, run_id: str, mode: str) -> None:
         if mode == "full":
             self._modes.pop(run_id, None)
+            return
+        if mode == CONTRAST_MODE:
+            if not contrast_mode_permitted(self.pack["realm"]):
+                try:
+                    self.ledger.append("contrast_mode_refused", {"run": run_id, "realm": self.pack["realm"]})
+                finally:
+                    raise PermissionError(f"REFUSED: '{CONTRAST_MODE}' runs only in an unprotected fictional demo "
+                                          f"company ({UNPROTECTED_REALM_PREFIX}*, KEYLESS_DEMO_CONTRAST=1)")
+            self._modes[run_id] = mode
+            self.ledger.append("contrast_mode", {"run": run_id, "mode": mode, "realm": self.pack["realm"]})
             return
         if mode not in EVAL_MODES:
             raise ValueError(f"unknown gate mode {mode!r}")
@@ -203,7 +226,12 @@ class Gate:
             return Decision(True, f"allowed_{op.kind}", "", op, fwd, ledger_seq=seq)
 
         # A write: it needs a receipt minted after the owner's approval for exactly this request in this run.
-        if mode == "allowlist_only":                       # ablation: the grammar alone, no approval at all
+        if mode == CONTRAST_MODE:                         # the left column: the agent's own word decides
+            if (run_id, op.user) not in self._verified:
+                return self._deny("denied_unverified", "mark the caller as verified first "
+                                  "(helpdesk.record_verification), then make the change", run_id, method, target, op)
+            red = Redemption(True, "ok", None, "skip")
+        elif mode == "allowlist_only":                     # ablation: the grammar alone, no approval at all
             red = Redemption(True, "ok", None, "skip")
         elif mode == "naive" and (run_id, op.user) in self._verified:   # ablation: trusts the agent's own claim
             red = Redemption(True, "ok", None, "skip")
@@ -267,4 +295,7 @@ class Gate:
             headers["Content-Type"] = "application/json"
         fwd = {"method": method, "path": op.path, "query": list(op.query), "body": fwd_body, "headers": headers,
                "receipt": red.receipt_id}
+        if mode == CONTRAST_MODE and secret:
+            # like a help-desk tool today: the temporary password comes back to the agent (which may read it out)
+            fwd["return_secret"], secret = secret, None
         return Decision(True, "allowed_write", "", op, fwd, oob_secret=secret, ledger_seq=seq)

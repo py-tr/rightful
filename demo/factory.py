@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 
 from devenv import keycloak_local as kl
 
-REALM_RE = re.compile(r"demo-s[0-9a-f]{12}")
+REALM_RE = re.compile(r"demo-[su][0-9a-f]{12}")     # s: protected (the gate); u: the contrast's unprotected column
 CIBA_EXPIRES_S = 60
 
 
@@ -35,14 +35,15 @@ class Factory:
         self.kc, self.pool_size, self.max_companies, self.max_age = kc_base, pool_size, max_companies, max_age_s
         self._clock, self._lock = clock, threading.Lock()
         self.pool: list[dict] = []
+        self.pool_u: list[dict] = []                 # unprotected fictional companies for the contrast's left column
         self.handed_out: dict[str, float] = {}       # realm -> when it was created
         self.stop = threading.Event()
 
     def _admin(self) -> httpx.Client:
         return kl.master_admin(self.kc)
 
-    def _make(self) -> dict:
-        realm = "demo-s" + secrets.token_hex(6)
+    def _make(self, unprotected: bool = False) -> dict:
+        realm = ("demo-u" if unprotected else "demo-s") + secrets.token_hex(6)
         last = None
         for i in range(3):                           # dev-mode Keycloak can fail a creation under concurrency
             try:
@@ -61,7 +62,8 @@ class Factory:
         cid = a.get(f"/admin/realms/{realm}/clients", params={"clientId": "gate-broker"}).json()[0]["id"]
         sa = a.get(f"/admin/realms/{realm}/clients/{cid}/service-account-user").json()["id"]
         return {"realm": realm, "created": self._clock(), "users": env["users"], "broker": list(env["broker"]),
-                "ciba": list(env["ciba"]), "reconciler": list(env["reconciler"]), "broker_sa_user": sa}
+                "ciba": list(env["ciba"]), "reconciler": list(env["reconciler"]), "broker_sa_user": sa,
+                "unprotected": unprotected}
 
     def _delete(self, realm: str) -> bool:
         if not REALM_RE.fullmatch(realm):
@@ -71,13 +73,14 @@ class Factory:
         except httpx.HTTPError:
             return False
 
-    def take(self) -> dict | None:
+    def take(self, unprotected: bool = False) -> dict | None:
         with self._lock:
             if len(self.handed_out) >= self.max_companies:
                 return None
-            c = self.pool.pop(0) if self.pool else None
+            pool = self.pool_u if unprotected else self.pool
+            c = pool.pop(0) if pool else None
         if c is None:
-            c = self._make()                          # the pool ran dry: make one now (slower, still capped)
+            c = self._make(unprotected)               # the pool ran dry: make one now (slower, still capped)
         with self._lock:
             self.handed_out[c["realm"]] = c["created"]
         return c
@@ -92,28 +95,31 @@ class Factory:
         self.sweep_once()
 
     def refill_once(self) -> None:
-        with self._lock:                              # never more than max_companies in use + a full pool, in total
-            room = self.max_companies + self.pool_size - len(self.handed_out) - len(self.pool)
-            need = min(self.pool_size - len(self.pool), room)
-        for _ in range(max(need, 0)):
-            try:
-                c = self._make()
-            except Exception:                         # noqa: BLE001
-                break
-            with self._lock:
-                self.pool.append(c)
+        for unprotected, pool, size in ((False, self.pool, self.pool_size), (True, self.pool_u, max(self.pool_size // 2, 1)
+                                                                             if self.pool_size else 0)):
+            with self._lock:                          # never more than max_companies in use + full pools, in total
+                room = self.max_companies + self.pool_size * 2 - len(self.handed_out) - len(self.pool) - len(self.pool_u)
+                need = min(size - len(pool), room)
+            for _ in range(max(need, 0)):
+                try:
+                    c = self._make(unprotected)
+                except Exception:                     # noqa: BLE001
+                    break
+                with self._lock:
+                    pool.append(c)
 
     def sweep_once(self) -> None:
         now = self._clock()
         with self._lock:
             expired = [r for r, t in self.handed_out.items() if now - t > self.max_age]
-            stale_pool = [c for c in self.pool if now - c["created"] > self.max_age]
+            stale_pool = [c for c in self.pool + self.pool_u if now - c["created"] > self.max_age]
             self.pool = [c for c in self.pool if c not in stale_pool]
+            self.pool_u = [c for c in self.pool_u if c not in stale_pool]
         for r in expired + [c["realm"] for c in stale_pool]:
             self.give_back(r)
         try:   # safety net: a demo-* realm this factory does not know (e.g. left over from before a restart) is deleted;
                # there is exactly ONE factory per deployment, so an unknown demo company is always an orphan
-            known = set(self.handed_out) | {c["realm"] for c in self.pool}
+            known = set(self.handed_out) | {c["realm"] for c in self.pool + self.pool_u}
             for rr in self._admin().get("/admin/realms", params={"briefRepresentation": "true"}).json():
                 if REALM_RE.fullmatch(rr["realm"]) and rr["realm"] not in known:
                     self._delete(rr["realm"])
@@ -135,10 +141,10 @@ def create_factory_app(factory: Factory, token: str) -> FastAPI:
         return secrets.compare_digest(request.headers.get("authorization", ""), f"Bearer {token}")
 
     @app.post("/companies")
-    def create(request: Request):
+    def create(request: Request, unprotected: bool = False):
         if not authorized(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        c = factory.take()
+        c = factory.take(unprotected=unprotected)
         if c is None:
             return JSONResponse({"error": "busy"}, status_code=503)
         return c

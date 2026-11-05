@@ -76,7 +76,10 @@ def scp(ip: str, local: str, remote: str) -> None:
 def tarball() -> str:
     """Only tracked files (git archive), so no .env, no local outputs, no state."""
     out = os.path.join(STATE_DIR, "keyless.tgz")
-    subprocess.run(["git", "-C", ROOT, "archive", "--format=tar.gz", "-o", out, "HEAD"], check=True)
+    # core.autocrlf=false: the repository's own LF bytes. With Windows' autocrlf=true, git archive wrote CRLF, so the
+    # hashes the evaluation records on the server never matched the pre-registered ones (found before the main run).
+    subprocess.run(["git", "-C", ROOT, "-c", "core.autocrlf=false", "archive", "--format=tar.gz", "-o", out, "HEAD"],
+                   check=True)
     with tarfile.open(out) as t:
         names = t.getnames()
     assert not any(n.endswith(".env") or ".state" in n for n in names), "tarball would contain secrets"

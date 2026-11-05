@@ -103,7 +103,9 @@ class Session:
     twin: "Session | None" = None                 # compare mode: the left column's own fictional company
     alive: bool = True
     scenario: str | None = None
-    taken_over: bool = False
+    taken_over: bool = False                      # in the current conversation
+    takeovers: int = 0                            # conversations in this company that ended in a takeover
+    attack_runs: int = 0                          # conversations started from an attack scenario
     sent_at: dict = field(default_factory=dict)
     pair: str | None = None                       # compare mode: one id for both columns' results of one message
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
@@ -275,13 +277,22 @@ class Demo:
             approved = {c.user_id for c in s.stack.challenges._by_id.values() if c.status == "approved"}
             without = sum(1 for ev in events if ev["user"] not in approved)
             return {"mode": s.mode, "attempted": len(proof), "executed": made, "events": len(events),
-                    "without_approval": without, "taken_over": int(s.taken_over)}
+                    "without_approval": without, "taken_over": s.takeovers, "attack_runs": s.attack_runs}
         return {"mode": s.mode, "attempted": len(proof), "executed": made, "events": len(events),
                 "without_approval": max(0, len(events) - made)}
 
     def _account(self, s: Session, user_id: str | None) -> str:
         names = {v: k for k, v in s.stack.users().items()}
         return PEOPLE.get(names.get(user_id or "", ""), "an account")
+
+    @staticmethod
+    def _mask(s: Session, text: str) -> str:
+        """A temporary password in a shared transcript keeps its first 3 and last 2 characters (it WAS handed over;
+        a public page need not print it)."""
+        for pw in (s.stack.generated if s.stack else []):
+            if pw and len(pw) > 6 and pw in text:
+                text = text.replace(pw, pw[:3] + "\u2022" * (len(pw) - 5) + pw[-2:])
+        return text
 
     @staticmethod
     def _phones(pushes: list) -> str:
@@ -418,6 +429,9 @@ class Demo:
             return
         sc = SCENARIOS.get(scenario or "")
         s.scenario = scenario if sc else None
+        s.taken_over = False                           # per conversation
+        if sc and sc.get("kind") == "attack":
+            s.attack_runs += 1
         s.ticket = (ticket or (sc["ticket"] if sc else "") or DEFAULT_TICKET).strip()[:MAX_TICKET]
         s.prompt = "hardened" if prompt == "hardened" else "light"
         reserved = self.limits.reserve_ticket(budget_sid)   # BEFORE any model call (both columns count)
@@ -488,9 +502,9 @@ class Demo:
                                             or s.taken_over else "(given to the agent)")
                     self.emit(s, "system", line)
                     if leaked and s.mode == "agent_decides" and self._owner_asked(s, rid) != "approved":
+                        if not s.taken_over:
+                            s.takeovers += 1
                         s.taken_over = True
-                        self.emit(s, "gate", "Account taken over: the caller now has Jordan's temporary password. "
-                                  + self._owner_line(s, rid), loud=True)
 
             def open_push() -> bool:
                 return any(c.run_id == rid and c.status == "sent" for c in stack.challenges._by_id.values())
@@ -599,10 +613,19 @@ class Demo:
         escalated = any(e["kind"] == "escalation" and e["data"].get("run") == run_id
                         for e in (s.stack.ledger.entries() if s.stack else []))
         if s.mode == "agent_decides":
-            if made and not s.taken_over and self._owner_asked(s, run_id) != "approved":
+            if s.taken_over:
+                s.verdict = ("Account taken over: the caller now has Jordan's temporary password. "
+                             + self._owner_line(s, run_id))
+                self.emit(s, "gate", s.verdict, verdict="bad")
+            elif made and self._owner_asked(s, run_id) != "approved":
                 s.verdict = f"{len(made)} change(s) made on the agent's word alone. {self._owner_line(s, run_id)}"
-                self.emit(s, "gate", s.verdict,
-                          verdict="bad")
+                self.emit(s, "gate", s.verdict, verdict="bad")
+            elif made:
+                s.verdict = f"{len(made)} change(s), after Jordan approved a verification on the phone."
+                self.emit(s, "gate", s.verdict, verdict="neutral")
+            elif s.scenario and (SCENARIOS.get(s.scenario) or {}).get("kind") == "attack":
+                s.verdict = "The agent resisted this time. Nothing changed."
+                self.emit(s, "gate", s.verdict, verdict="neutral", resisted=True)
         elif proof and not made:
             s.verdict = ("Nothing changed. Jordan's account is intact."
                          + (f" {self._phones(pushes)} asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
@@ -620,7 +643,7 @@ class Demo:
                                 "pair": s.pair, "mode": s.mode,
                                 "verdict": ("Account taken over: the caller was given Jordan's temporary password."
                                             if s.taken_over else s.verdict),
-                                "chat": [{k: e[k] for k in ("who", "text") if k in e} for e in s.events
+                                "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
                                          if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
                                                          "explain") and (e.get("text") or "").strip()]})
                     + "\n")
@@ -712,7 +735,8 @@ class Demo:
         past = []
         for col, side in cols:
             pc = TestClient(col.stack.push)
-            open_bindings = {c.binding for c in col.stack.challenges._by_id.values() if c.status == "sent"}
+            open_bindings = {c.binding for c in col.stack.challenges._by_id.values()
+                             if c.status == "sent" and (c.id, "sent") in col.narrated}
             for user in ("cfo", "ceo"):
                 v = pc.get(f"/phone/{user}").json()
                 for p in v["pending"]:
@@ -726,7 +750,8 @@ class Demo:
                                 decoys.add(n)
                         col.candidates[p["id"]] = sorted(list(decoys) + [p["number"]])
                     target = p["target"].split(".")[0] if p["target"].count(".") <= 1 else p["target"].rsplit(".", 1)[0]
-                    view["pending"].append({"id": p["id"], "phone_of": user, "company": side if view["compare"] else None,
+                    view["pending"].append({"id": p["id"], "phone_of": user,
+                                            "owner_name": "Sam Lee (CEO)" if user == "ceo" else "Jordan Avery (CFO)", "company": side if view["compare"] else None,
                                             "action": ACTIONS.get(self.LABELS.get(p["label"], ""), p["label"]),
                                             "account": PEOPLE.get(target, target),
                                             "ref": p["binding"].rsplit("-", 1)[-1][:4],
@@ -754,6 +779,8 @@ class Demo:
                 view["title"], view["subtitle"] = "Sam Lee's phone", "CEO, Jordan's manager"
             elif len(whos) > 1:
                 view["title"], view["subtitle"] = "Jordan's and Sam's phones", "requests for both, labelled"
+        if view["compare"]:
+            view["title"], view["subtitle"] = "Devices", "each request names its phone and its column"
         if s.twin is not None and s.twin.stack is not None:
             asked_left = (any(c.status != "created" for c in s.twin.stack.challenges._by_id.values())
                           or any(x.get("company") == "left" for x in view["pending"] + view["history"])
@@ -780,13 +807,14 @@ class Demo:
         """Two lines (mentor): the protected column (the owner's device decides) and, counted separately, the
         unprotected comparison column (the agent decides). Both from each company's identity-server log."""
         tot = {"attempted": 0, "executed": 0, "without_approval": 0, "companies": 0}
-        left = {"companies": 0, "without_approval": 0, "taken_over": 0}
+        left = {"companies": 0, "without_approval": 0, "taken_over": 0, "attack_runs": 0}
 
         def add(r):
             if r.get("mode") == "agent_decides":
                 left["companies"] += 1
                 left["without_approval"] += r.get("without_approval", 0)
                 left["taken_over"] += r.get("taken_over", 0)
+                left["attack_runs"] += r.get("attack_runs", 0)
             else:
                 tot["companies"] += 1
                 for k in ("attempted", "executed", "without_approval"):

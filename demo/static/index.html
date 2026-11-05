@@ -108,6 +108,11 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .sidetag{font-size:11px;font-weight:700;letter-spacing:.04em;margin:-4px 0 6px}.sidetag.left{color:#c2352a}.sidetag.right{color:#1d7a46}
 .stepgroup .tog{color:var(--blue);cursor:pointer;font-size:12px;margin-left:4px}.stepgroup .steps{margin-left:14px}
 .retry{align-self:stretch;border:1px dashed var(--red);background:var(--surface);color:var(--red);border-radius:10px;padding:10px 12px;font:inherit;font-weight:600;cursor:pointer}
+.vbar{padding:8px 12px 10px;border-top:1px solid var(--line)}.vbar:empty{display:none}.vbar .gate{margin:0}
+.gate.verdict.neutral{background:var(--soft);color:var(--ink);font-size:16px;padding:14px;border:1px solid var(--line)}
+.gate.verdict.bad{font-size:16px;padding:14px}
+.vbar .retry{margin-top:10px;width:100%}
+.card .to{font-size:11.5px;font-weight:600;color:#6b6d72;margin-bottom:2px}
 .hidden{display:none!important}
 </style>
 </head>
@@ -137,12 +142,12 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="cols" id="cols">
         <div class="col hidden" id="colL"><div class="colhead left"><b>The agent decides</b>
           <span class="tag">Blast radius: one account · the push tool is available; the agent's word unlocks changes ·
-          unprotected fictional company</span><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div></div>
+          unprotected fictional company</span><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div><div class="vbar" id="vbarL"></div></div>
         <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Keyless)</b>
           <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
           <div class="chat" id="chatR" aria-live="polite"><div class="empty"><span class="e1">Press <b>Send</b>: the same
           message goes to both columns.</span><span class="e2">Pick <b>Start here</b> above, or just type to the help
-          desk.</span></div></div></div>
+          desk.</span></div></div><div class="vbar" id="vbarR"></div></div>
       </div>
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
       <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
@@ -196,11 +201,11 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = String(text); return e; };
 let lastScenario = null, lastScenarioKind = null, attempts = {}, thenArmed = false, nextThen = null, hadSession = false, serverCompare = false, scenario = null, timer = null, lastPhoneIds = "", serverBusy = false, polling = false, compare = false;
 class Column {
-  constructor(chatId, rowsId, left) { this.chat = $(chatId); this.rows = $(rowsId); this.left = left; this.after = 0;
+  constructor(chatId, rowsId, left, vbarId) { this.chat = $(chatId); this.rows = $(rowsId); this.vbar = $(vbarId); this.left = left; this.after = 0; this.lastSys = null;
     this.drawn = new Set(); this.pending = []; this.typingEl = null; this.group = null; }
-  clear() { this.chat.replaceChildren(); this.after = 0; this.drawn.clear(); this.pending = []; this.typingEl = null; this.group = null; }
+  clear() { this.chat.replaceChildren(); this.vbar.replaceChildren(); this.lastSys = null; this.after = 0; this.drawn.clear(); this.pending = []; this.typingEl = null; this.group = null; }
 }
-const R = new Column("chatR", "rowsR", false), L = new Column("chatL", "rowsL", true);
+const R = new Column("chatR", "rowsR", false, "vbarR"), L = new Column("chatL", "rowsL", true, "vbarL");
 
 async function api(path, body) {
   const opt = body === undefined ? {credentials: "same-origin"} : {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
@@ -238,12 +243,13 @@ function renderCounter(c) {
   const pl = (n, one, many) => n + " " + (n === 1 ? one : many);
   $("cDetail").textContent = "with Keyless, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
   if (c.left) { $("cLeft").textContent = c.left.without_approval; $("cLeft").className = "big " + (c.left.without_approval ? "bad" : "zero");
-    $("cLeftDetail").textContent = "when the agent decides, in " + pl(c.left.companies, "unprotected fictional company", "unprotected fictional companies") + ", from their identity servers' own logs" + (c.left.taken_over ? "; " + pl(c.left.taken_over, "password", "passwords") + " handed to a caller" : ""); }
+    $("cLeftDetail").textContent = "when the agent decides, in " + pl(c.left.companies, "unprotected fictional company", "unprotected fictional companies") + ", from their identity servers' own logs" + (c.left.attack_runs ? "; " + pl(c.left.attack_runs, "attack run", "attack runs") + ", " + pl(c.left.taken_over || 0, "takeover", "takeovers") : (c.left.taken_over ? "; " + pl(c.left.taken_over, "password", "passwords") + " handed to a caller" : "")); }
 }
 function render(c, e) {
   c.chat.querySelector(".empty")?.remove(); const chat = c.chat;
   if (e.who !== "step") c.group = null;          // any other line ends the current run of script lines
-  if (e.who === "you") { const i = c.pending.indexOf(e.text); if (i >= 0) { c.pending.splice(i, 1); return; }
+  if (e.who === "you") { c.vbar.replaceChildren(); c.lastSys = null;
+    const i = c.pending.indexOf(e.text); if (i >= 0) { c.pending.splice(i, 1); return; }
     chat.append(el("div", "who r", "You"), el("div", "b you", e.text)); return; }
   if (e.who === "agent") { if (!e.text || !e.text.trim()) return;
     chat.append(el("div", "who", "Help desk (AI agent)")); const b = el("div", "b agent"); let rest = e.text;
@@ -255,7 +261,15 @@ function render(c, e) {
     if (e.text.length > 320) { b.classList.add("clamp"); const m = el("button", "more", "show the whole reply");
       m.onclick = () => { const on = b.classList.toggle("clamp"); m.textContent = on ? "show the whole reply" : "show less"; }; chat.append(m); }
     return; }
-  if (e.who === "system") { const d = el("div", "sys"); d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
+  if (e.who === "system") { if (c.lastSys) c.lastSys.remove(); const d = el("div", "sys"); c.lastSys = d; d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
+  if (e.who === "gate" && e.verdict) { const v = el("div", "gate verdict " + e.verdict + (e.verdict === "bad" ? " takeover" : ""), e.text);
+    c.vbar.replaceChildren(v);
+    if (e.resisted && lastScenario && (attempts[lastScenario] || 1) < 3) {
+      const n = (attempts[lastScenario] || 1) + 1;
+      const r = el("button", "retry", "Attackers try again. Run the same attack again (attempt " + n + " of 3, a demo limit)");
+      r.onclick = () => { const chip = [...$("chips").querySelectorAll(".chip")].find(b => b.dataset.id === lastScenario); chip?.click(); r.remove(); send(); };
+      v.append(el("br"), r); }
+    return; }
   if (e.who === "gate") { chat.append(el("div", "gate" + (e.verdict === "good" ? " verdict good" : e.verdict === "bad" ? " takeover" : e.held ? " held" : e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text)); return; }
   if (e.who === "explain") { const d = el("div", "sys"); d.append(el("div", "h", "Why"), el("div", "", e.text));
     if (e.restart) { const b = el("button", "send", "Start over with a new company"); b.style.marginTop = "8px"; b.style.padding = "8px 14px";
@@ -265,12 +279,6 @@ function render(c, e) {
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
     const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d);
-    const resisted = c.left && /no account change|no change in the end/.test(e.text);
-    if (resisted && lastScenario && lastScenarioKind === "attack" && (attempts[lastScenario] || 1) < 3) {
-      const n = (attempts[lastScenario] || 1) + 1;
-      const r = el("button", "retry", "The agent resisted this time. Try again, as an attacker would (attempt " + n + " of 3)");
-      r.onclick = () => { const chip = [...$("chips").querySelectorAll(".chip")].find(b => b.dataset.id === lastScenario); chip?.click(); r.remove(); send(); };
-      chat.append(r); }
     return; }
   if (e.who === "step") {
     if (!c.group) { const g = el("div", "stepgroup"); const h = el("div", "line"); const ht = el("span", ""); const tog = el("a", "tog", "");
@@ -314,6 +322,7 @@ function renderPhone(p) {
     for (const x of p.pending) {
       const c = el("div", "card" + (x.company ? " side-" + x.company : "")); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
       if (x.company) c.append(el("div", "sidetag " + x.company, SIDE[x.company]));
+      if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
       c.append(app, el("div", "what", "Help desk requests: " + x.action), el("div", "acct", "Account: " + x.account));
       if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
       c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));

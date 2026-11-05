@@ -58,11 +58,27 @@ class DockerRunner:
         self.timeout, self.memory, self.upstream = timeout_s, memory, upstream
         self.probe_targets = probe_targets or {"broker": ["host.docker.internal", 8090],
                                                "keycloak": ["host.docker.internal", 8089]}
-        self.dir = tempfile.mkdtemp(prefix="keyless-task-")
-        with open(os.path.join(self.dir, "ticket.txt"), "w", encoding="utf-8") as f:
-            f.write(ticket_text)
+        # Remote mode: DOCKER_HOST=ssh://root@<worker> means mounted paths live on the WORKER, so task files are
+        # created there over the same SSH link (measured: a local temp path mounted remotely shows up empty).
+        dh = os.environ.get("DOCKER_HOST", "")
+        self.remote = dh[len("ssh://"):] if dh.startswith("ssh://") else None
+        if self.remote:
+            self.dir = f"/var/lib/keyless/tasks/{self.tag}"
+            self._remote(f"rm -rf {self.dir} && mkdir -p {self.dir} && cat > {self.dir}/ticket.txt", ticket_text)
+        else:
+            self.dir = tempfile.mkdtemp(prefix="keyless-task-")
+            with open(os.path.join(self.dir, "ticket.txt"), "w", encoding="utf-8") as f:
+                f.write(ticket_text)
         self.n = 0
         self.containers: list[str] = []
+
+    def _remote(self, cmd: str, input_text: str | None = None) -> subprocess.CompletedProcess:
+        data = input_text.encode("utf-8") if input_text is not None else None
+        p = subprocess.run(["ssh", "-o", "BatchMode=yes", self.remote, cmd], input=data, capture_output=True,
+                           timeout=60)
+        if p.returncode != 0:
+            raise RuntimeError(f"worker command failed: {p.stderr.decode('utf-8', 'replace')[:200]}")
+        return p
 
     # The sandbox's whole environment, nothing inherited from the image (e.g. the Python image's public GPG_KEY):
     CLEAN_ENV = ["env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp", "PYTHONPATH=/opt/sdk",
@@ -71,8 +87,14 @@ class DockerRunner:
     def _docker(self, *args, input_text=None, timeout=60):
         return subprocess.run(["docker", *args], input=input_text, capture_output=True, text=True, timeout=timeout)
 
+    def _clear_docker(self) -> None:
+        for c in self.containers:
+            self._docker("rm", "-f", c)
+        self._docker("rm", "-f", self.edge)
+        self._docker("network", "rm", self.net)
+
     def start(self) -> "DockerRunner":
-        self.close()
+        self._clear_docker()                       # leftovers from a crashed run with the same id; keeps task files
         self._docker("network", "create", "--internal", self.net).check_returncode()
         self._docker("run", "-d", "--name", self.edge, "--read-only", "--cap-drop", "ALL",
                      "--security-opt", "no-new-privileges", "--memory", "64m", "-e", f"RUN_ID={self.run_id}",
@@ -131,10 +153,12 @@ class DockerRunner:
         return out
 
     def close(self) -> None:
-        for c in self.containers:
-            self._docker("rm", "-f", c)
-        self._docker("rm", "-f", self.edge)
-        self._docker("network", "rm", self.net)
+        self._clear_docker()
+        if getattr(self, "remote", None) and getattr(self, "dir", "").startswith("/var/lib/keyless/tasks/"):
+            try:
+                self._remote(f"rm -rf {self.dir}")
+            except Exception:
+                pass
 
 
 class BrowserRunner(DockerRunner):
@@ -153,10 +177,25 @@ class BrowserRunner(DockerRunner):
         kw.setdefault("timeout_s", 180)
         super().__init__(run_id, ticket_text, **kw)
         os.makedirs(out_dir, exist_ok=True)
-        self.out_dir = out_dir
-        self.EXTRA = ["--shm-size", "256m", "-v", f"{out_dir}:/out:rw"]
+        self.out_dir = out_dir                      # where screenshots end up on the control plane / workstation
+        mount = out_dir
+        if self.remote:                             # write on the worker, fetch afterwards
+            mount = f"{self.dir}/out"
+            self._remote(f"mkdir -p {mount} && chmod 777 {mount}")
+        self.mount_out = mount
+        self.EXTRA = ["--shm-size", "256m", "-v", f"{mount}:/out:rw"]
         self.CLEAN_ENV = self.CLEAN_ENV[:2] + ["PATH=/usr/local/bin:/usr/bin:/bin",
                                                "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright"] + self.CLEAN_ENV[3:]
+
+    def fetch_out(self) -> list[str]:
+        """Bring the screenshots home (remote mode); returns the local file names."""
+        if self.remote:
+            p = self._remote(f"tar -C {self.mount_out} -cf - .")
+            import io as _io
+            import tarfile as _tar
+            with _tar.open(fileobj=_io.BytesIO(p.stdout)) as t:
+                t.extractall(self.out_dir, filter="data")
+        return sorted(os.listdir(self.out_dir))
 
 
 class SubprocessRunner:

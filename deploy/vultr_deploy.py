@@ -265,13 +265,43 @@ def recycle_worker() -> None:
 
 
 # --- the evaluation night: temporary workers ("throwaway instances"), the harness on the control plane -------------
-def _fleet_one(s: dict, label: str) -> dict:
-    w = call("POST", "/instances", {"region": REGION, "plan": PLAN, "os_id": OS_ID, "label": label, "hostname": label,
-                                    "sshkey_id": [s["ssh_key"]], "backups": "disabled", "attach_vpc": [s["vpc"]],
-                                    "firewall_group_id": s["fw_worker"], "tags": ["keyless", "keyless-fleet"]})["instance"]
-    rec = {"id": w["id"], "label": label, "created": time.time()}
-    inst = wait_instance(w["id"])
-    rec["ip"], rec["vpc_ip"] = inst["main_ip"], vpc_ip(w["id"])
+_STATE_LOCK = __import__("threading").Lock()
+
+
+def _track(rec: dict) -> None:
+    """Every created instance goes into the state file AT ONCE, so `down` can always delete it (found: an account
+    limit error aborted the batch and left 3 created workers untracked and billing)."""
+    with _STATE_LOCK:
+        s = load()
+        fl = [w for w in s.get("fleet", []) if w["id"] != rec["id"]]
+        s["fleet"] = fl + [rec]
+        save(s)
+
+
+def _fleet_one(s: dict, label: str, existing_id: str | None = None) -> dict:
+    try:
+        if existing_id:
+            rec = {"id": existing_id, "label": label, "created": time.time()}
+        else:
+            w = call("POST", "/instances", {"region": REGION, "plan": PLAN, "os_id": OS_ID, "label": label,
+                                            "hostname": label, "sshkey_id": [s["ssh_key"]], "backups": "disabled",
+                                            "attach_vpc": [s["vpc"]], "firewall_group_id": s["fw_worker"],
+                                            "tags": ["keyless", "keyless-fleet"]})["instance"]
+            rec = {"id": w["id"], "label": label, "created": time.time()}
+        _track(rec)
+    except RuntimeError as e:
+        return {"label": label, "ok": False, "error": str(e)[:300]}
+    try:
+        return _provision_fleet_worker(s, rec)
+    except Exception as e:                            # noqa: BLE001  tracked already, so `down` still removes it
+        rec.update({"ok": False, "error": f"{type(e).__name__}: {e}"[:300]})
+        _track(rec)
+        return rec
+
+
+def _provision_fleet_worker(s: dict, rec: dict) -> dict:
+    inst = wait_instance(rec["id"])
+    rec["ip"], rec["vpc_ip"] = inst["main_ip"], vpc_ip(rec["id"])
     wait_ssh(rec["ip"])
     scp(rec["ip"], s["tgz"], "/root/keyless.tgz")
     r = ssh(rec["ip"], f"BROKER_VPC_IP={s['control_vpc_ip']} bash -s",
@@ -286,6 +316,7 @@ def _fleet_one(s: dict, label: str) -> dict:
                                f"DOCKER_HOST=ssh://root@{rec['vpc_ip']} docker info --format '{{{{.Runtimes}}}}'")
     rec["ok"] = "runsc" in chk.stdout
     rec["provisioned_s"] = round(time.time() - rec["created"])
+    _track(rec)
     return rec
 
 
@@ -299,10 +330,13 @@ def fleet(n: int) -> None:
     have = len(s.get("fleet", []))
     labels = [f"keyless-eval-w{have + k + 1}" for k in range(n)]
     t0 = time.time()
-    with ThreadPoolExecutor(max_workers=n) as pool:
-        recs = list(pool.map(lambda lb: _fleet_one(s, lb), labels))
-    s.setdefault("fleet", []).extend(recs)
-    save(s)
+    # adopt instances of an earlier, interrupted fleet call that are not in the state file yet
+    tracked = {w["id"] for w in s.get("fleet", [])}
+    orphans = [i for i in call("GET", "/instances")["instances"]
+               if i["label"].startswith("keyless-eval-w") and i["id"] not in tracked]
+    jobs = [(i["label"], i["id"]) for i in orphans] + [(lb, None) for lb in labels[: max(n - len(orphans), 0)]]
+    with ThreadPoolExecutor(max_workers=max(len(jobs), 1)) as pool:
+        recs = list(pool.map(lambda j: _fleet_one(s, j[0], j[1]), jobs))
     for r in recs:
         print(f"{r['label']}: ok={r.get('ok')} vpc {r.get('vpc_ip')} ready in {r.get('provisioned_s')} s"
               + (f" ERROR {r['error'][-200:]}" if r.get("error") else ""))

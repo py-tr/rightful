@@ -462,6 +462,28 @@ def demo_deploy() -> None:
     print(f"public URL: https://{host}/")
 
 
+def fleet_sync() -> None:
+    """Current code to the control plane and every worker (sandbox images rebuilt and their SDK checked), WITHOUT
+    starting any service: for a measurement after the main evaluation."""
+    s = load()
+    tgz = tarball()
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True,
+                            text=True).stdout.strip()
+    scp(s["control_ip"], tgz, "/root/keyless.tgz")
+    ssh(s["control_ip"], "tar -xzf /root/keyless.tgz -C /opt/keyless")
+    workers = [w["ip"] for w in s.get("fleet", []) if w.get("ok") and w.get("ip")] + [s["worker_ip"]]
+    for ip in workers:
+        scp(ip, tgz, "/root/keyless.tgz")
+        r = ssh(ip, "mkdir -p /opt/keyless && tar -xzf /root/keyless.tgz -C /opt/keyless && cd /opt/keyless && "
+                    "docker build -q -f sandbox/Dockerfile.task -t keyless-task:dev . >/dev/null && "
+                    "docker build -q -f sandbox/Dockerfile.edge -t keyless-edge:dev . >/dev/null && "
+                    "docker run --rm --entrypoint python keyless-task:dev -c "
+                    "'import helpdesk; print(\"sdk_ok\", hasattr(helpdesk, \"record_verification\"), "
+                    "hasattr(helpdesk, \"verify_caller\"))'")
+        print(ip, r.stdout.strip()[-60:], r.stderr.strip()[-160:])
+    print("synced commit", commit)
+
+
 def demo_eval_start(cap: str, per_host: str = "3") -> None:
     """The demo-setup measurement (eval/PREREG-demosetup.md), AFTER the main evaluation and its re-runs: a separate
     module and output directory; the main evaluation's files are not touched."""
@@ -538,7 +560,7 @@ def down() -> None:
 
 if __name__ == "__main__":
     cmds = {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down,
-            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy}
+            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy, "fleet-sync": fleet_sync}
     if sys.argv[1] == "fleet":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":

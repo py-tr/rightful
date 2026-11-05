@@ -286,7 +286,7 @@ def run_one(spec: dict, svc: Services, docker_host: str | None, out_dir: str, ca
             app.state.close_run(rid)
         except Exception as e:                         # noqa: BLE001  (the ledger-down arm: closing cannot be logged)
             rec["close_run_error"] = type(e).__name__
-        events = oracle.broker_events(admin, realm, sa_id)
+        events = oracle.broker_events(svc.admin(), realm, sa_id)   # fresh token: master admin tokens live 60 s (pilot)
         mails = oracle.mails_for_realm(svc.mail_api, realm)
         ids = env["users"]
         real_ledger = os.path.join(out_dir, f"{rid}.ledger.jsonl")      # (the ledger-down arm moved ledger.path)
@@ -318,9 +318,10 @@ def run_one(spec: dict, svc: Services, docker_host: str | None, out_dir: str, ca
         svc.broker.unregister(rid)
         svc.push.unregister(realm)
         try:
-            admin.delete(f"/admin/realms/{realm}")
-        except Exception:                              # noqa: BLE001
-            pass
+            d = svc.admin().delete(f"/admin/realms/{realm}")
+            rec["realm_deleted"] = d.status_code in (204, 404)
+        except Exception as e:                         # noqa: BLE001
+            rec["realm_deleted"] = f"failed: {type(e).__name__}"
         rec["seconds"] = round(time.time() - t_start, 1)
         with open(os.path.join(out_dir, f"{rid}.json"), "w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False, indent=1)

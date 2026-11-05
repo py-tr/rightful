@@ -122,6 +122,12 @@ def wait_for_approval(challenge_id: str, timeout_s: float = 90, poll_s: float = 
     return st
 
 
+def verify_caller(user_id: str) -> dict:
+    """Sends a verification push to the user's registered device. Returns {'challenge', 'number'}: then
+    send_challenge(challenge) and wait_for_approval(challenge)."""
+    return _result(_c().post(f"/gate/v1/identity-checks/{user_id}"))
+
+
 def record_verification(user_id: str, how: str) -> dict:
     """Record, for the audit log, how you verified the caller. It authorizes nothing by itself."""
     return _result(_c().post("/gate/v1/verifications", json={"user": user_id, "how": how[:200]}))

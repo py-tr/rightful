@@ -347,9 +347,10 @@ def eval_start(cmd: str, cap: str, per_host: str = "3") -> None:
     v = s["control_vpc_ip"]
     r = ssh(s["control_ip"],
             f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_EVAL=1 "
-            f"KEYLESS_CASES_DIR=/opt/keyless/cases && nohup .venv/bin/python -m eval.harness {cmd} --cap {cap} "
-            f"--hosts {hosts} --per-host {per_host} --bind {v} --edge-upstream http://{v}:8090 "
-            f"--out /var/lib/keyless/eval/gateon > /var/lib/keyless/eval/harness-{cmd}.log 2>&1 & echo started")
+            f"KEYLESS_CASES_DIR=/opt/keyless/cases && setsid nohup .venv/bin/python -u -m eval.harness {cmd} "
+            f"--cap {cap} --hosts {hosts} --per-host {per_host} --bind {v} --edge-upstream http://{v}:8090 "
+            f"--out /var/lib/keyless/eval/gateon < /dev/null > /var/lib/keyless/eval/harness-{cmd}.log 2>&1 & "
+            f"echo started", timeout=60)
     print(r.stdout.strip(), r.stderr.strip()[-300:], "| hosts:", hosts)
 
 

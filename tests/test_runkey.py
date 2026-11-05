@@ -165,6 +165,73 @@ def test_real_edge_to_real_broker_over_http(env, monkeypatch):
         server.should_exit = True
 
 
+def test_edge_under_raw_malformed_http(monkeypatch):
+    """Mentor's fuzz order, the edge: length and encoding mismatches, chunked bodies, forged run headers, sent as raw
+    bytes. Property: everything that leaves the edge carries ITS run id and a valid signature over exactly what was
+    forwarded, whatever the sandbox sent."""
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import urlsplit
+    got = []
+
+    class Up(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _any(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            got.append((self.command, self.path, dict(self.headers), self.rfile.read(n) if n else b""))
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        do_GET = do_PUT = do_POST = do_DELETE = _any
+
+    up = ThreadingHTTPServer(("127.0.0.1", 0), Up)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    monkeypatch.setenv("RUN_ID", "run-e")
+    monkeypatch.setenv("UPSTREAM", f"http://127.0.0.1:{up.server_address[1]}")
+    edge = importlib.import_module("sandbox.edge")
+    key = runkey.task_key(MASTER, "run-e")
+    monkeypatch.setattr(edge, "RUN_ID", "run-e")
+    monkeypatch.setattr(edge, "RUN_KEY", key)
+    monkeypatch.setattr(edge, "UP", urlsplit(f"http://127.0.0.1:{up.server_address[1]}"))
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), edge.Edge)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    raw = [
+        b"PUT /a HTTP/1.1\r\nHost: g\r\nContent-Length: 3\r\nX-Gate-Run: run-1\r\nX-Gate-Sig: ff\r\n\r\nabcdef",
+        b"PUT /b HTTP/1.1\r\nHost: g\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n",
+        b"PUT /c HTTP/1.1\r\nHost: g\r\nContent-Length: 2\r\nContent-Length: 9\r\n\r\nxyz",
+        b"GET /d HTTP/1.1\r\nHost: g\r\nx-gate-run: run-1\r\nX-GATE-TS: 1\r\nX-Gate-Run: run-2\r\n\r\n",
+        b"POST /e HTTP/1.1\r\nHost: g\r\nContent-Length: 0\r\n\r\nGET /smuggled HTTP/1.1\r\nHost: g\r\nX-Gate-Run: run-1\r\n\r\n",
+        b"PUT /f HTTP/1.1\r\nHost: g\r\nContent-Length: abc\r\n\r\n",
+        b"GARBAGE\r\n\r\n",
+    ]
+    try:
+        for data in raw:
+            s = socket.create_connection(srv.server_address, timeout=3)
+            s.sendall(data)
+            try:
+                s.recv(4096)
+                s.settimeout(0.5)
+                s.recv(4096)
+            except OSError:
+                pass
+            s.close()
+        time.sleep(0.3)
+        assert got, "nothing was forwarded at all"
+        paths = [p for _, p, _, _ in got]
+        assert "/b" not in paths and "/c" not in paths and "/f" not in paths    # bad framing: refused, not forwarded
+        for method, path, hdrs, body in got:
+            lower = {k.lower(): v for k, v in hdrs.items()}
+            assert lower["x-gate-run"] == "run-e", (path, hdrs)                 # never a forged run
+            assert runkey.verify(MASTER, "run-e", lower["x-gate-ts"], lower["x-gate-sig"], method, path, body) is None
+            assert len([k for k in hdrs if k.lower() == "x-gate-run"]) == 1
+    finally:
+        srv.shutdown()
+        up.shutdown()
+
+
 def test_edge_and_broker_sign_identically(monkeypatch):
     monkeypatch.setenv("RUN_ID", "run-1")
     monkeypatch.setenv("UPSTREAM", "http://broker:8090")

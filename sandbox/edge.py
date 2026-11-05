@@ -32,8 +32,26 @@ class Edge(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _refuse(self, why: str):
+        data = ('{"error": "%s"}' % why).encode()
+        self.send_response(400)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+        self.close_connection = True
+
     def _go(self):
-        n = int(self.headers.get("Content-Length") or 0)
+        # Framing is strict (found by the edge fuzz test): one plain Content-Length or none; no chunked bodies.
+        lengths = self.headers.get_all("Content-Length") or []
+        if self.headers.get("Transfer-Encoding"):
+            return self._refuse("chunked or encoded bodies are not accepted")
+        if len(lengths) > 1 or (lengths and not lengths[0].strip().isdigit()):
+            return self._refuse("invalid Content-Length")
+        n = int(lengths[0]) if lengths else 0
+        if n > 1_000_000:
+            return self._refuse("body too large")
         body = self.rfile.read(n) if n else None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
         headers["X-Gate-Run"] = RUN_ID                       # set by us, never by the sandbox

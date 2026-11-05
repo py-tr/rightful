@@ -104,6 +104,11 @@ class Challenges:
                 return c
         return None
 
+    def declined_before(self, run_id: str, operation: str, user_id: str, request_hash: str) -> bool:
+        """Did the approver already say no to exactly this request in this run?"""
+        return any((c.run_id, c.operation, c.user_id, c.request_hash) == (run_id, operation, user_id, request_hash)
+                   and c.status == "denied" for c in self._by_id.values())
+
     def send(self, cid: str, run_id: str) -> Challenge | None:
         c = self.get(cid, run_id)
         if c is None or c.status not in ("created", "rate_limited"):

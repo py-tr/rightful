@@ -177,3 +177,16 @@ def test_quarantine_only_on_hostile_signals(tmp_path, method, path, body, hostil
     clock, fake, c, _ = build(tmp_path)
     r = c.request(method, path, content=body, headers=H)
     assert r.status_code == 403 and bool(r.json().get("quarantined")) is hostile and fake.calls == []
+
+
+def test_retrying_a_declined_change_quarantines(tmp_path):
+    clock, fake, c, _ = build(tmp_path)
+    reset = f"/admin/realms/corp/users/{CFO}/reset-password"
+    body = b'{"type":"password","temporary":true}'
+    ch = c.put(reset, content=body, headers=H).json()["challenge_required"]
+    c.post(f"/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    fake.ciba["r1"] = "denied"
+    c.get(f"/gate/v1/challenges/{ch['challenge']}", headers=H)
+    r = c.put(reset, content=body, headers=H)                 # the agent tries the declined change again
+    assert r.status_code == 403 and r.json()["quarantined"] and "declined" in r.json()["reason"]
+    assert fake.calls == []

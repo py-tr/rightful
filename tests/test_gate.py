@@ -71,10 +71,21 @@ def test_witness_cannot_be_switched_off(g):
         assert not d.allow and d.quarantine
 
 
-def test_repeated_unapproved_writes_quarantine(g):
-    outs = [g.decide("PUT", RESET, BODY, "run1") for _ in range(3)]
-    assert [o.quarantine is not None for o in outs] == [False, False, True]
-    assert outs[2].challenge is None                            # no new push for a looping agent
+def test_repeating_the_same_unapproved_request_quarantines(g):
+    outs = [g.decide("PUT", RESET, BODY, "run1") for _ in range(4)]
+    assert [o.quarantine is not None for o in outs] == [False, False, False, True]
+    assert outs[3].challenge is None                            # no new push for a looping agent
+
+
+def test_two_different_honest_changes_never_add_up_to_a_quarantine(g):
+    # the live false quarantine (2026-11-05): reset denied+approved, then an MFA email denied twice, then retried
+    for _ in range(2):
+        assert g.decide("PUT", RESET, BODY, "run1").quarantine is None
+    approve(g, "run1", "PUT", RESET, BODY)
+    assert g.decide("PUT", RESET, BODY, "run1").allow
+    email = f"/admin/realms/corp/users/{U}/execute-actions-email"
+    for _ in range(3):
+        assert g.decide("PUT", email, b'["CONFIGURE_TOTP"]', "run1").quarantine is None
 
 
 def test_honest_flow_has_no_quarantine(g):

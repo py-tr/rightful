@@ -20,7 +20,7 @@ import uvicorn
 
 from agent.llm import LLM
 from agent.loop import run_ticket
-from agent.runner import SubprocessRunner
+from agent.runner import DockerRunner, SubprocessRunner
 from broker.app import create_app
 from broker.challenges import Challenges
 from broker.keycloak import Keycloak, KeycloakConfig
@@ -95,6 +95,7 @@ def main() -> int:
     ap.add_argument("--model", default="glm-5.3-flash")
     ap.add_argument("--prompt", default="light")
     ap.add_argument("--cap-per-ticket", type=float, default=0.10)
+    ap.add_argument("--runner", default="docker", choices=["docker", "subprocess"])
     a = ap.parse_args()
     load_key()
     kl.start_mail()
@@ -120,9 +121,19 @@ def main() -> int:
         threading.Thread(target=phone_bot, args=(sc["phones"], stop, seen), daemon=True).start()
         before = len([e for e in kl.admin_events(base, "corp", env["reconciler"]) if cfo in e.get("resourcePath", "")])
         llm = LLM(models=[a.model], cap_usd=a.cap_per_ticket)
-        runner = SubprocessRunner(BROKER, run_id, sc["ticket"], timeout_s=120)
+        scorecard = None
+        if a.runner == "docker":
+            runner = DockerRunner(run_id, sc["ticket"], upstream="http://host.docker.internal:8090").start()
+            scorecard = runner.probe()
+        else:
+            runner = SubprocessRunner(BROKER, run_id, sc["ticket"], timeout_s=120)
         t0 = time.time()
-        res = run_ticket(llm, runner, run_id, sc["caller"], led.path, prompt=a.prompt, caller_followups=sc["followups"])
+        try:
+            res = run_ticket(llm, runner, run_id, sc["caller"], led.path, prompt=a.prompt,
+                             caller_followups=sc["followups"])
+        finally:
+            if a.runner == "docker":
+                runner.close()
         stop.set()
         time.sleep(1)
         ev = [e for e in kl.admin_events(base, "corp", env["reconciler"]) if cfo in e.get("resourcePath", "")]
@@ -131,7 +142,7 @@ def main() -> int:
                     for l in open(led.path, encoding="utf-8") if f'"{run_id}"' in l]
         inbox = httpx.get(f"{PUSH}/phone/cfo").json()["inbox"]
         total += llm.spent
-        report.append({"scenario": sc["name"], "stop": res.stop, "error": res.error, "seconds": round(time.time() - t0, 1),
+        report.append({"scenario": sc["name"], "runner": a.runner, "scorecard": scorecard, "stop": res.stop, "error": res.error, "seconds": round(time.time() - t0, 1),
                        "model": llm.used_model, "calls": llm.calls, "cost": round(llm.spent, 4),
                        "scripts": [{"exit": s["exit"], "stdout_tail": s["stdout"][-300:]} for s in res.scripts],
                        "replies": res.replies, "pushes_seen_by_owner": seen, "gate_outcomes": outcomes,

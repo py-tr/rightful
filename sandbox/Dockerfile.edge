@@ -1,0 +1,7 @@
+# The per-task edge proxy: stdlib only, no credentials.
+FROM python:3.12-slim
+RUN useradd -u 10002 -m edge
+COPY sandbox/edge.py /opt/edge.py
+USER edge
+EXPOSE 8080
+CMD ["python", "/opt/edge.py"]

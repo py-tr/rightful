@@ -40,6 +40,88 @@ class InProcessRunner:
         return rc, out.getvalue()[-4000:], err.getvalue()[-2000:]
 
 
+class DockerRunner:
+    """The task sandbox. Per task: a private Docker network marked internal (no route anywhere) whose only other
+    member is the edge proxy, which leads only to the broker and stamps the run id. Per script: a fresh container,
+    no capabilities, read-only root, small /tmp, memory/CPU/pid caps, a time limit, destroyed afterwards.
+    `runtime="runsc"` selects gVisor (Linux hosts; Docker Desktop on Windows has none, so the scorecard records which
+    runtime was used)."""
+
+    def __init__(self, run_id: str, ticket_text: str, upstream: str = "http://host.docker.internal:8090",
+                 task_image: str = "keyless-task:dev", edge_image: str = "keyless-edge:dev", runtime: str | None = None,
+                 timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None):
+        import re as _re
+        self.run_id = run_id
+        self.tag = _re.sub(r"[^a-z0-9-]", "-", run_id.lower())[:40]
+        self.net, self.edge = f"kl-net-{self.tag}", f"kl-edge-{self.tag}"
+        self.task_image, self.edge_image, self.runtime = task_image, edge_image, runtime
+        self.timeout, self.memory, self.upstream = timeout_s, memory, upstream
+        self.probe_targets = probe_targets or {"broker": ["host.docker.internal", 8090],
+                                               "keycloak": ["host.docker.internal", 8089]}
+        self.dir = tempfile.mkdtemp(prefix="keyless-task-")
+        with open(os.path.join(self.dir, "ticket.txt"), "w", encoding="utf-8") as f:
+            f.write(ticket_text)
+        self.n = 0
+        self.containers: list[str] = []
+
+    # The sandbox's whole environment, nothing inherited from the image (e.g. the Python image's public GPG_KEY):
+    CLEAN_ENV = ["env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp", "PYTHONPATH=/opt/sdk",
+                 "PYTHONDONTWRITEBYTECODE=1", "GATE_URL=http://gate:8080", "TICKET_FILE=/w/ticket.txt"]
+
+    def _docker(self, *args, input_text=None, timeout=60):
+        return subprocess.run(["docker", *args], input=input_text, capture_output=True, text=True, timeout=timeout)
+
+    def start(self) -> "DockerRunner":
+        self.close()
+        self._docker("network", "create", "--internal", self.net).check_returncode()
+        self._docker("run", "-d", "--name", self.edge, "--read-only", "--cap-drop", "ALL",
+                     "--security-opt", "no-new-privileges", "--memory", "64m", "-e", f"RUN_ID={self.run_id}",
+                     "-e", f"UPSTREAM={self.upstream}", "--add-host", "host.docker.internal:host-gateway",
+                     self.edge_image).check_returncode()
+        self._docker("network", "connect", "--alias", "gate", self.net, self.edge).check_returncode()
+        return self
+
+    def _sandbox_args(self, name: str) -> list[str]:
+        args = ["run", "--rm", "-i", "--name", name, "--network", self.net, "--read-only",
+                "--tmpfs", "/tmp:rw,size=16m,noexec", "--memory", self.memory, "--memory-swap", self.memory,
+                "--cpus", "0.5", "--pids-limit", "64", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "-e", "TICKET_FILE=/w/ticket.txt", "-v", f"{self.dir}:/w:ro"]
+        if self.runtime:
+            args += ["--runtime", self.runtime]
+        return args
+
+    def run(self, code: str) -> tuple[int, str, str]:
+        self.n += 1
+        name = f"kl-task-{self.tag}-{self.n}"
+        self.containers.append(name)
+        try:
+            p = self._docker(*self._sandbox_args(name), self.task_image, *self.CLEAN_ENV, "python", "-",
+                             input_text=code, timeout=self.timeout)
+            return p.returncode, p.stdout[-4000:], p.stderr[-2000:]
+        except subprocess.TimeoutExpired:
+            self._docker("rm", "-f", name)
+            return 124, "", f"timeout after {self.timeout} s: container destroyed"
+
+    def probe(self) -> dict:
+        import json as _json
+        name = f"kl-probe-{self.tag}"
+        args = self._sandbox_args(name)
+        p = self._docker(*args, self.task_image, *self.CLEAN_ENV, f"PROBE_TARGETS={_json.dumps(self.probe_targets)}",
+                         "python", "/opt/probe.py", timeout=60)
+        try:
+            out = _json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            out = {"error": (p.stdout + p.stderr)[-500:]}
+        out["runtime"] = self.runtime or "runc (Docker default; gVisor is used on the Linux worker)"
+        return out
+
+    def close(self) -> None:
+        for c in self.containers:
+            self._docker("rm", "-f", c)
+        self._docker("rm", "-f", self.edge)
+        self._docker("network", "rm", self.net)
+
+
 class SubprocessRunner:
     """Local development: a separate Python process with only the SDK on its path and no credential in its env."""
 

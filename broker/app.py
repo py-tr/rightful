@@ -110,6 +110,13 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
         d = gate.decide(request.method, target, body, run_id)
         if d.quarantine:
             quarantine(run_id, d.quarantine)
+        if not d.allow and d.challenge and not d.quarantine and challenges.declined_before(
+                run_id, d.op.name, d.op.user, d.op.request_hash):
+            # Hostile signal: the approver already said no to exactly this change, and the agent is trying it again.
+            quarantine(run_id, "retried a change the approver had declined")
+            return JSONResponse({"allowed": False, "outcome": "quarantined", "quarantined": True,
+                                 "reason": "the approver declined this change; retrying it is not allowed"},
+                                status_code=403)
         if not d.allow:
             view = d.agent_view()
             if d.challenge:

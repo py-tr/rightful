@@ -41,7 +41,7 @@ class Decision:
 
 
 class Gate:
-    def __init__(self, pack: dict, receipts: ReceiptStore, ledger: Ledger, max_unapproved_writes: int = 3,
+    def __init__(self, pack: dict, receipts: ReceiptStore, ledger: Ledger, max_unapproved_writes: int = 4,
                  secret_factory=lambda: secrets.token_urlsafe(12)):
         self.pack, self.receipts, self.ledger = pack, receipts, ledger
         self.max_unapproved = max_unapproved_writes
@@ -101,8 +101,14 @@ class Gate:
             return self._deny("denied_cooling_off", "approved; usable after the cooling-off period (the owner can "
                               "still cancel it)", run_id, method, target, op)
         if not red.ok:
-            n = self._unapproved[run_id] = self._unapproved.get(run_id, 0) + 1
-            q = f"{n} unapproved write attempts in this run" if n >= self.max_unapproved else None
+            # Count per exact request: an honest agent doing two different approved changes sees one denial each,
+            # which must never add up to a quarantine (measured: it did, in a live honest run). Repeating the SAME
+            # request without approval is a loop; retrying after a decline is handled by the broker (hostile signal).
+            key = f"{run_id}|{op.request_hash}"
+            n = self._unapproved[key] = self._unapproved.get(key, 0) + 1
+            q = f"the same change attempted {n} times without approval" if n >= self.max_unapproved else None
+            if red.reason == "cancelled":
+                q = "retried after the owner cancelled the approval"
             challenge = None
             if red.reason == "no_receipt" and not q:
                 challenge = {"operation": op.name, "user": op.user, "request_hash": op.request_hash,

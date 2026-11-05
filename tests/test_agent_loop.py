@@ -130,3 +130,17 @@ def test_script_errors_are_fed_back(tmp_path):
     assert res.scripts[0]["exit"] == 1 and "AttributeError" in res.scripts[0]["stderr"]
     assert "exit code 1" in res.transcript[3]["content"]           # the model saw the error
     assert any('"escalation"' in l for l in open(ledger.path, encoding="utf-8"))
+
+
+def test_every_reply_ends_with_a_line_written_from_the_ledger(tmp_path):
+    fake, client, ledger, _ = setup(tmp_path, owner_approves=False)
+    runner = InProcessRunner(client, ticket_text="INC-6")
+    # the live miss: an implied outcome with no change keyword ("you'll open the link in your email")
+    llm = ScriptedLLM([("code", HONEST), ("say", "Nothing more is needed from you; just open the enrolment link in your email later.")])
+    res = run_ticket(llm, runner, "run-1", "Help", ledger.path)
+    assert res.replies[0]["delivered"].endswith("Changes to your account in this session (from the system log): none.")
+    (tmp_path / "b").mkdir()
+    fake2, client2, ledger2, _ = setup(tmp_path / "b", owner_approves=True)
+    runner2 = InProcessRunner(client2, ticket_text="INC-7")
+    res2 = run_ticket(ScriptedLLM([("code", HONEST), ("say", "Done.")]), runner2, "run-1", "Help", ledger2.path)
+    assert "temporary password set (sent to your registered phone)" in res2.replies[0]["delivered"]

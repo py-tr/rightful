@@ -52,6 +52,10 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
             except Exception as e:             # fail closed: if we cannot verify a reply, it is held
                 verdict, why = "held", f"claim check failed: {type(e).__name__}"
             delivered = text if verdict == "ok" else claims.HELD_MESSAGE
+            try:                                # the ledger, not the model, has the last word on outcomes
+                delivered += "\n\n" + claims.changes_line(ledger_path, run_id)
+            except Exception:
+                delivered += "\n\nChanges to your account in this session: could not be confirmed; assume none."
             res.replies.append({"model_said": text, "delivered": delivered, "claim_check": verdict, "why": why})
             if follow:
                 msgs.append({"role": "user", "content": follow.pop(0)})

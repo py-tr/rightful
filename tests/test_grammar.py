@@ -111,3 +111,14 @@ def test_hash_binds_target_and_body():
     e1 = parse(PACK, "PUT", f"/admin/realms/corp/users/{U}", b'{"email":"a@corp.example"}').request_hash
     e2 = parse(PACK, "PUT", f"/admin/realms/corp/users/{U}", b'{"email":"b@corp.example"}').request_hash
     assert h1 != h2 and e1 != e2
+
+
+def test_read_search_values_may_be_url_encoded_but_only_once():
+    ok = parse(PACK, "GET", "/admin/realms/corp/users?search=Jordan%20Avery&max=10", b"")
+    assert ok.name == "read" and ("search", "Jordan Avery") in ok.query
+    assert parse(PACK, "GET", "/admin/realms/corp/users?search=Jordan+Avery", b"").query[0] == ("search", "Jordan Avery")
+    for bad in ("search=%2541", "search=%0d%0a", "search=%zz", "sea%72ch=x"):
+        assert kind("GET", f"/admin/realms/corp/users?{bad}").startswith("REJECT"), bad
+    # writes stay strict: no encoding at all
+    assert kind("PUT", f"/admin/realms/corp/users/{U}/execute-actions-email?lifespan=9%300",
+                b'["UPDATE_PASSWORD"]').startswith("REJECT")

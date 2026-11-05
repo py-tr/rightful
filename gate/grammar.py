@@ -59,7 +59,23 @@ def _check_path(path: str, allow_trailing_slash: bool = False) -> None:
         raise Reject("malformed", "dot segment in path")
 
 
-def _split_target(target: str) -> tuple[str, list[tuple[str, str]]]:
+PCT = re.compile(r"%([0-9A-Fa-f]{2})")
+
+
+def _decode_read_value(v: str) -> str:
+    """Reads may carry a URL-encoded search value ('Jordan%20Avery', 'Jordan+Avery'). Decode exactly once; refuse
+    anything that decodes to another escape (double encoding) or to a control character. The decoded value is then
+    checked against the pack's read-value pattern."""
+    v = v.replace("+", " ")
+    if "%" in PCT.sub("", v):
+        raise Reject("malformed", "broken percent-encoding in the query")
+    out = PCT.sub(lambda m: chr(int(m.group(1), 16)), v)
+    if "%" in out or any(ord(ch) < 32 or ord(ch) > 126 for ch in out):
+        raise Reject("malformed", "double-encoded or control characters in the query")
+    return out
+
+
+def _split_target(target: str, decode_values: bool = False) -> tuple[str, list[tuple[str, str]]]:
     if "#" in target:
         raise Reject("malformed", "fragment in request target")
     path, _, qs = target.partition("?")
@@ -69,7 +85,11 @@ def _split_target(target: str) -> tuple[str, list[tuple[str, str]]]:
             if not part or "=" not in part:
                 raise Reject("malformed", "query parameter without a value")
             k, v = part.split("=", 1)
-            if "%" in k or "%" in v or "+" in v:
+            if "%" in k or "+" in k:
+                raise Reject("malformed", "encoded characters in a query key are not accepted")
+            if decode_values:
+                v = _decode_read_value(v)
+            elif "%" in v or "+" in v:
                 raise Reject("malformed", "encoded characters in the query are not accepted")
             query.append((k, v))
         keys = [k for k, _ in query]
@@ -158,7 +178,7 @@ def parse(pack: dict, method: str, target: str, body: bytes) -> Operation:
             raise Reject("malformed", "GET with a body")
         return Operation("static", "static", method, raw_path, (), {}, None, b"",
                          request_hash(method, raw_path, [], b""))
-    path, query = _split_target(target)
+    path, query = _split_target(target, decode_values=(method == "GET"))   # reads only; writes stay strict
     _check_path(path)
 
     if method == "GET":

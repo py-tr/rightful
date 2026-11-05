@@ -44,7 +44,30 @@ def start(port: int = 8089, push_url: str = "http://host.docker.internal:8099/ci
 
 
 def stop() -> None:
-    subprocess.run(["docker", "rm", "-f", NAME], capture_output=True)
+    subprocess.run(["docker", "rm", "-f", NAME, MAIL], capture_output=True)
+
+
+MAIL = "keyless-mail"
+
+
+def start_mail() -> str:
+    """A local mail catcher (mailpit) so Keycloak's action emails can be sent and inspected. UI: http://127.0.0.1:8025"""
+    subprocess.run(["docker", "rm", "-f", MAIL], capture_output=True)
+    subprocess.run(["docker", "run", "-d", "--name", MAIL, "-p", "127.0.0.1:8025:8025", "-p", "127.0.0.1:1025:1025",
+                    "axllent/mailpit:v1.20"], check=True, capture_output=True)
+    for _ in range(60):
+        try:
+            if httpx.get("http://127.0.0.1:8025/api/v1/messages", timeout=2).status_code == 200:
+                return "http://127.0.0.1:8025"
+        except httpx.HTTPError:
+            pass
+        time.sleep(1)
+    sys.exit("mailpit did not start")
+
+
+def mails() -> list[dict]:
+    r = httpx.get("http://127.0.0.1:8025/api/v1/messages", timeout=5)
+    return [{"to": [t["Address"] for t in m.get("To", [])], "subject": m.get("Subject")} for m in r.json().get("messages", [])]
 
 
 def master_admin(base: str) -> httpx.Client:
@@ -54,11 +77,13 @@ def master_admin(base: str) -> httpx.Client:
     return httpx.Client(base_url=base, headers={"Authorization": f"Bearer {t.json()['access_token']}"}, timeout=15)
 
 
-def bootstrap(base: str, realm: str = "corp") -> dict:
+def bootstrap(base: str, realm: str = "corp", smtp: bool = False) -> dict:
     a = master_admin(base)
     a.post("/admin/realms", json={
         "realm": realm, "enabled": True, "adminEventsEnabled": True, "adminEventsDetailsEnabled": True,
         "eventsEnabled": True,
+        **({"smtpServer": {"host": "host.docker.internal", "port": "1025", "from": "helpdesk@corp.example",
+                           "fromDisplayName": "Corp IT (fictional)"}} if smtp else {}),
         "attributes": {"cibaBackchannelTokenDeliveryMode": "poll", "cibaExpiresIn": "180", "cibaInterval": "1",
                        "cibaAuthRequestedUserHint": "login_hint"}}).raise_for_status()
     users = {}
@@ -91,6 +116,18 @@ def bootstrap(base: str, realm: str = "corp") -> dict:
                                        "ciba.backchannel.token.delivery.mode": "poll"}, False)
     r_id, r_secret = client("gate-reconciler", {}, True)
     grant(r_id, ["view-events"])
+
+    # The manager relationship (HR data). Unmanaged attributes are made editable just long enough to set it, then
+    # switched to ADMIN_VIEW: admins (and the broker) can read it, nobody can change it through the admin API.
+    prof = a.get(f"/admin/realms/{realm}/users/profile").json()
+    prof["unmanagedAttributePolicy"] = "ADMIN_EDIT"
+    a.put(f"/admin/realms/{realm}/users/profile", json=prof).raise_for_status()
+    for user, mgr in (("cfo", "ceo"), ("jordan.avery.c", "cfo")):
+        u = a.get(f"/admin/realms/{realm}/users/{users[user]}").json()
+        u["attributes"] = {**(u.get("attributes") or {}), "manager": [mgr]}
+        a.put(f"/admin/realms/{realm}/users/{users[user]}", json=u).raise_for_status()
+    prof["unmanagedAttributePolicy"] = "ADMIN_VIEW"
+    a.put(f"/admin/realms/{realm}/users/profile", json=prof).raise_for_status()
 
     # The console user the BROKER logs in as (the password stays in the broker; the browser never sees it).
     import secrets as _s

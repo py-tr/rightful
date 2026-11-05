@@ -24,7 +24,7 @@ class TicketResult:
 
 
 def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, prompt: str = "hardened",
-               caller_followups: list[str] | None = None, max_turns: int = 10) -> TicketResult:
+               caller_followups: list[str] | None = None, max_turns: int = 16) -> TicketResult:
     system = (HARDENED if prompt == "hardened" else LIGHT if prompt == "light" else prompt) + "\n\n" + HELP_DOC
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": caller_first}]
     follow = list(caller_followups or [])

@@ -35,15 +35,20 @@ def serve(app, port):
 
 @pytest.fixture(scope="module")
 def live(tmp_path_factory):
+    kl.start_mail()
     base = kl.start()
-    env = kl.bootstrap(base)
+    env = kl.bootstrap(base, smtp=True)
     push_app = create_push_app(base, "corp")
     kc = Keycloak(KeycloakConfig(base, "corp", *env["broker"], *env["ciba"]))
     receipts = ReceiptStore(":memory:")
     led = Ledger(str(tmp_path_factory.mktemp("led") / "ledger.jsonl"))
-    gate = Gate(load_pack("helpdesk"), receipts, led)
+    pack = load_pack("helpdesk")
+    pack["cooling_off_seconds"] = {"default": 3, "privileged": 3}       # short for the test; 60 s / 600 s in the pack
+    gate = Gate(pack, receipts, led)
     quarantined = []
-    app = create_app(gate, kc, Challenges(kc, receipts), deliver_secret=push_app.state.deliver,
+    ch = Challenges(kc, receipts, pack=pack, notify=push_app.state.notify)
+    push_app.state.on_cancel = ch.cancel
+    app = create_app(gate, kc, ch, deliver_secret=push_app.state.deliver, notify=push_app.state.notify,
                      on_quarantine=lambda r, why: quarantined.append((r, why)))
     s1, s2 = serve(push_app, 8099), serve(app, 8090)
     yield env, gate, quarantined
@@ -86,7 +91,7 @@ def test_honest_reset_end_to_end_and_attacks_leave_no_trace(live):
         if pend:
             break
         time.sleep(0.3)
-    assert pend and pend[0]["binding"].startswith(f"{ch['number']}-reset-cfo-")
+    assert pend and pend[0]["binding"].startswith(f"{ch['number']}-reset-cfo.")
     assert httpx.post(f"{PUSH}/phone/cfo/{pend[0]['id']}/approve", json={"number": ch["number"]}).status_code == 200
     for _ in range(30):
         st = httpx.get(f"{BROKER}/gate/v1/challenges/{ch['challenge']}", headers=H).json()["status"]
@@ -110,3 +115,74 @@ def test_honest_reset_end_to_end_and_attacks_leave_no_trace(live):
     assert ok, problem
     led = open(gate.ledger.path, encoding="utf-8").read()
     assert inbox[0]["value"] not in led and "agent-typed" not in led
+
+
+def _approve_on(phone_user, number_prefix, approve=True):
+    for _ in range(30):
+        pend = httpx.get(f"{PUSH}/phone/{phone_user}").json()["pending"]
+        if pend:
+            break
+        time.sleep(0.3)
+    assert pend and pend[0]["binding"].startswith(number_prefix)
+    act = "approve" if approve else "deny"
+    httpx.post(f"{PUSH}/phone/{phone_user}/{pend[0]['id']}/{act}", json={"number": pend[0]["number"]})
+    return pend[0]
+
+
+def _challenge_until(H, cid, want="approved"):
+    for _ in range(30):
+        st = httpx.get(f"{BROKER}/gate/v1/challenges/{cid}", headers=H).json()["status"]
+        if st == want:
+            return st
+        time.sleep(0.5)
+    return st
+
+
+def test_lost_device_live_manager_approves_email_goes_to_the_address_on_file(live):
+    env, gate, _ = live
+    cfo = env["users"]["cfo"]
+    url = f"{BROKER}/gate/v1/actions/mfa-recovery-lost-device/{cfo}"
+    H = {"X-Gate-Run": "lost-device-honest"}
+    before = len(events(env))
+    ch = httpx.post(url, headers=H).json()["challenge_required"]
+    assert ch["approver"] == "manager"
+    httpx.post(f"{BROKER}/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    push = _approve_on("ceo", f"{ch['number']}-mfarecov-cfo.")           # the MANAGER's phone, naming the target
+    assert push["instruction"] and "trust" in push["instruction"]
+    assert _challenge_until(H, ch["challenge"]) == "approved"
+    assert httpx.post(url, headers=H).json()["outcome"] == "denied_cooling_off"
+    time.sleep(3.5)
+    r = httpx.post(url, headers=H)
+    assert r.status_code == 200 and r.json()["completed"], r.text
+    time.sleep(1.5)
+    mails = kl.mails()
+    assert any("cfo@corp.example" in m["to"] for m in mails), mails       # only the address on file
+    new = events(env)
+    assert any("execute-actions-email" in e.get("resourcePath", "") for e in new)
+    assert not any(e.get("resourcePath", "").endswith("/logout") for e in new)   # sessions kept
+    inbox = httpx.get(f"{PUSH}/phone/cfo").json()["inbox"]
+    assert any(n["kind"] == "notice" and "recovery" in n["value"].lower() for n in inbox)   # owner notified
+
+
+def test_lost_device_live_fooled_manager_then_owner_cancels_nothing_happens(live):
+    env, gate, _ = live
+    cfo = env["users"]["cfo"]
+    url = f"{BROKER}/gate/v1/actions/mfa-recovery-lost-device/{cfo}"
+    H = {"X-Gate-Run": "lost-device-attack"}
+    n_mail = len(kl.mails())
+    before = len(events(env))
+    ch = httpx.post(url, headers=H).json()["challenge_required"]
+    httpx.post(f"{BROKER}/gate/v1/challenges/{ch['challenge']}/send", headers=H)
+    _approve_on("ceo", f"{ch['number']}-mfarecov-cfo.")                 # the manager is fooled and approves
+    assert _challenge_until(H, ch["challenge"]) == "approved"
+    notes = [n for n in httpx.get(f"{PUSH}/phone/cfo").json()["inbox"] if n.get("cancel_id")]
+    assert notes, "the owner's (supposedly lost) phone must get a cancel"
+    assert httpx.post(f"{PUSH}/phone/cfo/cancel/{notes[-1]['cancel_id']}").json()["cancelled_receipts"] == 1
+    time.sleep(3.5)                                                     # past the cooling-off
+    r = httpx.post(url, headers=H)
+    assert r.status_code == 403
+    time.sleep(1)
+    assert len(events(env)) == before, "a cancelled recovery changed something in Keycloak"
+    assert len(kl.mails()) == n_mail, "a cancelled recovery sent an email"
+    nxt = httpx.post(url, headers={"X-Gate-Run": "lost-device-attack-2"}).json()["challenge_required"]
+    assert nxt["status"] == "human_only"                                 # and nothing re-asks

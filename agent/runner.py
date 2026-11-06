@@ -165,7 +165,10 @@ class DockerRunner:
             out = _json.loads(p.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
             out = {"error": (p.stdout + p.stderr)[-500:]}
-        out["runtime"] = self.runtime or "runc (Docker default; gVisor is used on the Linux worker)"
+        out["runtime_configured"] = self.runtime or "runc (Docker default; gVisor is used on the Linux worker)"
+        m = out.get("measured") or {}                  # what the sandbox itself saw, never the configuration (11-06)
+        out["runtime"] = (f"gVisor (measured inside the sandbox: kernel {m.get('kernel_release')})" if m.get("gvisor")
+                          else f"not gVisor (measured kernel {m.get('kernel_release') or 'unknown'})")
         return out
 
     def close(self) -> None:

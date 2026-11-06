@@ -115,6 +115,7 @@ class Session:
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
+    strip: dict = field(default_factory=dict)     # the run strip: measured inside a sandbox, once per visitor
     team: bool = False                            # the operator's smoke test (team key): never in the public counter
 
 
@@ -452,7 +453,7 @@ class Demo:
 
     def _converse(self, s: Session, first: str, reserved: float, budget_sid: str | None = None) -> None:
         budget_sid = budget_sid or s.id
-        spent, runner, rid = 0.0, None, None
+        spent, runner, rid, prober = 0.0, None, None, None
         with self.lock:
             self.waiting += 1
         if not self.slots.acquire(blocking=False):
@@ -471,6 +472,9 @@ class Demo:
                                   realm=stack.realm, docker_host=host, timeout_s=100,   # > a push's 60 s life:
                                   # at 60 a script that waits on the phone was killed before it saw the answer (11-05)
                                   runtime="runsc" if (host or "").startswith("ssh://") else None).start()
+            if s.mode != "agent_decides" and not s.strip:       # the run strip: measured once per visitor, in the
+                prober = threading.Thread(target=self._measure_strip, args=(s, runner), daemon=True)   # background
+                prober.start()
             if os.environ.get("KEYLESS_DEMO_FAKE_LLM") == "1":
                 from eval.fake_llm import FakeLLM
                 llm = FakeLLM(s.model or self.model)
@@ -584,6 +588,8 @@ class Demo:
             self.emit(s, "status", f"Something went wrong ({type(e).__name__}); nothing was changed by it.")
         finally:
             s.typing = False
+            if prober is not None:
+                prober.join(timeout=30)                # the probe's container must finish before the runner cleans up
             if runner:
                 try:
                     runner.close()
@@ -595,6 +601,26 @@ class Demo:
             self.limits.settle_ticket(budget_sid, reserved, spent)
             s.conversations += 1
             s.busy = False
+
+    def _measure_strip(self, s: Session, runner) -> None:
+        """The run strip (council 7 + mentor, 11-06): only MEASURED values from inside a sandbox started exactly like the
+        agent's (same image, caps and network), plus where it ran. Never the configuration presented as a measurement."""
+        try:
+            p = runner.probe()
+        except Exception as e:                          # noqa: BLE001  a failed probe shows as such, never invented
+            s.strip = {"error": type(e).__name__}
+            return
+        m, c = p.get("measured") or {}, p.get("checks") or {}
+        region = {"fra": "Frankfurt", "ams": "Amsterdam", "ewr": "New Jersey"}.get(os.environ.get("DEMO_REGION", "fra"),
+                                                                                  os.environ.get("DEMO_REGION", ""))
+        s.strip = {"where": f"a Vultr Cloud Compute worker VM ({region}, private VPC)" if runner.remote else
+                   "a local Docker host (development)",
+                   "kernel": m.get("kernel_release") or "unknown", "gvisor": bool(m.get("gvisor")),
+                   "no_network_but_gate": bool(c.get("internet_unreachable") and c.get("metadata_unreachable")
+                                               and c.get("no_external_dns")),
+                   "no_secrets": bool(c.get("no_secrets_in_env")), "read_only_root": bool(c.get("root_read_only")),
+                   "caps": {"memory": runner.memory, "cpus": runner.CPUS, "pids": runner.PIDS},
+                   "model": s.model or self.model, "inference": "Vultr Serverless Inference"}
 
     def summarize(self, s: Session, run_id: str) -> None:
         proof = self.proof(s, run_id)                  # this conversation only
@@ -661,6 +687,11 @@ class Demo:
             s.verdict = (f"{len(made)} approved change(s) sent; the identity server's log has not shown them yet "
                          "(see the proof strip).")
             self.emit(s, "gate", s.verdict, verdict="neutral")
+        # the two tiles (council 7 / mentor): what the agent TRIED, from the gate's records, over what the identity server
+        # RECORDED, from its own log; each labelled with its source, never one number standing in for the other
+        self.emit(s, "tiles", "", tried=(", ".join(tried) if proof else "no account change"),
+                  recorded=(", ".join(sorted({p["action"] for p in done})) if done else "nothing"),
+                  recorded_n=len(done), tried_source="the gate's own records", recorded_source=LOG_SOURCE)
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
@@ -968,7 +999,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
             evs = s.events[max(after, 0):]
         out = {"session": True, "events": evs, "typing": s.typing, "busy": s.busy, "queue": demo.waiting,
                "phone": demo.phone_view(s), "proof": demo.proof(s), "counter": demo.counter(),
-               "prompt": s.prompt, "expires_in_s": int(min(IDLE_S - (time.time() - s.seen),
+               "prompt": s.prompt, "strip": s.strip, "expires_in_s": int(min(IDLE_S - (time.time() - s.seen),
                                                            MAX_S - (time.time() - s.created))), "compare": False}
         t = s.twin
         if t is not None:
@@ -1041,7 +1072,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
             return err("pick one of the numbers shown")
         r = pc.post(f"/phone/{p['username']}/{push_id}/approve", json={"number": number})   # the server compares
         if r.status_code != 200:
-            demo.emit(col, "status", "Wrong number: request declined, as real authenticator apps do.")
+            demo.emit(col, "status", "Wrong number: request declined. A wrong number never leaves the request open for another try.")
             demo.emit(col, "explain", "A wrong number counts as a decline, and a decline freezes changes to this "
                                       "account for 24 hours, so nobody can wear the owner down with repeated pushes. "
                                       "To try again, start over with a new fictional company.", restart=True)

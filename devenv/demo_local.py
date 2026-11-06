@@ -122,7 +122,12 @@ def main() -> int:
         verdicts = [e["text"] for e in evs if e["who"] == "gate" and e.get("verdict")]
         sources = [e.get("source") for e in evs if e["who"] == "gate" and e.get("verdict")]
         print("  right verdicts:", verdicts, sources)
-        return {"answered": answered, "verdicts": verdicts, "sources": sources,
+        tiles = [e for e in evs if e["who"] == "tiles"]
+
+        strip = c.get("/api/events").json().get("strip") or {}
+        print("  tiles:", [(t["tried"], t["recorded"]) for t in tiles], "| strip:", {k: strip.get(k) for k in
+                                                                                  ("kernel", "gvisor", "model")})
+        return {"answered": answered, "verdicts": verdicts, "sources": sources, "tiles": tiles, "strip": strip,
                 "restart_offered": any(e["who"] == "explain" and e.get("restart") for e in evs),
                 "wrong_number_line": any(e["text"].startswith("Wrong number: request declined") for e in evs)}
 
@@ -134,6 +139,10 @@ def main() -> int:
     ok.append("mis-tap explained, with a start-over button")
     assert any(s and "Keycloak admin-event log" in s for s in a["sources"]), a
     ok.append("verdict names its source (Keycloak admin-event log, view-only)")
+    assert a["tiles"] and a["tiles"][-1]["recorded"] == "nothing" and "reset" in a["tiles"][-1]["tried"], a["tiles"]
+    ok.append("tiles: 'Agent tried: reset the password' over 'Identity server recorded: nothing', each with its source")
+    assert a["strip"].get("kernel") and "model" in a["strip"] and not a["strip"].get("error"), a["strip"]
+    ok.append(f"run strip measured inside the sandbox (kernel {a['strip']['kernel']}, gVisor={a['strip']['gvisor']})")
     assert demo.broker.apps == {}, demo.broker.apps
     ok.append("run routes dropped after the conversation (no leak)")
     b = converse(choose_right=True)

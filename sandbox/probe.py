@@ -27,6 +27,29 @@ def resolves(name):
         return False
 
 
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def measured():
+    """What the sandbox itself sees (11-06: the runner used to report only the runtime it was CONFIGURED with). Under
+    gVisor the kernel is gVisor's own emulated one, whatever the host runs: measured on the live worker 11-06,
+    uname -r = '4.19.0-gvisor' while the host is 6.8.0. Limits come from the container's own cgroup files."""
+    version = _read("/proc/version") or ""
+    release = os.uname().release if hasattr(os, "uname") else ""
+    mem = _read("/sys/fs/cgroup/memory.max") or _read("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+    pids = _read("/sys/fs/cgroup/pids.max") or _read("/sys/fs/cgroup/pids/pids.max")
+    cpu = _read("/sys/fs/cgroup/cpu.max")
+    mem_mb = int(mem) // (1024 * 1024) if mem and mem.isdigit() else None
+    return {"kernel_release": release, "proc_version": version[:160],
+            "gvisor": "gvisor" in release.lower() or "gvisor" in version.lower(),
+            "memory_limit_mb": mem_mb, "pids_limit": pids, "cpu_max": cpu}
+
+
 def main():
     targets = json.loads(os.environ.get("PROBE_TARGETS", "{}"))   # host:port pairs given by the control plane
     secretish = [k for k in os.environ if re.search(r"KEY|TOKEN|SECRET|PASS|COOKIE|AUTH", k, re.I)]
@@ -47,7 +70,8 @@ def main():
         "root_read_only": not root_writable,
         "runs_as_non_root": os.geteuid() != 0 if hasattr(os, "geteuid") else True,
     }
-    out = {"checks": checks, "passed": sum(checks.values()), "total": len(checks), "secret_like_env": secretish}
+    out = {"checks": checks, "passed": sum(checks.values()), "total": len(checks), "secret_like_env": secretish,
+           "measured": measured()}
     print(json.dumps(out))
     return 0 if all(checks.values()) else 1
 

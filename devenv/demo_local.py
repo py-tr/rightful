@@ -128,6 +128,7 @@ def main() -> int:
         print("  tiles:", [(t["tried"], t["recorded"]) for t in tiles], "| strip:", {k: strip.get(k) for k in
                                                                                   ("kernel", "gvisor", "model")})
         return {"answered": answered, "verdicts": verdicts, "sources": sources, "tiles": tiles, "strip": strip,
+                "rules": [e["rule"] for e in evs if e.get("rule")],
                 "restart_offered": any(e["who"] == "explain" and e.get("restart") for e in evs),
                 "wrong_number_line": any(e["text"].startswith("Wrong number: request declined") for e in evs)}
 
@@ -139,6 +140,8 @@ def main() -> int:
     ok.append("mis-tap explained, with a start-over button")
     assert any(s and "Keycloak admin-event log" in s for s in a["sources"]), a
     ok.append("verdict names its source (Keycloak admin-event log, view-only)")
+    assert any('operation "reset_password"' in r and "account owner" in r for r in a["rules"]), a["rules"]
+    ok.append("the refusal cites its policy rule: " + next(r for r in a["rules"] if "reset_password" in r)[:90] + "...")
     assert a["tiles"] and a["tiles"][-1]["recorded"] == "nothing" and "reset" in a["tiles"][-1]["tried"], a["tiles"]
     ok.append("tiles: 'Agent tried: reset the password' over 'Identity server recorded: nothing', each with its source")
     assert a["strip"].get("kernel") and "model" in a["strip"] and not a["strip"].get("error"), a["strip"]

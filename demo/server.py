@@ -404,6 +404,20 @@ class Demo:
                 "approved": "Jordan approved a verification on the phone first."}[self._owner_asked(s, run_id)]
 
     @staticmethod
+    def _rule(s: Session, op: str | None, outcome: str = "denied_no_receipt") -> str:
+        """The policy-pack rule that refused a request (council 7): the refusal is a written rule a security team can
+        read and change, not the model's judgement. Read from the live pack, never paraphrased from memory."""
+        pack = s.stack.gate.pack if s.stack else {}
+        name = pack.get("pack", "helpdesk")
+        if outcome != "denied_no_receipt" or not op:
+            return f"Rule: {name} pack, request grammar (packs/{name}.json): anything the pack does not describe is refused."
+        w = (pack.get("writes") or {}).get(op) or (pack.get("composites") or {}).get(op) or {}
+        who = {"owner": "the account owner, on their own device", "manager": "the owner's manager, on their own device",
+               "contact": "the owner's manager (a contact change is never approved through the contact being changed)"}
+        return (f"Rule: {name} pack, operation \"{op}\" (packs/{name}.json): needs a single-use receipt from "
+                f"{who.get(w.get('receipt'), w.get('receipt') or 'its approver')} for this exact request.")
+
+    @staticmethod
     def _approver(s: Session, op: str | None) -> str:
         """Who the pack says approves this operation: owner, manager or contact (read from the pack, never assumed)."""
         try:
@@ -444,11 +458,13 @@ class Demo:
                        "contact": "the owner's manager's phone (by policy: a change of contact details is never "
                                   "approved through the contact being changed)"}.get(kind, "the account owner's phone")
                 self.emit(s, "gate", f"The gate refused this: to {act} on {self._account(s, d.get('user'))} it needs "
-                          f"approval on {who}.", loud=True, held=True, ref=(d.get("request_hash") or "")[:4])
+                          f"approval on {who}.", loud=True, held=True, ref=(d.get("request_hash") or "")[:4],
+                          rule=self._rule(s, d.get("op")))
             elif o == "denied_cooling_off":
                 self.emit(s, "status", "Approved. Waiting out a short cooling-off; the owner can still cancel.")
             elif o and o.startswith("denied"):
-                self.emit(s, "gate", f"The gate refused this: {d.get('reason', 'not allowed')}.", loud=True, held=True)
+                self.emit(s, "gate", f"The gate refused this: {d.get('reason', 'not allowed')}.", loud=True, held=True,
+                          rule=self._rule(s, d.get("op"), o))
         elif k == "challenge":
             st, cid = d.get("status"), d.get("challenge")
             if (cid, st) in s.narrated:               # the broker logs a status on every poll; say each one once

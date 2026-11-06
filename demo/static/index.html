@@ -319,7 +319,9 @@ function render(c, e) {
       r.onclick = () => { const chip = [...$("chips").querySelectorAll(".chip")].find(b => b.dataset.id === lastScenario); chip?.click(); r.remove(); send(); };
       v.append(el("br"), r); }
     return; }
-  if (e.who === "gate") { chat.append(el("div", "gate" + (e.verdict === "good" ? " verdict good" : e.verdict === "bad" ? " takeover" : e.held ? " held" : e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text)); return; }
+  if (e.who === "gate") { const g = el("div", "gate" + (e.verdict === "good" ? " verdict good" : e.verdict === "bad" ? " takeover" : e.held ? " held" : e.ok ? " ok" : e.warn ? " warn" : "") + (/taken over/i.test(e.text) ? " takeover" : ""), e.text);
+    if (e.rule) { const r = el("div", "", e.rule); r.style.cssText = "font-size:11px;font-weight:400;opacity:.8;margin-top:3px"; g.append(r); }
+    chat.append(g); return; }
   if (e.who === "tiles") { const box = el("div", "tiles"); box.style.cssText = "display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px";
     const tile = (label, value, src, bad) => { const t = el("div", "tile"); t.style.cssText = "border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface)";
       const v = el("div", "", value); v.style.cssText = "font-size:17px;font-weight:700" + (bad ? ";color:var(--red)" : "");

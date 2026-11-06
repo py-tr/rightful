@@ -448,7 +448,7 @@ def demo_deploy() -> None:
         s["team_key"] = secrets.token_urlsafe(24)
         save(s)
     key_line += f"\nDEMO_TEAM_KEY={s['team_key']}"
-    ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && /opt/keyless/.venv/bin/pip install -q segno==1.6.1 && "
+    ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && /opt/keyless/.venv/bin/pip install -q segno==1.6.1 "pyjwt[crypto]==2.15.1" && "
             "mkdir -p /var/lib/keyless/demo && umask 077 && "
             "TOKEN=$(openssl rand -hex 24) && "
             "{ echo KC_ADMIN_PASSWORD=$(cat /opt/keyless/kc-admin); echo FACTORY_TOKEN=$TOKEN; "

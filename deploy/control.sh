@@ -9,7 +9,7 @@ echo "=== STEP app"
 mkdir -p /opt/keyless /var/lib/keyless
 tar -xzf /root/keyless.tgz -C /opt/keyless
 python3 -m venv /opt/keyless/.venv
-/opt/keyless/.venv/bin/pip install -q fastapi==0.119.0 uvicorn==0.37.0 httpx==0.27.2
+/opt/keyless/.venv/bin/pip install -q fastapi==0.119.0 uvicorn==0.37.0 httpx==0.27.2 "pyjwt[crypto]==2.15.1"
 echo "=== STEP keycloak + mail (localhost only)"
 docker rm -f keyless-kc keyless-mail >/dev/null 2>&1 || true
 docker network create keyless-net >/dev/null 2>&1 || true

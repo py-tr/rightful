@@ -67,7 +67,7 @@ def build(tmp_path, clock=None, fake=None, push=None):
     receipts = ReceiptStore(str(tmp_path / "receipts.db"), clock=clock)
     if push is None:
         push = create_push_app("http://kc", "corp", http=httpx.Client(base_url="http://kc",
-                                                                       transport=httpx.MockTransport(fake.handler)))
+                                                                       transport=httpx.MockTransport(fake.handler)), verify_tokens=False)
     ledger = Ledger(str(tmp_path / "l.jsonl"))
     ch = Challenges(kc, receipts, pack=pack, notify=push.state.notify, clock=clock, ledger=ledger)
     push.state.on_cancel = ch.cancel

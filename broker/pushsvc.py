@@ -14,18 +14,44 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 
-def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | None = None, clock=time.time) -> FastAPI:
+def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | None = None, clock=time.time,
+                    verify_tokens: bool = True) -> FastAPI:
+    """verify_tokens: Keycloak's CIBA channel signs its bearer token with the realm's key; a notification is accepted
+    only if that signature verifies against THIS realm's published keys (11-06 review: any bearer string used to be
+    accepted; the port was shielded only by the firewalls). Unit tests that fake Keycloak pass False."""
     app = FastAPI(title="Owner device (demo)", docs_url=None, redoc_url=None, openapi_url=None)
     http = http or httpx.Client(base_url=keycloak_base_url, timeout=10.0)
     lock = threading.Lock()
     pending: dict[str, dict] = {}       # pid -> request
     inbox: dict[str, list[dict]] = {}   # username -> delivered secrets
+    jwks_cache: dict = {}
+
+    def realm_signed(token: str) -> bool:
+        import jwt                                      # pyjwt[crypto]
+        try:
+            kid = jwt.get_unverified_header(token).get("kid")
+            for attempt in (0, 1):                      # refetch once: the realm may have rotated its keys
+                if attempt or "keys" not in jwks_cache:
+                    r = http.get(f"/realms/{realm}/protocol/openid-connect/certs")
+                    r.raise_for_status()
+                    jwks_cache["keys"] = r.json().get("keys", [])
+                k = next((x for x in jwks_cache["keys"] if x.get("kid") == kid and x.get("use", "sig") == "sig"), None)
+                if k is not None:
+                    key = jwt.PyJWK.from_dict(k).key
+                    jwt.decode(token, key=key, algorithms=[k.get("alg", "RS256")],
+                               options={"verify_aud": False, "require": ["exp"]})
+                    return True
+            return False
+        except Exception:                               # noqa: BLE001  anything unverifiable is refused
+            return False
 
     @app.post("/ciba/notify")
     async def notify(request: Request):
         auth = request.headers.get("authorization", "")
         if not auth.lower().startswith("bearer "):
             return JSONResponse({"error": "missing bearer"}, status_code=401)
+        if verify_tokens and not realm_signed(auth.split(" ", 1)[1].strip()):
+            return JSONResponse({"error": "the bearer token is not signed by this realm"}, status_code=401)
         data = await request.json()
         pid = "push_" + secrets.token_urlsafe(8)
         msg = data.get("binding_message", "")

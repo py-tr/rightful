@@ -257,7 +257,7 @@ class Gate:
             challenge = None
             if red.reason == "no_receipt" and not q:
                 challenge = {"operation": op.name, "user": op.user, "request_hash": op.request_hash,
-                             "label": op.label, "receipt_kind": op.receipt}
+                             "label": op.label, "receipt_kind": op.receipt, "body": op.body}
             return self._deny(f"denied_{red.reason}", "this change needs the account owner's approval"
                               if red.reason == "no_receipt" else f"receipt {red.reason}",
                               run_id, method, target, op, challenge, q)
@@ -294,7 +294,7 @@ class Gate:
         if fwd_body:
             headers["Content-Type"] = "application/json"
         fwd = {"method": method, "path": op.path, "query": list(op.query), "body": fwd_body, "headers": headers,
-               "receipt": red.receipt_id}
+               "receipt": red.receipt_id, "snapshot": red.snapshot}   # what was approved, re-checked by the upstream
         if mode == CONTRAST_MODE and secret:
             # like a help-desk tool today: the temporary password comes back to the agent (which may read it out)
             fwd["return_secret"], secret = secret, None

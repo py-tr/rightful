@@ -42,7 +42,9 @@ class Operation:
 
     @property
     def user(self) -> str | None:
-        return self.params.get("user")
+        """The subject an approval is about: a user (help desk) or a bank account (accounts payable). Both arrive as an
+        opaque UUID-shaped id; a free-text name never reaches a path (ERPNext names do, so the broker maps them)."""
+        return self.params.get("user") or self.params.get("account")
 
 
 def _check_path(path: str, allow_trailing_slash: bool = False) -> None:
@@ -127,6 +129,21 @@ def _full(pattern: str, v: str) -> bool:
     return re.fullmatch(pattern, v) is not None
 
 
+IBAN_SHAPE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
+
+
+def canonical_iban(v: str) -> str:
+    """Uppercase, spaces removed, ISO 13616 mod-97 checked: one IBAN has one byte form, so an honest retry with other
+    spacing hashes to the same request and the last four shown on the push are the ones stored (mentor, 11-06)."""
+    s = v.replace(" ", "").upper()
+    if not IBAN_SHAPE.match(s):
+        raise Reject("not_allowlisted", "not an IBAN")
+    digits = "".join(str(int(c, 36)) for c in s[4:] + s[:4])
+    if int(digits) % 97 != 1:
+        raise Reject("not_allowlisted", "IBAN checksum failed")
+    return s
+
+
 def _check_body(spec: dict, value: Any) -> tuple[Any, dict[str, str]]:
     kind = spec["type"]
     if kind == "none":
@@ -160,6 +177,16 @@ def _check_body(spec: dict, value: Any) -> tuple[Any, dict[str, str]]:
                     raise Reject("not_allowlisted", f"field {name!r} must be a string")
                 if "regex" in f and not _full(f["regex"], v):
                     raise Reject("not_allowlisted", f"field {name!r} has an unexpected format")
+            if f.get("type") == "iban":
+                if not isinstance(v, str):
+                    raise Reject("not_allowlisted", f"field {name!r} must be a string")
+                v = canonical_iban(v)
+            if f.get("type") == "account_number":
+                if not isinstance(v, str):
+                    raise Reject("not_allowlisted", f"field {name!r} must be a string")
+                v = v.replace(" ", "")
+                if not _full(r"[0-9]{6,20}", v):
+                    raise Reject("not_allowlisted", f"field {name!r} must be 6-20 digits")
             if "override" in f:
                 overrides[name] = f["override"]
                 v = OVERRIDE_PLACEHOLDER

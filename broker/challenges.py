@@ -88,8 +88,9 @@ class Challenges:
             self.ledger.append(kind, data)
 
     def _trip(self, user_id: str, why: str) -> None:
-        self._declined[user_id] = self._clock()
-        self._record("tripwire", {"user": user_id, "why": why})
+        key = getattr(self.resolver, "tripwire_key", lambda u: u)(user_id)   # default: the account (unchanged)
+        self._declined[key] = self._clock()
+        self._record("tripwire", {"user": key, "why": why})
 
     def _delay(self, kind: str, user_id: str) -> float:
         if kind not in ("manager", "contact"):
@@ -104,12 +105,14 @@ class Challenges:
         kind = challenge.get("receipt_kind", "owner")
         approver, human_only, why = self.resolver.approver_for(uid, kind, username)
         trip = self.pack.get("decline_tripwire_seconds", 86400)
-        if uid in self._declined and self._clock() - self._declined[uid] < trip:
+        tkey = getattr(self.resolver, "tripwire_key", lambda u: u)(uid)     # default: the account itself (unchanged)
+        if tkey in self._declined and self._clock() - self._declined[tkey] < trip:
             human_only, why = True, "a recent approval request on this account was declined"
         number = f"{secrets.randbelow(90) + 10}"
+        label = getattr(self.resolver, "label", lambda ch: ch["label"])(challenge)   # default: the pack's label
         c = Challenge("chl_" + secrets.token_urlsafe(10), run_id, challenge["operation"], uid, username,
-                      challenge["request_hash"], challenge["label"], number,
-                      binding_message(number, challenge["label"], username, uid, challenge["request_hash"]),
+                      challenge["request_hash"], label, number,
+                      binding_message(number, label, username, uid, challenge["request_hash"]),
                       approver=approver, receipt_kind=kind, status="human_only" if human_only else "created", why=why)
         with self._lock:
             self._by_id[c.id] = c

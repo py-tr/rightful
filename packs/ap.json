@@ -1,0 +1,40 @@
+{
+  "pack": "ap",
+  "version": 1,
+  "realm": "ap",
+  "description": "Accounts payable on ERPNext: a supplier's bank details change only after the contact registered for that supplier at onboarding approves the exact change on their own device. The broker's gate user can edit supplier bank accounts and nothing else in ERPNext (no create, no delete, no supplier, invoice or payment edits); ERPNext's own Version log is the witness. Added after the help-desk evaluation.",
+  "static_get_prefixes": [],
+  "read_fields": {},
+  "read_query": {"keys": [], "value_regex": "^$", "empty_only": []},
+  "reads": [
+    "/ap/v1/suppliers",
+    "/ap/v1/suppliers/{supplier}/bank-accounts",
+    "/ap/v1/payment-check/{supplier}"
+  ],
+  "writes": {
+    "change_bank_details": {
+      "method": "PUT",
+      "path": "/ap/v1/bank-accounts/{account}/details",
+      "body": {"type": "object", "fields": {
+        "bank": {"type": "string", "regex": "[A-Za-z0-9 .&'-]{2,60}"},
+        "bank_account_no": {"type": "account_number"},
+        "iban": {"type": "iban"}
+      }},
+      "receipt": "supplier_contact",
+      "label": "bankchg"
+    },
+    "set_default_bank_account": {
+      "method": "PUT",
+      "path": "/ap/v1/bank-accounts/{account}/default",
+      "body": {"type": "none"},
+      "receipt": "supplier_contact",
+      "label": "default"
+    }
+  },
+  "approvers": {
+    "supplier_contact": "the contact registered for the supplier at onboarding, in a directory outside both packs' reach; their own device, never an address or number from the request"
+  },
+  "composites": {},
+  "decline_tripwire_seconds": 86400,
+  "quarantine_paths": []
+}

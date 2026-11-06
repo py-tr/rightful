@@ -53,8 +53,12 @@ def binding_message(number: str, label: str, username: str, user_id: str, reques
 class Challenges:
     def __init__(self, keycloak, receipts: ReceiptStore, ttl_seconds: float = 180, max_sends: int = 3,
                  window_seconds: float = 600, clock=time.time, pack: dict | None = None,
-                 notify=lambda username, text, cancel_id=None: None, ledger=None, min_poll_interval: float = 1.0):
+                 notify=lambda username, text, cancel_id=None: None, ledger=None, min_poll_interval: float = 1.0,
+                 resolver=None):
         self.kc, self.receipts, self.ttl = keycloak, receipts, ttl_seconds
+        # who approves: the pack's resolver, or by default the identity server (today's behaviour, unchanged)
+        from broker.approvers import IdentityServerResolver
+        self.resolver = resolver or IdentityServerResolver(keycloak, pack)
         self.min_poll_interval = min_poll_interval
         self._last_poll: dict[str, float] = {}
         self.max_sends, self.window, self._clock = max_sends, window_seconds, clock
@@ -91,20 +95,14 @@ class Challenges:
         if kind not in ("manager", "contact"):
             return 0.0                              # the owner approving on their own device: no delay
         cfg = self.pack.get("cooling_off_seconds", {"default": 60, "privileged": 600})
-        attr = self.pack.get("privileged_attribute", "privileged")
-        privileged = self.kc.attribute(user_id, attr) in ("true", "yes", "1")
+        privileged = self.resolver.privileged(user_id)
         return float(cfg.get("privileged" if privileged else "default", 60))
 
     def create(self, run_id: str, challenge: dict) -> Challenge:
         uid = challenge["user"]
-        username = self.kc.username(uid)
+        username = self.resolver.subject_name(uid)
         kind = challenge.get("receipt_kind", "owner")
-        approver, human_only, why = username, False, ""
-        if kind in ("manager", "contact"):
-            mgr = self.kc.manager_of(uid)
-            approver = mgr or ""
-            if not mgr or mgr == username:
-                human_only, why = True, "no independent manager on record"
+        approver, human_only, why = self.resolver.approver_for(uid, kind, username)
         trip = self.pack.get("decline_tripwire_seconds", 86400)
         if uid in self._declined and self._clock() - self._declined[uid] < trip:
             human_only, why = True, "a recent approval request on this account was declined"
@@ -172,7 +170,7 @@ class Challenges:
             # Network reads first, then check-and-mint under one lock: two concurrent polls of one approval mint
             # exactly one receipt (review finding #5).
             delay = self._delay(c.receipt_kind, c.user_id)
-            snapshot = self.kc.user_snapshot(c.user_id)
+            snapshot = self.resolver.snapshot(c.user_id)
             with self._lock:
                 if c.receipt_minted:
                     return c

@@ -294,7 +294,7 @@ def create_app(gate: Gate, keycloak, challenges, deliver_secret=lambda username,
                 pass
             elif not snap:
                 why = "no approval snapshot on the receipt"
-            elif keycloak.user_snapshot(f["user"]) != snap:
+            elif challenges.resolver.snapshot(f["user"]) != snap:   # the pack's resolver (default: identity server)
                 why = "email or manager changed after approval"
             if why:
                 gate.ledger.append("composite_aborted", {"run": run_id, "op": d.op.name, "user": f["user"],

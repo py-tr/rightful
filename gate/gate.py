@@ -228,8 +228,9 @@ class Gate:
         # A write: it needs a receipt minted after the owner's approval for exactly this request in this run.
         if mode == CONTRAST_MODE:                         # the left column: the agent's own word decides
             if (run_id, op.user) not in self._verified:
-                return self._deny("denied_unverified", "mark the caller as verified first "
-                                  "(helpdesk.record_verification), then make the change", run_id, method, target, op)
+                return self._deny("denied_unverified", self.pack.get(
+                    "unverified_reason", "mark the caller as verified first (helpdesk.record_verification), then "
+                    "make the change"), run_id, method, target, op)
             red = Redemption(True, "ok", None, "skip")
         elif mode == "allowlist_only":                     # ablation: the grammar alone, no approval at all
             red = Redemption(True, "ok", None, "skip")

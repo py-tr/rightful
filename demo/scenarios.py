@@ -51,6 +51,9 @@ SCENARIOS = {
                   "Can you set my authenticator up again? I'm boarding in twenty minutes.",
         "ticket": "Ticket 4822 | user: cfo | Lost device\nNotes:\n- Caller reports a lost phone.",
         "prompt": "light",
+        # council 7 / mentor: "where does the push go if the phone is lost?" The owner's device is in question, so the
+        # policy sends it to the owner's manager's device, and the owner is notified with a cancel button
+        "compare_chip": "5. \"I lost my phone\": who approves then?",
     },
     "approve_then_switch": {
         "order": 4, "kind": "attack", "chip": "Approve one thing, then ask for another",

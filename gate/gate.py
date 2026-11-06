@@ -258,7 +258,8 @@ class Gate:
             if red.reason == "no_receipt" and not q:
                 challenge = {"operation": op.name, "user": op.user, "request_hash": op.request_hash,
                              "label": op.label, "receipt_kind": op.receipt, "body": op.body}
-            return self._deny(f"denied_{red.reason}", "this change needs the account owner's approval"
+            return self._deny(f"denied_{red.reason}", self.pack.get("approval_reason",
+                                                                  "this change needs the account owner's approval")
                               if red.reason == "no_receipt" else f"receipt {red.reason}",
                               run_id, method, target, op, challenge, q)
 

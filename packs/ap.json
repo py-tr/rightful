@@ -34,6 +34,7 @@
   "approvers": {
     "supplier_contact": "the contact registered for the supplier at onboarding, in a directory outside both packs' reach; their own device, never an address or number from the request"
   },
+  "approval_reason": "this change needs the supplier contact's approval of this exact change (a confirmation push does not authorize a change): send this challenge, tell the requester the number, wait for approval, then call the same function again",
   "composites": {},
   "decline_tripwire_seconds": 86400,
   "quarantine_paths": []

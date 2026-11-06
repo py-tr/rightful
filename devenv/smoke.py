@@ -75,6 +75,16 @@ def main(base: str) -> int:
     check("right column completed with approval", any("Changed only with approval" in v for v in verdicts),
           str(verdicts)[:200])
     check("phone was answered with each column's own number", len(answered) >= 1, f"answered {len(answered)}")
+    evs = j.get("events", [])
+    tiles = [e for e in evs if e.get("who") == "tiles"]
+    check("tiles: tried (gate's records) over recorded (Keycloak's log)",
+          bool(tiles) and "gate" in tiles[-1].get("tried_source", "") and "Keycloak" in tiles[-1].get("recorded_source", ""),
+          str(tiles[-1:])[:200])
+    check("a refusal cites its policy rule", any("packs/helpdesk.json" in (e.get("rule") or "") for e in evs),
+          "no rule on any gate line")
+    st = c.get("/api/events").json().get("strip") or {}
+    check("run strip measured gVisor inside the live sandbox", st.get("gvisor") is True and "gvisor" in
+          str(st.get("kernel", "")).lower() and st.get("no_network_but_gate") and st.get("no_secrets"), str(st)[:240])
     link = next((e.get("permalink") for e in j.get("events", []) if e.get("who") == "summary"), None)
     if link:
         tok = link.rsplit("/", 1)[-1]
@@ -90,6 +100,19 @@ def main(base: str) -> int:
     cnt = c.get("/api/intro").json().get("counter", {})
     check("counter answers", "without_approval" in cnt and "left" in cnt, str(cnt)[:120])
     wrong_number(base, intro)
+    pr = c.post("/api/prove", json={}, timeout=180)
+    if pr.status_code == 200:
+        pj = pr.json()
+        ins, rep = pj.get("inside", {}), pj.get("replay", {})
+        check("containment check: every in-sandbox check holds, gVisor measured",
+              all((ins.get("checks") or {}).values()) and bool(ins.get("checks")) and ins.get("gvisor") is True,
+              str(ins)[:240])
+        check("containment check: every token replay refused, identity log unchanged",
+              rep.get("attempts", 0) > 0 and rep.get("refused") == rep.get("attempts")
+              and rep.get("admin_events_after") == rep.get("admin_events_before"), str({k: rep.get(k) for k in (
+                  "attempts", "refused", "admin_events_before", "admin_events_after")}))
+    else:
+        check("containment check ran", False, f"{pr.status_code} {pr.text[:160]}")
     r = c.post("/api/phone-link", json={})
     url = r.json().get("url", "") if r.status_code == 200 else ""
     check("phone link issued", url.startswith("https://") or url.startswith("http://"), r.text[:120])

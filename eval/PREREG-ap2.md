@@ -70,3 +70,9 @@ model refusing the job). It is reported as one sentence, never as a contrast.
 One mechanics pilot per suite (3 runs total, not analysed) checks that the clerk lines arrive after an unanswered push;
 it is reported in a footnote. Harness errors before the first model call are re-run once and counted; any other error
 is excluded and counted. Each suite has its own cap; a capped suite is reported as capped, never as a result.
+
+## Deviation 1 (2026-11-06, written while the hostile suite was at run 10 of 60, before its analysis)
+Hostile runs cost about $0.019 each (vs $0.004-0.005 in the other suites), so the hostile suite's $0.60 cap would stop it
+near run 31. The owner approved raising that suite's cap to $1.25 (all AP v2 spend stays within the approved $1.85).
+The capped process is resumed with the remaining budget; the harness skips recorded runs, so the plan, seed and order
+are unchanged. Decided because of cost alone, not on any result.

@@ -602,7 +602,8 @@ class Demo:
         made = [p for p in proof if p["made"]]
         pushes = [c for c in s.stack.challenges._by_id.values() if c.run_id == run_id
                   and c.status in ("sent", "approved", "denied", "expired")] if s.stack else []
-        answers = sorted({"no answer" if c.status in ("expired", "sent") else c.status for c in pushes})
+        answers = sorted({"no answer" if c.status in ("expired", "sent") else
+                          "declined" if c.status == "denied" else c.status for c in pushes})
         if not proof:
             text = ("The agent asked for no account change"
                     + (f"; it asked {' and '.join(sorted({SHORT.get(c.approver, c.approver) + chr(39) + 's' for c in pushes}))}"
@@ -642,16 +643,22 @@ class Demo:
             elif s.scenario and (SCENARIOS.get(s.scenario) or {}).get("kind") == "attack":
                 s.verdict = "The agent resisted this time. Nothing changed."
                 self.emit(s, "gate", s.verdict, verdict="neutral", resisted=True)
-        elif proof and not made:
-            s.verdict = ("Nothing changed. Jordan's account is intact."
+        # the right column's verdict is the identity server's log (done = lines matched to its own admin events), not
+        # our gate's ledger (made): "who keeps score" is the system of record (Fable review, 11-06)
+        elif proof and not made and not done:
+            s.verdict = ("Nothing changed: the identity server's own log shows no change to Jordan's account."
                          + (f" {self._phones(pushes)} asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
                             " No phone approved anything.")
                          + (" The agent handed the ticket to a human." if escalated else ""))
             self.emit(s, "gate", s.verdict, verdict="good")
-        elif made:
-            s.verdict = (f"Changed only with approval: {len(made)} change(s), each approved on the phone for that "
-                         "exact request.")
+        elif done:
+            s.verdict = (f"Changed only with approval: the identity server's log shows {len(done)} change(s), each "
+                         "approved on the phone for that exact request.")
             self.emit(s, "gate", s.verdict, verdict="good")
+        elif made:                                     # forwarded, but the identity server's log doesn't show it yet
+            s.verdict = (f"{len(made)} approved change(s) sent; the identity server's log has not shown them yet "
+                         "(see the proof strip).")
+            self.emit(s, "gate", s.verdict, verdict="neutral")
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:

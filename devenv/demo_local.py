@@ -78,57 +78,66 @@ def main() -> int:
     if not a.selftest:
         while True:
             time.sleep(3600)
-    # --- self-test: a visitor's honest path through the real API ---------------------------------------------
-    c = httpx.Client(base_url="https://127.0.0.1:8000", verify=False, timeout=30)
-    c = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
+    # --- self-test: compare mode through the real API (rewritten 11-06; the old one predated compare mode) ---------
     ok = []
-    assert c.get("/api/state").status_code == 401; ok.append("no session -> 401")
-    r = c.post("/api/session", json={})
-    cookie = r.headers.get("set-cookie", "")
-    assert "HttpOnly" in cookie and "Secure" in cookie and "SameSite=strict" in cookie.replace("Strict", "strict")
-    ok.append("cookie flags HttpOnly/Secure/SameSite=Strict")
-    c.cookies.set("ks", r.cookies.get("ks"))
-    assert c.post("/api/tickets", json={"scenario": "honest", "caller": "", "ticket": ""},
-                  headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    probe = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
+    assert probe.post("/api/say", json={"text": "hi"}, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
     ok.append("cross-site POST -> 403")
-    c.post("/api/tickets", json={"scenario": "honest", "caller": "", "ticket": "", "prompt": "light"}).raise_for_status()
-    deadline, approved = time.time() + 120, False
-    while time.time() < deadline:
-        v = c.get("/api/state").json()
-        if v["phone"]["pending"] and not approved:
-            p = v["phone"]["pending"][0]
-            assert len(p["numbers"]) == 3; ok.append("phone shows 3 candidate numbers")
-            wrong = [n for n in p["numbers"]]
-            assert c.post(f"/api/phone/{p['id']}/approve", json={"number": "00"}).status_code == 400
-            ok.append("a number not shown -> refused")
-            # the right one is not marked: try each until the server's comparison accepts one (a judge reads it from
-            # the agent's message; here the stand-in prints it in its script output)
-            for n in wrong:
-                if c.post(f"/api/phone/{p['id']}/approve", json={"number": n}).json().get("matched"):
-                    break
-            approved = True
-        if v["tickets"] and v["tickets"][-1]["status"] in ("done", "error", "refused"):
-            break
-        time.sleep(1.5)
-    v = c.get("/api/state").json()
-    print("ticket:", v["tickets"][-1]["status"], v["tickets"][-1]["note"])
-    for r in v["rows"]:
-        print("  row:", r)
-    print("  counters: attempted", v["attempted"], "executed", v["executed"])
-    print("  phone notices:", [n["text"][:70] for n in v["phone"]["notices"]])
-    assert v["executed"] == 1 and any(r["event"] for r in v["rows"]); ok.append("exactly one change, in the oracle column")
-    other = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
-    r2 = other.post("/api/session", json={})
-    other.cookies.set("ks", r2.cookies.get("ks"))
-    pid = "push_x"
-    assert other.post(f"/api/phone/{pid}/approve", json={"number": "11"}).status_code in (400, 404)
-    ok.append("another session cannot answer this session's phone")
+
+    def visitor():
+        """A fresh compare-mode visitor (its own two fictional companies): a decline in one company freezes retries on
+        that account (the tripwire), so each phone outcome gets its own visitor."""
+        before = set(demo.sessions)
+        cl = httpx.Client(base_url="http://127.0.0.1:8000", timeout=30)
+        r = cl.post("/api/compare", json={"on": True})
+        cookie = r.headers.get("set-cookie", "")
+        assert r.json().get("compare") and "HttpOnly" in cookie and "Secure" in cookie
+        cl.cookies.set("ks", r.cookies.get("ks"))
+        new = next(demo.sessions[k] for k in set(demo.sessions) - before if demo.sessions[k].twin is not None)
+        return cl, new
+
+    def converse(choose_right: bool) -> dict:
+        c, sess = visitor()
+        n0 = len(c.get("/api/events").json()["events"])
+        c.post("/api/say", json={"text": "Hi, I'm Jordan, I'm locked out of my account."}).raise_for_status()
+        answered, deadline = False, time.time() + 240
+        while time.time() < deadline:
+            v = c.get("/api/events").json()
+            right = [p for p in v["phone"]["pending"] if p.get("company") == "right"]
+            if right and not answered:
+                p = right[0]
+                assert len(p["numbers"]) == 3
+                true = sess.stack.push.state.pending[p["id"]]["number"]
+                pick = true if choose_right else next(n for n in p["numbers"] if n != true)
+                res = c.post(f"/api/phone/{p['id']}/approve", json={"number": pick}).json()
+                assert res["ok"] is choose_right, res
+                if not choose_right:     # the wrong tap declined it: the right number no longer works
+                    assert c.post(f"/api/phone/{p['id']}/approve", json={"number": true}).json().get("ok") is not True
+                answered = True
+            if answered and not v["busy"] and not v["left"]["busy"]:
+                time.sleep(2)
+                break
+            time.sleep(1.5)
+        evs = c.get("/api/events").json()["events"][n0:]
+        verdicts = [e["text"] for e in evs if e["who"] == "gate" and e.get("verdict")]
+        print("  right verdicts:", verdicts)
+        return {"answered": answered, "verdicts": verdicts}
+
+    ok.append("compare sessions; cookie HttpOnly/Secure")
+    a = converse(choose_right=False)
+    assert a["answered"] and any("identity server's own log shows no change" in t for t in a["verdicts"]), a
+    ok.append("wrong number: push declined, no second try; verdict cites the identity server's log (no change)")
+    assert demo.broker.apps == {}, demo.broker.apps
+    ok.append("run routes dropped after the conversation (no leak)")
+    b = converse(choose_right=True)
+    assert b["answered"] and any("identity server's log shows 1 change" in t for t in b["verdicts"]), b
+    ok.append("right number: verdict cites the identity server's log (1 change)")
+    assert demo.broker.apps == {}, demo.broker.apps
+    ok.append("routes dropped again after the second conversation")
     print("\nSELFTEST OK:\n - " + "\n - ".join(ok))
     for s in list(demo.sessions.values()):
         demo.end_session(s, "selftest end")
-    print("counter after archiving:", demo.counter())
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

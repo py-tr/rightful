@@ -74,6 +74,7 @@ def main(base: str) -> int:
         check("share link exists", False, "no summary permalink")
     cnt = c.get("/api/intro").json().get("counter", {})
     check("counter answers", "without_approval" in cnt and "left" in cnt, str(cnt)[:120])
+    wrong_number(base, intro)
     r = c.post("/api/phone-link", json={})
     url = r.json().get("url", "") if r.status_code == 200 else ""
     check("phone link issued", url.startswith("https://") or url.startswith("http://"), r.text[:120])
@@ -86,5 +87,65 @@ def main(base: str) -> int:
     return 1 if FAILS else 0
 
 
+def wrong_number(base: str, intro: dict) -> None:
+    """A fresh visitor mis-taps (mentor, 11-06): the wrong number must decline the request, the right number must not
+    work afterwards, and the page must explain it with a start-over button (a decline freezes the account)."""
+    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin"})
+    c.post("/api/compare", json={"on": True})
+    honest = next(s for s in intro["scenarios"] if s["id"] == "honest")
+    c.post("/api/say", json={"text": honest["caller"], "scenario": "honest", "ticket": honest["ticket"],
+                              "prompt": "light", "model": intro.get("default_model")})
+    t0, tapped, j, first, second = time.time(), False, {}, None, None
+    while time.time() - t0 < 240:
+        time.sleep(3)
+        j = c.get("/api/events", params={"after": 0, "after_left": 0}).json()
+        shown = {e.get("number") for e in j.get("events", []) if e.get("who") == "phone"}
+        for card in j.get("phone", {}).get("pending", []):
+            if (card.get("company") or "right") != "right" or tapped:
+                continue
+            right = next((x for x in card["numbers"] if x in shown), None)
+            if right:
+                wrong = next(x for x in card["numbers"] if x != right)
+                first = c.post(f"/api/phone/{card['id']}/approve", json={"number": wrong}).json()
+                second = c.post(f"/api/phone/{card['id']}/approve", json={"number": right})
+                tapped = True
+        if tapped and any(e.get("who") == "summary" for e in j.get("events", [])):
+            break
+    check("wrong number: a push to tap appeared", tapped, "no right-column card with its number")
+    if tapped:
+        check("wrong number is refused", first.get("ok") is False, str(first))
+        check("right number no longer works after a wrong tap",
+              second.status_code != 200 or second.json().get("ok") is not True, second.text[:120])
+        evs = j.get("events", [])
+        check("mis-tap explained with a start-over button",
+              any(e.get("text", "").startswith("Wrong number: request declined") for e in evs)
+              and any(e.get("who") == "explain" and e.get("restart") for e in evs), "no explanation/restart event")
+    try:
+        c.post("/api/restart", json={})
+    except httpx.HTTPError:
+        pass
+
+
+def counters(base: str) -> dict:
+    return httpx.get(f"{base.rstrip('/')}/api/intro", timeout=30).json().get("counter", {})
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1]))
+    # python -m devenv.smoke <url> --save-counter f   before a deploy: record the counters
+    # python -m devenv.smoke <url> --counter-from f   after it: every count must be at least what it was (survived)
+    import json
+    args = sys.argv[1:]
+    if "--save-counter" in args:
+        json.dump(counters(args[0]), open(args[args.index("--save-counter") + 1], "w"))
+        print("counter saved")
+        sys.exit(0)
+    rc = main(args[0])
+    if "--counter-from" in args:
+        before = json.load(open(args[args.index("--counter-from") + 1]))
+        after = counters(args[0])
+        nums = [k for k, v in before.items() if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        check("counters survived the restart", all(after.get(k, -1) >= before[k] for k in nums),
+              f"before {before} after {after}")
+        print(f"\n{'ALL PASS' if not FAILS else f'{len(FAILS)} FAILED: ' + ', '.join(FAILS)}")
+        rc = 1 if FAILS else 0
+    sys.exit(rc)

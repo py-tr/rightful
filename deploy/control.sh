@@ -56,10 +56,12 @@ $PUBLIC_HOST {
 EOF
 systemctl restart caddy
 echo "=== STEP host firewall: the broker port only on the VPC address, the device service only via Caddy"
-# These iptables rules are NOT persisted across a reboot. That is acceptable here because the Vultr firewall group
-# in front of this VM already allows only SSH (operator IP), 80 and 443; 8099 is unreachable from outside either way.
-# They are a second layer against other hosts inside the VPC.
-iptables -I INPUT 1 -p tcp --dport 8099 -j DROP
+# Persisted through ufw (11-06, mentor): ufw denies incoming by default, so without an explicit allow a reboot would
+# also cut Keycloak's own container off the CIBA channel. Loopback (Caddy) is allowed by ufw's base rules. Do NOT use
+# iptables-persistent here: installing it removes ufw. The Vultr firewall group in front only allows 22/80/443 anyway.
+ufw allow proto tcp from 172.16.0.0/12 to any port 8099 comment 'Keycloak container CIBA channel' >/dev/null
+ufw deny proto tcp from any to any port 8099 comment 'CIBA receiver: nobody else' >/dev/null
+iptables -I INPUT 1 -p tcp --dport 8099 -j DROP                         # the same rules, effective before a reload
 iptables -I INPUT 1 -p tcp --dport 8099 -s 172.16.0.0/12 -j ACCEPT      # Keycloak's container (CIBA channel)
 iptables -I INPUT 1 -p tcp --dport 8099 -s 127.0.0.1 -j ACCEPT          # Caddy
 for i in $(seq 1 30); do curl -sf http://127.0.0.1:8099/healthz >/dev/null && break; sleep 2; done

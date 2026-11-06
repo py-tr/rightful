@@ -54,15 +54,41 @@ def api_user(s, email: str, role: str) -> dict:
     return {"Authorization": f"token {key}:{sec['api_secret']}", **H}
 
 
-def perm(s, role: str, doctype: str, **rights) -> None:
+def ensure_prop(s, doctype: str, field: str, prop: str, value: str, ptype: str) -> None:
+    """A Property Setter (what Customize Form writes), created by Administrator."""
+    have = s.get(f"{B}/api/resource/Property Setter", params={"filters": json.dumps(
+        [["doc_type", "=", doctype], ["field_name", "=", field], ["property", "=", prop]])}).json().get("data", [])
+    if have:
+        return
+    r = s.post(f"{B}/api/resource/Property Setter", json={
+        "doctype_or_field": "DocField", "doc_type": doctype, "field_name": field, "property": prop,
+        "value": value, "property_type": ptype})
+    if r.status_code >= 400:
+        raise SystemExit(f"property setter {doctype}.{field}.{prop}: {r.status_code} {r.text[:200]}")
+    s.post(f"{B}/api/method/frappe.client.clear_cache") if False else None
+
+
+def ensure_doctype_prop(s, doctype: str, prop: str, value: str, ptype: str) -> None:
+    have = s.get(f"{B}/api/resource/Property Setter", params={"filters": json.dumps(
+        [["doc_type", "=", doctype], ["property", "=", prop], ["doctype_or_field", "=", "DocType"]])}).json().get("data", [])
+    if have:
+        return
+    r = s.post(f"{B}/api/resource/Property Setter", json={"doctype_or_field": "DocType", "doc_type": doctype,
+                                                          "property": prop, "value": value, "property_type": ptype})
+    if r.status_code >= 400:
+        raise SystemExit(f"property setter {doctype}.{prop}: {r.status_code} {r.text[:200]}")
+
+
+def perm(s, role: str, doctype: str, level: int = 0, **rights) -> None:
     """A Custom DocPerm row (Role Permission Manager): only the rights given."""
     existing = s.get(f"{B}/api/resource/Custom DocPerm", params={
-        "filters": json.dumps([["parent", "=", doctype], ["role", "=", role]]), "fields": json.dumps(["name"])}).json()
+        "filters": json.dumps([["parent", "=", doctype], ["role", "=", role], ["permlevel", "=", level]]),
+        "fields": json.dumps(["name"])}).json()
     rights_all = {k: (1 if rights.get(k) else 0) for k in ("read", "write", "create", "delete", "submit", "cancel")}
     if existing.get("data"):
         s.put(f"{B}/api/resource/Custom DocPerm/{existing['data'][0]['name']}", json=rights_all).raise_for_status()
         return
-    body = {"parent": doctype, "parenttype": "DocType", "parentfield": "permissions", "role": role, "permlevel": 0,
+    body = {"parent": doctype, "parenttype": "DocType", "parentfield": "permissions", "role": role, "permlevel": level,
             **rights_all}
     r = s.post(f"{B}/api/resource/Custom DocPerm", json=body)
     if r.status_code >= 400:
@@ -80,6 +106,15 @@ def main() -> int:
     perm(s, "AP Gate", "Bank", read=1)
     perm(s, "AP Witness", "Version", read=1)
     perm(s, "AP Witness", "Bank Account", read=1)
+    # the ownership fields one permission level up, where the gate role has no rights: the gate user can edit the
+    # bank details but never whose account it is (mentor, 11-06: party fields refused at BOTH layers)
+    for field in ("party", "party_type", "is_company_account"):
+        ensure_prop(s, "Bank Account", field, "permlevel", "1", "Int")
+    ensure_doctype_prop(s, "Bank Account", "allow_rename", "0", "Check")    # 11-06: the gate user could rename
+    perm(s, "System Manager", "Bank Account", level=1, read=1, write=1)   # the ERP's own admins keep full rights
+    perm(s, "Accounts Manager", "Bank Account", level=1, read=1, write=1)
+    perm(s, "AP Gate", "Bank Account", level=1, read=1)                   # read whose account it is, never change it
+    perm(s, "AP Witness", "Bank Account", level=1, read=1)
     s.post(f"{B}/api/method/frappe.sessions.clear")         # permission cache
     gate = api_user(s, "ap-gate@example.com", "AP Gate")
     wit = api_user(s, "ap-witness@example.com", "AP Witness")
@@ -122,6 +157,13 @@ def main() -> int:
         refused = r.status_code in (401, 403) or (r.status_code == 200 and method == "GET" and not r.json().get("data"))
         check(f"gate user refused: {what}", refused, f"HTTP {r.status_code}")
 
+    for field, evil in (("party", "Evil Co"), ("party_type", "Customer"), ("is_company_account", 1)):
+        before = s.get(f"{B}/api/resource/Bank Account/{requests.utils.quote(ba, safe='')}").json()["data"].get(field)
+        r = requests.put(f"{B}/api/resource/Bank Account/{requests.utils.quote(ba, safe='')}", headers=gate,
+                         json={field: evil})
+        after = s.get(f"{B}/api/resource/Bank Account/{requests.utils.quote(ba, safe='')}").json()["data"].get(field)
+        check(f"gate user cannot change '{field}' in ERPNext itself", after == before,
+              f"HTTP {r.status_code}, {before!r} -> {after!r}")
     names = [u["name"] for u in requests.get(f"{B}/api/resource/User", headers=gate).json().get("data", [])]
     check("gate user sees no account beyond itself and the witness (Frappe lists those two by default)",
           set(names) <= {"ap-gate@example.com", "ap-witness@example.com"}, f"visible: {names}")
@@ -170,6 +212,40 @@ def main() -> int:
     check("gate user refused: set_value track_changes", r.status_code in (401, 403, 417), f"HTTP {r.status_code}")
     bt = s.get(f"{B}/api/resource/DocType/Bank Account").json()["data"]
     check("track_changes still on afterwards", bt.get("track_changes") == 1)
+    r = requests.delete(f"{B}/api/resource/Bank Account/{requests.utils.quote(ba, safe='')}", headers=gate)
+    check("gate user refused: delete a bank account (deleting the default can push payments elsewhere)",
+          r.status_code in (401, 403, 417), f"HTTP {r.status_code}")
+
+    # Informational (mentor: write rights reach further than PUT): what the gate user's TOKEN could do through
+    # Frappe's method endpoints. The sandbox can never call these (the broker's grammar refuses every ERPNext path,
+    # tests/test_ap_pack.py) and the token never leaves the broker; this is the row for the bypass table.
+    q = requests.utils.quote(ba, safe='')
+    probes = [
+        ("set_value on bank_account_no", "POST", "/api/method/frappe.client.set_value",
+         {"doctype": "Bank Account", "name": ba, "fieldname": "bank_account_no", "value": "4400009999"}),
+        ("set_value on party", "POST", "/api/method/frappe.client.set_value",
+         {"doctype": "Bank Account", "name": ba, "fieldname": "party", "value": "Evil Co"}),
+        ("bulk_update", "POST", "/api/method/frappe.client.bulk_update",
+         {"docs": json.dumps([{"doctype": "Bank Account", "docname": ba, "bank_account_no": "4400008888"}])}),
+        ("data import", "POST", "/api/resource/Data Import",
+         {"reference_doctype": "Bank Account", "import_type": "Update Existing Records"}),
+    ]
+    print("\nINFO: Frappe method endpoints with the gate user's token (unreachable from the sandbox):")
+    for what, method, path, data in probes:
+        r = requests.request(method, f"{B}{path}", headers=gate, data=data)
+        print(f"   {what}: HTTP {r.status_code}")
+    after = s.get(f"{B}/api/resource/Bank Account/{q}").json()["data"]
+    check("party unchanged after the method probes", after.get("party") == "Brightline Fasteners (example)",
+          str(after.get("party")))
+    r = requests.post(f"{B}/api/method/frappe.model.rename_doc.update_document_title", headers=gate,
+                      data={"doctype": "Bank Account", "docname": ba, "name": ba + " renamed"})
+    still = s.get(f"{B}/api/resource/Bank Account/{q}")
+    check("gate user cannot rename a bank account", still.status_code == 200, f"rename HTTP {r.status_code}")
+    vv = requests.get(f"{B}/api/resource/Version", headers=wit, params={
+        "filters": json.dumps([["ref_doctype", "=", "Bank Account"], ["docname", "=", ba]]),
+        "fields": json.dumps(["data"]), "order_by": "creation desc", "limit_page_length": 3}).json()["data"]
+    print("   latest Version entries after the probes:", [json.loads(v["data"]).get("changed") for v in vv])
+
     ok = all(o for _, o, _ in RESULTS)
     print(f"\n{'ALL PASS: the witness is independent' if ok else 'FAILED: see above (stop rule)'}")
     return 0 if ok else 1

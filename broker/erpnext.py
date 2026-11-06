@@ -51,8 +51,13 @@ class ERPNext:
         self._lock = threading.Lock()
 
     # --- opaque references ----------------------------------------------------------------------------------------
+    KIND = {"Supplier": "5", "Bank Account": "a"}         # the 13th hex digit tells the two kinds apart (pilot, 11-06:
+                                                           # agents passed a supplier id where an account id belonged)
+
     def ref(self, doctype: str, name: str) -> str:
-        r = str(uuid.UUID(bytes=hmac.new(self.key, f"{doctype}\0{name}".encode(), hashlib.sha256).digest()[:16]))
+        h = hmac.new(self.key, f"{doctype}\0{name}".encode(), hashlib.sha256).hexdigest()[:32]
+        h = h[:12] + self.KIND[doctype] + h[13:]
+        r = str(uuid.UUID(h))
         with self._lock:
             self._names[r] = (doctype, name)
         return r
@@ -91,7 +96,11 @@ class ERPNext:
 
     def supplier_of(self, ref: str) -> str | None:
         """The supplier a bank account belongs to, read from the record itself at challenge time (mentor: the approver
-        comes from the account, not from anything in the request). Company accounts and anything else: None."""
+        comes from the account, not from anything in the request). Company accounts and anything else: None. A supplier
+        id names the supplier directly (the call-back: "confirm with this supplier")."""
+        sup = self._name(ref, "Supplier") if REF_RE.match(ref or "") and ref[14] == self.KIND["Supplier"] else None
+        if sup is not None:
+            return sup
         a = self.account(ref)
         if not a or a.get("is_company_account") or a.get("party_type") != "Supplier" or a.get("disabled"):
             return None

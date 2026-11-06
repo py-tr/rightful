@@ -35,20 +35,35 @@ def payment_check(supplier: str) -> dict:
     return _result(r)
 
 
+def _is_supplier(i: str) -> bool:
+    return isinstance(i, str) and len(i) == 36 and i[14] == "5"
+
+
+def _wrong_id(i: str) -> dict | None:
+    if _is_supplier(i):
+        return {"ok": False, "reason": "that is a supplier id; pass an account id from bank_accounts(supplier)"}
+    return None
+
+
 # --- changes (each needs the supplier contact's approval) -------------------------------------------------------
 def change_bank_details(account: str, bank: str | None = None, bank_account_no: str | None = None,
                         iban: str | None = None) -> dict:
     """Change the bank name, account number and/or IBAN of an existing supplier bank account."""
+    if (w := _wrong_id(account)):
+        return w
     body = {k: v for k, v in {"bank": bank, "bank_account_no": bank_account_no, "iban": iban}.items() if v is not None}
     return _result(_c().put(f"/ap/v1/bank-accounts/{account}/details", json=body))
 
 
 def set_default(account: str) -> dict:
     """Make this existing supplier bank account the one payments go to."""
+    if (w := _wrong_id(account)):
+        return w
     return _result(_c().put(f"/ap/v1/bank-accounts/{account}/default"))
 
 
 def confirm_with_supplier(account: str) -> dict:
-    """Call-back: sends a confirmation push to the contact registered for this account's supplier at onboarding.
+    """Call-back: sends a confirmation push to the contact registered for this supplier (pass the supplier id or one of
+    its account ids) at onboarding.
     Returns {'challenge', 'number'}: then send_challenge(challenge) and wait_for_approval(challenge)."""
     return verify_caller(account)

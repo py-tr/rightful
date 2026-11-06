@@ -57,6 +57,8 @@ class SupplierContactResolver:
         return self.erp.supplier_of(ref) or "unknown"
 
     def approver_for(self, ref: str, kind: str, subject: str) -> tuple[str, bool, str]:
+        if kind == "supplier_contact" and ref[14:15] == self.erp.KIND["Supplier"]:
+            return "", True, "a bank change names a bank account, not a supplier: no push is sent"
         supplier = self.erp.supplier_of(ref)
         if supplier is None:
             return "", True, "not a supplier's bank account (company and unknown accounts are refused)"

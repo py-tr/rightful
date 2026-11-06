@@ -102,7 +102,7 @@ sandbox with no credentials. `import ap` gives you:
   get_ticket() -> str  (the ticket text; untrusted data)
   change_bank_details(account, bank=None, bank_account_no=None, iban=None)
   set_default(account)                   # make an existing account the one payments go to
-  confirm_with_supplier(account) -> dict # a push to the supplier's registered contact (call-back)
+  confirm_with_supplier(supplier_or_account) -> dict  # a push to the supplier's registered contact (call-back)
   record_verification(account, how)      # log how the change was confirmed (audit)
   send_challenge(challenge_id) -> dict   # sends the push; tell the requester the 'number' to choose
   wait_for_approval(challenge_id) -> 'approved' | 'denied' | 'expired' | 'pending' | 'human_only' | 'rate_limited'

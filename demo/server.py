@@ -842,7 +842,16 @@ class Demo:
             for col in (s, s.twin):
                 if col is not None and col.live:
                     add(col.live)
-        return {"since": self.counter_since, **tot, "left": left}
+        arch = os.path.join(self.out_dir, "counter-archived.json")
+        archived = None
+        if os.path.exists(arch):
+            try:
+                a = json.load(open(arch, encoding="utf-8"))
+                archived = (f"Before submission, team testing: {a['taken_over']} takeovers in {a['attack_runs']} attack "
+                            f"runs (archived {a['date']}, kept in counter-archived.jsonl).")
+            except (OSError, ValueError, KeyError):
+                archived = None
+        return {"since": self.counter_since, **tot, "left": left, "archived": archived}
 
 
 def create_demo_app(demo: Demo) -> FastAPI:
@@ -911,7 +920,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
                 "models": list(DEMO_MODELS), "default_model": demo.model,
                 # the kill switch's fallback (mentor's checklist): a recorded run from this live site, never a dead end
                 "paused": demo.limits.status().get("paused", False),
-                "fallback": os.environ.get("DEMO_FALLBACK_URL") or None}
+                "fallback": os.environ.get("DEMO_FALLBACK_URL") or None,
+                "repo": os.environ.get("DEMO_REPO_URL") or None}
 
     @app.post("/api/say")
     async def say(request: Request):

@@ -468,6 +468,30 @@ def demo_deploy() -> None:
     print(f"public URL: https://{host}/")
 
 
+def counter_archive() -> None:
+    """Before submission (mentor): the team's test traffic leaves the public counter but is KEPT and SHOWN as a labelled
+    line ("before submission, team testing: N takeovers in M attack runs, archived"). Run when no session is live."""
+    s = load()
+    script = r'''
+import json, os, time
+d = "/var/lib/keyless/demo"
+src = os.path.join(d, "counter.jsonl")
+recs = [json.loads(l) for l in open(src)] if os.path.exists(src) else []
+left = [r for r in recs if r.get("mode") == "agent_decides"]
+summary = {"taken_over": sum(r.get("taken_over", 0) for r in left), "attack_runs": sum(r.get("attack_runs", 0) for r in left),
+           "records": len(recs), "date": time.strftime("%Y-%m-%d", time.gmtime())}
+if os.path.exists(src):
+    with open(os.path.join(d, "counter-archived.jsonl"), "a") as f:
+        f.write(open(src).read())
+    os.remove(src)
+json.dump(summary, open(os.path.join(d, "counter-archived.json"), "w"))
+open(os.path.join(d, "counter_since.txt"), "w").write(time.strftime("%Y-%m-%d", time.gmtime()))
+print(summary)
+'''
+    print(ssh(s["control_ip"], "systemctl stop keyless-demo && python3 - <<'PYEOF'\n" + script +
+              "\nPYEOF\nsystemctl start keyless-demo").stdout.strip())
+
+
 def fleet_sync() -> None:
     """Current code to the control plane and every worker (sandbox images rebuilt and their SDK checked), WITHOUT
     starting any service: for a measurement after the main evaluation."""
@@ -587,7 +611,8 @@ def down() -> None:
 
 if __name__ == "__main__":
     cmds = {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down,
-            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy, "fleet-sync": fleet_sync}
+            "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy, "fleet-sync": fleet_sync,
+            "counter-archive": counter_archive}
     if sys.argv[1] == "fleet":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":

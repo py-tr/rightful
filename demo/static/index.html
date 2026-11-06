@@ -120,6 +120,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .measured{margin-top:6px;font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
 .paused{margin:0 0 14px;padding:12px 16px;border-radius:12px;background:var(--amber-bg);color:var(--ink);border:1px solid var(--line);font-weight:600}
 .paused a{color:var(--blue)}
+.gloss{font-size:12.5px;color:var(--muted);margin:0 0 8px}.repo{margin:0 0 6px}
+.counter small + small{margin-top:4px;font-style:italic}
 .hidden{display:none!important}
 </style>
 </head>
@@ -131,8 +133,9 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
   <div class="counters">
     <div class="counter" id="cRightBox"><span class="big zero" id="cWithout">0</span> account changes without the owner's approval
       <small id="cDetail">with Keyless, from the identity server's own log</small></div>
-    <div class="counter hidden" id="cLeftBox"><span class="big bad" id="cLeft">0</span> account changes without the owner's approval
-      <small id="cLeftDetail">when the agent decides (unprotected fictional companies)</small></div>
+    <div class="counter hidden" id="cLeftBox"><span class="big bad" id="cLeft">0</span> takeovers in the unprotected column
+      <small id="cLeftDetail">attack runs where the caller got Jordan's temporary password, from each company's identity-server log</small>
+      <small id="cLeftArch" class="hidden"></small></div>
   </div>
 </header>
 <div class="paused hidden" id="pausedBanner"></div>
@@ -173,7 +176,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="panel receipt hidden" id="recL"><h2>Receipt: the agent decides</h2>
         <div class="rrow head"><div>Change</div><div>Allowed by</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsL"></div></div>
-      <div class="panel receipt"><h2 id="recRTitle">Receipt: every change the agent asked for</h2>
+      <div class="panel receipt"><h2 id="recRTitle">Receipt: Keyless (the owner's device decides)</h2>
         <div class="rrow head"><div>Change</div><div>The gate</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsR"></div></div>
     </div>
@@ -193,7 +196,13 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       honest path, not found a bypass.</p>
   </div>
 </div>
-<footer>These companies are fictional and are deleted when you leave. Conversations are logged privately to count the
+<footer><p class="repo hidden" id="repoLine">The code, the pre-registrations and every result:
+  <a id="repoLink" href="#" rel="noopener">the repository</a> (start with the README).</p>
+  <p class="gloss"><b>Keyless</b>: the agent holds no key; every change needs the owner's device. <b>Blast radius</b>: how much a
+  fooled agent can change. <b>Identity server</b>: the system that holds the accounts (here Keycloak); its own log is the
+  evidence. <b>The gate</b>: sits between the agent's sandbox and the identity server and refuses any change without an
+  approval of that exact request.</p>
+  These companies are fictional and are deleted when you leave. Conversations are logged privately to count the
   results; please don't paste real data.
   <details><summary>How it works, and what this demo does not claim</summary>
     <p>The agent writes scripts that run in a disposable sandbox holding no credential. With Keyless, every account change
@@ -240,6 +249,7 @@ async function intro() {
     box.append(b);
   }
   labelChips();
+  if (j.repo) { $("repoLink").href = j.repo; $("repoLine").classList.remove("hidden"); }
   if (j.paused) { const b = $("pausedBanner"); b.replaceChildren(document.createTextNode("The live demo is paused right now. "));
     if (j.fallback) { const a = el("a", "", "Watch a recorded run from this site (both columns, with the identity server's log)"); a.href = j.fallback; b.append(a); }
     b.classList.remove("hidden"); }
@@ -272,7 +282,9 @@ function renderCounter(c) {
   const pl = (n, one, many) => n + " " + (n === 1 ? one : many);
   $("cDetail").textContent = "with Keyless, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
   if (c.left) { $("cLeft").textContent = c.left.without_approval; $("cLeft").className = "big " + (c.left.without_approval ? "bad" : "zero");
-    $("cLeftDetail").textContent = "when the agent decides, in " + pl(c.left.companies, "unprotected fictional company", "unprotected fictional companies") + ", from their identity servers' own logs" + (c.left.attack_runs ? "; " + pl(c.left.attack_runs, "attack run", "attack runs") + ", " + pl(c.left.taken_over || 0, "takeover", "takeovers") : (c.left.taken_over ? "; " + pl(c.left.taken_over, "password", "passwords") + " handed to a caller" : "")); }
+    $("cLeft").textContent = c.left.taken_over || 0; $("cLeft").className = "big " + (c.left.taken_over ? "bad" : "zero");
+    $("cLeftDetail").textContent = "in " + pl(c.left.attack_runs || 0, "attack run", "attack runs") + " by visitors (the caller got Jordan's temporary password); " + pl(c.left.without_approval, "account change", "account changes") + " without the owner's approval in all; from each company's identity-server log";
+    if (c.archived) { $("cLeftArch").textContent = c.archived; $("cLeftArch").classList.remove("hidden"); } }
 }
 function render(c, e) {
   c.chat.querySelector(".empty")?.remove(); const chat = c.chat;

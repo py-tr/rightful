@@ -444,6 +444,10 @@ def demo_deploy() -> None:
     print("worker:", r.stdout.strip()[-200:], r.stderr.strip()[-200:])
     key_line = next(l.strip() for l in open(os.path.join(ROOT, ".env"), encoding="utf-8")
                     if l.startswith("VULTR_INFERENCE_API_KEY="))
+    if not s.get("team_key"):                       # the smoke test's key: team traffic, outside the public counter
+        s["team_key"] = secrets.token_urlsafe(24)
+        save(s)
+    key_line += f"\nDEMO_TEAM_KEY={s['team_key']}"
     ssh(ip, "tar -xzf /root/keyless.tgz -C /opt/keyless && /opt/keyless/.venv/bin/pip install -q segno==1.6.1 && "
             "mkdir -p /var/lib/keyless/demo && umask 077 && "
             "TOKEN=$(openssl rand -hex 24) && "

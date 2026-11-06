@@ -104,3 +104,75 @@ def test_a_ticket_cannot_settle_more_than_it_reserved(tmp_path):
     r = lim.reserve_ticket("a")
     lim.settle_ticket("a", r, 99.0)
     assert lim.status()["spent_today"] == 0.05
+
+
+def test_per_ip_counts_survive_a_restart_and_never_store_the_address(tmp_path):
+    clock = Clock()
+    lim = make(tmp_path, clock=clock, sessions_per_ip_day=2, live_per_ip=5)
+    lim.open_session("a", "203.0.113.7")
+    lim.open_session("b", "203.0.113.7")
+    assert "203.0.113.7" not in (tmp_path / "limits.json").read_text()      # a salted hash, not the address
+    again = make(tmp_path, clock=clock, sessions_per_ip_day=2, live_per_ip=5)  # the service restarted
+    with pytest.raises(Refused, match="too many sessions"):
+        again.open_session("c", "203.0.113.7")
+    clock.t += 86401                                                          # a rolling day later
+    again.open_session("d", "203.0.113.7")
+
+
+def test_at_most_two_live_sessions_per_address(tmp_path):
+    lim = make(tmp_path, live_per_ip=2)
+    lim.open_session("a", "198.51.100.1")
+    lim.open_session("b", "198.51.100.1")
+    with pytest.raises(Refused, match="already have 2 demo sessions open"):
+        lim.open_session("c", "198.51.100.1")
+    lim.open_session("x", "198.51.100.2")                                     # another address is unaffected
+    lim.close_session("a")
+    lim.open_session("c", "198.51.100.1")                                     # a closed one frees its place
+
+
+def test_team_traffic_skips_the_per_ip_caps_but_not_the_spend_caps(tmp_path):
+    lim = make(tmp_path, sessions_per_ip_day=1, live_per_ip=1, per_session_usd=0.05, per_ticket_usd=0.05)
+    lim.open_session("v", "192.0.2.9")
+    for i in range(3):
+        lim.open_session(f"t{i}", "192.0.2.9", team=True)                   # same address, operator's smoke key
+    lim.reserve_ticket("t0")
+    with pytest.raises(Refused, match="model budget"):
+        lim.reserve_ticket("t0")                                              # spend caps still apply
+    with pytest.raises(Refused, match="too many sessions"):
+        lim.open_session("v2", "192.0.2.9")                                   # team runs used none of the visitor's
+
+
+def test_no_daily_session_cap_by_default_so_start_over_never_locks_a_judge_out(tmp_path):
+    lim = make(tmp_path)                                    # production defaults for per-IP limits
+    for i in range(40):                                     # 40 "start over"s from one venue address
+        lim.open_session(f"s{i}", "203.0.113.50")
+        lim.close_session(f"s{i}")
+
+
+def test_per_ip_money_cap_is_the_abuse_limit(tmp_path):
+    clock = Clock()
+    lim = make(tmp_path, clock=clock, ip_usd_day=0.10, per_ticket_usd=0.05, per_session_usd=1.0,
+               tickets_per_session=99, daily_usd=10.0)
+    lim.open_session("a", "203.0.113.60")
+    for _ in range(2):                                      # two tickets that really cost their full reservation
+        r = lim.reserve_ticket("a")
+        lim.settle_ticket("a", r, 0.05)
+    with pytest.raises(Refused, match="share of today's demo budget"):
+        lim.reserve_ticket("a")
+    lim.open_session("b", "203.0.113.61")                   # another address still has its own share
+    lim.reserve_ticket("b")
+    again = make(tmp_path, clock=clock, ip_usd_day=0.10, per_ticket_usd=0.05, per_session_usd=1.0,
+                 tickets_per_session=99, daily_usd=10.0)    # a restart is not a reset
+    again.open_session("c", "203.0.113.60")
+    with pytest.raises(Refused, match="share of today's demo budget"):
+        again.reserve_ticket("c")
+    clock.t += 86401
+    again.reserve_ticket("c")                               # a rolling day later
+
+
+def test_cheap_tickets_do_not_hit_the_money_cap(tmp_path):
+    lim = make(tmp_path, ip_usd_day=0.75, per_ticket_usd=0.05, per_session_usd=5.0, tickets_per_session=200)
+    lim.open_session("j", "203.0.113.70")
+    for _ in range(60):                                     # a judge's realistic ticket costs about a cent
+        r = lim.reserve_ticket("j")
+        lim.settle_ticket("j", r, 0.01)

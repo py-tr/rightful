@@ -115,6 +115,7 @@ class Session:
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
+    team: bool = False                            # the operator's smoke test (team key): never in the public counter
 
 
 class Demo:
@@ -144,10 +145,10 @@ class Demo:
         self.counter_since = counter_since
 
     # --- sessions ----------------------------------------------------------------------------------------------
-    def new_session(self, ip: str) -> tuple[Session, str]:
+    def new_session(self, ip: str, team: bool = False) -> tuple[Session, str]:
         sid = "v" + secrets.token_hex(8)
-        self.limits.open_session(sid, ip)
-        s = Session(sid, ip)
+        self.limits.open_session(sid, ip, team=team)
+        s = Session(sid, ip, team=team)
         cookie = secrets.token_urlsafe(32)
         with self.lock:
             self.sessions[sid], self.cookies[cookie] = s, sid
@@ -200,7 +201,7 @@ class Demo:
 
     def compare(self, s: Session, on: bool) -> None:
         if on and s.twin is None:
-            s.twin = Session(s.id + "-u", s.ip, mode="agent_decides")
+            s.twin = Session(s.id + "-u", s.ip, mode="agent_decides", team=s.team)
         elif not on and s.twin is not None and not s.twin.busy:
             self.end_twin(s.twin, "compare off")
             s.twin = None
@@ -824,7 +825,7 @@ class Demo:
         except Exception as e:                         # noqa: BLE001  record that it could not be read
             n = {**(s.live or {"attempted": 0, "executed": 0, "events": 0, "without_approval": 0}),
                  "unreadable": type(e).__name__}
-        rec = {"t": time.time(), "realm": s.stack.realm, "why": why, **n}
+        rec = {"t": time.time(), "realm": s.stack.realm, "why": why, **n, **({"team": True} if s.team else {})}
         s.live = {}
         with self.lock, open(self.counter_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
@@ -836,6 +837,8 @@ class Demo:
         left = {"companies": 0, "without_approval": 0, "taken_over": 0, "attack_runs": 0}
 
         def add(r):
+            if r.get("team"):                          # the operator's smoke runs are team traffic, not visitors
+                return
             if r.get("mode") == "agent_decides":
                 left["companies"] += 1
                 left["without_approval"] += r.get("without_approval", 0)
@@ -850,7 +853,7 @@ class Demo:
                 add(json.loads(line))
         for s in list(self.sessions.values()):        # plus the companies still open
             for col in (s, s.twin):
-                if col is not None and col.live:
+                if col is not None and col.live and not col.team:
                     add(col.live)
         arch = os.path.join(self.out_dir, "counter-archived.json")
         archived = None
@@ -869,6 +872,13 @@ def create_demo_app(demo: Demo) -> FastAPI:
 
     def err(msg: str, code: int = 400):
         return JSONResponse({"error": msg}, status_code=code)
+
+    def is_team(request: Request) -> bool:
+        """The operator's smoke test sends DEMO_TEAM_KEY: its sessions skip the per-IP caps (not the spend caps) and
+        never enter the public counter (mentor, 11-06)."""
+        key = os.environ.get("DEMO_TEAM_KEY", "")
+        got = request.headers.get("x-keyless-team", "")
+        return bool(key) and len(key) >= 16 and secrets.compare_digest(got, key)
 
     def same_site(request: Request) -> bool:
         return request.headers.get("sec-fetch-site") in (None, "same-origin")
@@ -941,7 +951,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
         try:
             j = await request.json()
             if s is None:                              # the session starts on the first message
-                s, cookie = demo.new_session(ip_of(request))
+                s, cookie = demo.new_session(ip_of(request), team=is_team(request))
             demo.say(s, str(j.get("text", "")), j.get("scenario"), j.get("ticket"), j.get("prompt"), j.get("model"))
         except Refused as x:
             return with_cookie(err(x.reason, 429), cookie)
@@ -982,7 +992,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, cookie = demo.session_of(request), None
         try:
             if s is None:                              # comparing can be the first thing a visitor does
-                s, cookie = demo.new_session(ip_of(request))
+                s, cookie = demo.new_session(ip_of(request), team=is_team(request))
             on = bool((await request.json()).get("on", True))
             demo.compare(s, on)
         except Refused as x:
@@ -1074,7 +1084,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, cookie = demo.session_of(request), None
         if s is None:                                  # pairing the phone can be the first thing a visitor does
             try:
-                s, cookie = demo.new_session(ip_of(request))
+                s, cookie = demo.new_session(ip_of(request), team=is_team(request))
             except Refused as x:
                 return err(x.reason, 429)
         token = secrets.token_urlsafe(18)

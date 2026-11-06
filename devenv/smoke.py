@@ -18,6 +18,21 @@ import httpx
 FAILS: list[str] = []
 
 
+def team_headers() -> dict:
+    """The operator's team key (DEMO_TEAM_KEY, or deploy/.state/state.json): smoke runs then skip visitors' per-IP
+    allowance and stay out of the public counter. Without it the smoke runs as an ordinary visitor."""
+    import json
+    import os
+    key = os.environ.get("DEMO_TEAM_KEY")
+    if not key:
+        p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deploy", ".state", "state.json")
+        try:
+            key = json.load(open(p, encoding="utf-8")).get("team_key")
+        except (OSError, ValueError):
+            key = None
+    return {"X-Keyless-Team": key} if key else {}
+
+
 def check(name: str, ok: bool, why: str = "") -> None:
     print(("PASS " if ok else "FAIL ") + name + ("" if ok else f"  ({why})"))
     if not ok:
@@ -26,7 +41,7 @@ def check(name: str, ok: bool, why: str = "") -> None:
 
 def main(base: str) -> int:
     base = base.rstrip("/")
-    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin"})
+    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin", **team_headers()})
     r = c.get("/")
     check("page loads", r.status_code == 200 and "Authorization is not a model output" in r.text, str(r.status_code))
     h = c.get("/healthz").json()
@@ -90,7 +105,7 @@ def main(base: str) -> int:
 def wrong_number(base: str, intro: dict) -> None:
     """A fresh visitor mis-taps (mentor, 11-06): the wrong number must decline the request, the right number must not
     work afterwards, and the page must explain it with a start-over button (a decline freezes the account)."""
-    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin"})
+    c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin", **team_headers()})
     r = c.post("/api/compare", json={"on": True})
     if r.status_code != 200:                    # e.g. the per-IP daily session cap after several smoke runs
         check("wrong number: a fresh visitor session", False, f"{r.status_code} {r.text[:120]}")

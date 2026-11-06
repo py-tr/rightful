@@ -304,6 +304,7 @@ function render(c, e) {
     return; }
   if (e.who === "system") { if (c.lastSys) c.lastSys.remove(); const d = el("div", "sys"); c.lastSys = d; d.append(el("div", "h", "Corp identity system log"), el("div", "", e.text.replace(/^Changes to your account in this session \(from the system log\):\s*/, "Changes to your account in this session: "))); chat.append(d); return; }
   if (e.who === "gate" && e.verdict) { const v = el("div", "gate verdict " + e.verdict + (e.verdict === "bad" ? " takeover" : ""), e.text);
+    if (e.source) { const src = el("div", "", e.source); src.style.fontSize = "12px"; src.style.fontWeight = "400"; src.style.opacity = "0.8"; src.style.marginTop = "4px"; v.append(src); }
     c.vbar.replaceChildren(v);
     if (e.resisted && lastScenario && (attempts[lastScenario] || 1) < 3) {
       const n = (attempts[lastScenario] || 1) + 1;

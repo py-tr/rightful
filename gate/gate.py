@@ -30,7 +30,7 @@ class Decision:
     op: Operation | None = None
     forward: dict | None = None       # what the proxy sends upstream (it adds the broker's own session)
     challenge: dict | None = None     # when a write needs the owner's approval
-    quarantine: str | None = None     # reason, if this run must be stopped and its worker destroyed
+    quarantine: str | None = None     # reason, if this run must be blocked (the broker's on_quarantine hook may act)
     oob_secret: str | None = field(default=None, repr=False)  # goes to the owner's device, never to the agent
     ledger_seq: int | None = None
     retry_after: float | None = None  # cooling_off: when the same request can be sent again

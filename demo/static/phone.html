@@ -62,7 +62,7 @@ async function post(path, body) {
 async function act(id, action, body) {
   try { const j = await post("/api/m/answer/" + encodeURIComponent(id) + "/" + action, body);
     if (navigator.vibrate) navigator.vibrate(30);
-    toast(action === "deny" ? "Declined." : j.ok ? "Approved." : "That number did not match; nothing was approved.");
+    toast(action === "deny" ? "Declined." : j.ok ? "Approved." : "Wrong number: request declined, as real authenticator apps do.");
     last = ""; poll(); } catch (e) { toast(e.message); }
 }
 function render(v) {

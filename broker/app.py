@@ -6,7 +6,8 @@
   Set-Cookie and auth headers and are scanned for the broker's secrets before they reach the sandbox.
 - A denied write returns a challenge (id, match number). The agent asks for the push, the owner approves on the
   registered device, and the agent sends the same request again.
-- A quarantined run is blocked for the rest of its life, and the control plane is told to destroy its worker.
+- A quarantined run is blocked for the rest of its life (every further request refused). on_quarantine is a hook for
+  the control plane (e.g. to destroy and rebuild the worker); the demo and the evaluation pass a no-op.
 """
 from __future__ import annotations
 

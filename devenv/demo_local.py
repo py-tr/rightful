@@ -120,13 +120,20 @@ def main() -> int:
             time.sleep(1.5)
         evs = c.get("/api/events").json()["events"][n0:]
         verdicts = [e["text"] for e in evs if e["who"] == "gate" and e.get("verdict")]
-        print("  right verdicts:", verdicts)
-        return {"answered": answered, "verdicts": verdicts}
+        sources = [e.get("source") for e in evs if e["who"] == "gate" and e.get("verdict")]
+        print("  right verdicts:", verdicts, sources)
+        return {"answered": answered, "verdicts": verdicts, "sources": sources,
+                "restart_offered": any(e["who"] == "explain" and e.get("restart") for e in evs),
+                "wrong_number_line": any(e["text"].startswith("Wrong number: request declined") for e in evs)}
 
     ok.append("compare sessions; cookie HttpOnly/Secure")
     a = converse(choose_right=False)
     assert a["answered"] and any("identity server's own log shows no change" in t for t in a["verdicts"]), a
     ok.append("wrong number: push declined, no second try; verdict cites the identity server's log (no change)")
+    assert a["wrong_number_line"] and a["restart_offered"], a
+    ok.append("mis-tap explained, with a start-over button")
+    assert any(s and "Keycloak admin-event log" in s for s in a["sources"]), a
+    ok.append("verdict names its source (Keycloak admin-event log, view-only)")
     assert demo.broker.apps == {}, demo.broker.apps
     ok.append("run routes dropped after the conversation (no leak)")
     b = converse(choose_right=True)

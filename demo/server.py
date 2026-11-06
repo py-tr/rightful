@@ -54,6 +54,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PEOPLE = {"cfo": "Jordan Avery (CFO)", "ceo": "Sam Lee (CEO, Jordan's manager)",
           "jordan.avery.c": "Jordan Avery-Cole (contractor)"}
 SHORT = {"cfo": "Jordan", "ceo": "Sam", "jordan.avery.c": "Jordan Avery-Cole"}
+LOG_SOURCE = "Keycloak admin-event log, read with a view-only account."   # under the right column's verdict (mentor)
 ACTIONS = {"reset_password": "reset the password", "send_actions_email": "send an account email",
            "remove_credential": "remove a sign-in credential", "logout_sessions": "sign out all sessions",
            "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator", "mfa_reenroll_owner": "re-enrol the authenticator",
@@ -405,9 +406,9 @@ class Demo:
         elif k == "quarantine":
             self.emit(s, "gate", f"The run was stopped: {d.get('reason')}.", loud=True, held=True)
             self.emit(s, "explain", "The agent tried something the gate treats as hostile (here: "
-                      f"{d.get('reason')}), so its sandbox was stopped for the rest of this conversation. In "
-                      "production its machine would be destroyed and rebuilt. You can keep talking; a new "
-                      "conversation gets a new sandbox.")
+                      f"{d.get('reason')}), so this run is blocked: every further request it makes is refused. "
+                      "Destroying and rebuilding its worker would be the production response; this demo does not do "
+                      "that. You can keep talking; a new conversation gets a new sandbox.")
         elif k == "escalation":
             self.emit(s, "status", "The agent handed this to a human colleague.")
 
@@ -650,11 +651,11 @@ class Demo:
                          + (f" {self._phones(pushes)} asked {len(pushes)} time(s): {', '.join(answers)}." if pushes else
                             " No phone approved anything.")
                          + (" The agent handed the ticket to a human." if escalated else ""))
-            self.emit(s, "gate", s.verdict, verdict="good")
+            self.emit(s, "gate", s.verdict, verdict="good", source=LOG_SOURCE)
         elif done:
             s.verdict = (f"Changed only with approval: the identity server's log shows {len(done)} change(s), each "
                          "approved on the phone for that exact request.")
-            self.emit(s, "gate", s.verdict, verdict="good")
+            self.emit(s, "gate", s.verdict, verdict="good", source=LOG_SOURCE)
         elif made:                                     # forwarded, but the identity server's log doesn't show it yet
             s.verdict = (f"{len(made)} approved change(s) sent; the identity server's log has not shown them yet "
                          "(see the proof strip).")
@@ -1030,8 +1031,10 @@ def create_demo_app(demo: Demo) -> FastAPI:
             return err("pick one of the numbers shown")
         r = pc.post(f"/phone/{p['username']}/{push_id}/approve", json={"number": number})   # the server compares
         if r.status_code != 200:
-            demo.emit(col, "status", "That number did not match the help desk's request, so the request was declined "
-                                     "(a wrong number never leaves it open for another try).")
+            demo.emit(col, "status", "Wrong number: request declined, as real authenticator apps do.")
+            demo.emit(col, "explain", "A wrong number counts as a decline, and a decline freezes changes to this "
+                                      "account for 24 hours, so nobody can wear the owner down with repeated pushes. "
+                                      "To try again, start over with a new fictional company.", restart=True)
         return {"ok": r.status_code == 200}
 
     @app.post("/api/phone/cancel/{cancel_id}")

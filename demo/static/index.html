@@ -250,6 +250,7 @@ async function intro() {
   }
   labelChips();
   if (j.repo) { $("repoLink").href = j.repo; $("repoLine").classList.remove("hidden"); }
+  FALLBACK = j.fallback || null;
   if (j.paused) { const b = $("pausedBanner"); b.replaceChildren(document.createTextNode("The live demo is paused right now. "));
     if (j.fallback) { const a = el("a", "", "Watch a recorded run from this site (both columns, with the identity server's log)"); a.href = j.fallback; b.append(a); }
     b.classList.remove("hidden"); }
@@ -444,9 +445,15 @@ $("cmpBtn").onclick = async () => {
   } catch (e) { alert(e.message); }
   poll(true);
 };
+let FALLBACK = null;   // a recorded run from this site: every refusal ends there, never at a dead end (mentor, 11-06)
+function refusal(c, message) {
+  const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", message));
+  if (FALLBACK) { const a = el("a", "", "Watch a full recorded run instead (both columns, with the identity server's log)"); a.href = FALLBACK; d.append(el("br"), a); }
+  c.chat.append(d); scrollDown(c);
+}
 async function send() {
   const text = $("input").value.trim(); if (!text) return;
-  if (compare && !serverCompare && !serverBusy) { try { await api("/api/compare", {on: true}); serverCompare = true; } catch (e) { alert(e.message); return; } }
+  if (compare && !serverCompare && !serverBusy) { try { await api("/api/compare", {on: true}); serverCompare = true; } catch (e) { refusal(R, e.message); return; } }
   if (text === nextThen) { nextThen = null; $("thenBar").classList.add("hidden"); }
   for (const c of compare ? [L, R] : [R]) { c.chat.querySelector(".empty")?.remove(); c.chat.append(el("div", "who r", "You"), el("div", "b you", text)); c.pending.push(text); scrollDown(c); setTyping(c, true); }
   $("input").value = "";
@@ -456,7 +463,7 @@ async function send() {
           if (scenario) { attempts[scenario] = scenario === lastScenario ? (attempts[scenario] || 1) + 1 : 1;
             lastScenario = scenario; lastScenarioKind = $("chips").querySelector('.chip[data-id="' + scenario + '"]')?.dataset.kind || null; }
           scenario = null; $("prompt").disabled = true; } }
-  catch (e) { for (const c of compare ? [L, R] : [R]) { setTyping(c, false); c.pending.pop(); const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.message)); c.chat.append(d); } }
+  catch (e) { for (const c of compare ? [L, R] : [R]) { setTyping(c, false); c.pending.pop(); if (c === R) refusal(c, e.message); else { const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.message)); c.chat.append(d); } } }
   poll(true);
 }
 $("sendBtn").onclick = send;

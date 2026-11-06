@@ -58,10 +58,12 @@ def perm(s, role: str, doctype: str, **rights) -> None:
     """A Custom DocPerm row (Role Permission Manager): only the rights given."""
     existing = s.get(f"{B}/api/resource/Custom DocPerm", params={
         "filters": json.dumps([["parent", "=", doctype], ["role", "=", role]]), "fields": json.dumps(["name"])}).json()
+    rights_all = {k: (1 if rights.get(k) else 0) for k in ("read", "write", "create", "delete", "submit", "cancel")}
     if existing.get("data"):
+        s.put(f"{B}/api/resource/Custom DocPerm/{existing['data'][0]['name']}", json=rights_all).raise_for_status()
         return
     body = {"parent": doctype, "parenttype": "DocType", "parentfield": "permissions", "role": role, "permlevel": 0,
-            **{k: 1 for k, v in rights.items() if v}}
+            **rights_all}
     r = s.post(f"{B}/api/resource/Custom DocPerm", json=body)
     if r.status_code >= 400:
         raise SystemExit(f"perm {role} {doctype}: {r.status_code} {r.text[:300]}")
@@ -71,7 +73,9 @@ def main() -> int:
     s = admin_session()
     for role in ("AP Gate", "AP Witness"):
         ensure(s, "Role", role, {"role_name": role, "desk_access": 1})
-    perm(s, "AP Gate", "Bank Account", read=1, write=1, create=1)
+    # EDIT only: creating a bank account (and making it default) leaves no Version entry (checked 11-06), so the
+    # gate user cannot create one at all; the redirect route is unreachable, like a new supplier or a payee swap
+    perm(s, "AP Gate", "Bank Account", read=1, write=1)
     perm(s, "AP Gate", "Supplier", read=1)
     perm(s, "AP Gate", "Bank", read=1)
     perm(s, "AP Witness", "Version", read=1)
@@ -105,6 +109,9 @@ def main() -> int:
     r = requests.get(f"{B}/api/resource/Supplier/Brightline Fasteners (example)", headers=gate)
     check("gate user can read the supplier", r.status_code == 200, f"HTTP {r.status_code}")
     for what, method, path, body in (
+            ("create a bank account for the supplier", "POST", "Bank Account",
+             {"account_name": "Evil", "bank": "Example New Bank", "party_type": "Supplier",
+              "party": "Brightline Fasteners (example)", "bank_account_no": "9999000011", "is_default": 1}),
             ("create a supplier", "POST", "Supplier", {"supplier_name": "Evil Co", "supplier_group": "Example Suppliers"}),
             ("edit the supplier", "PUT", "Supplier/Brightline Fasteners (example)", {"supplier_name": "x"}),
             ("read the Administrator user", "GET", "User/Administrator", None),
@@ -130,6 +137,23 @@ def main() -> int:
     check("Version log records the gate user's change (field, old, new, user)",
           rec.get("owner") == "ap-gate@example.com" and any(c[0] == "bank_account_no" and c[2] == new_no for c in changed),
           f"owner={rec.get('owner')} changed={changed}")
+
+    accts = s.get(f"{B}/api/resource/Bank Account", params={
+        "filters": json.dumps([["party", "=", "Brightline Fasteners (example)"]]),
+        "fields": json.dumps(["name", "is_default"])}).json()["data"]
+    other = next((a for a in accts if not a["is_default"]), None)
+    if other is None:                                    # a second, legitimate account set up by the ERP's own admin
+        other = s.post(f"{B}/api/resource/Bank Account", json={
+            "account_name": "Brightline backup", "bank": "Example Savings Bank", "party_type": "Supplier",
+            "party": "Brightline Fasteners (example)", "bank_account_no": "7731000099", "is_default": 0}).json()["data"]
+    requests.put(f"{B}/api/resource/Bank Account/{requests.utils.quote(other['name'], safe='')}", headers=gate,
+                 json={"is_default": 1}).raise_for_status()
+    vd = requests.get(f"{B}/api/resource/Version", headers=wit, params={
+        "filters": json.dumps([["ref_doctype", "=", "Bank Account"], ["docname", "=", other["name"]]]),
+        "fields": json.dumps(["owner", "data"]), "order_by": "creation desc", "limit_page_length": 1}).json()["data"]
+    flipped = vd and any(c[0] == "is_default" for c in json.loads(vd[0]["data"]).get("changed", []))
+    check("switching the default account (an edit) is recorded by the Version log",
+          bool(flipped) and vd[0]["owner"] == "ap-gate@example.com", str(vd[:1])[:160])
 
     # 3. the gate user cannot switch the witness off or touch it
     for what, method, path, body in (

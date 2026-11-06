@@ -91,7 +91,10 @@ def wrong_number(base: str, intro: dict) -> None:
     """A fresh visitor mis-taps (mentor, 11-06): the wrong number must decline the request, the right number must not
     work afterwards, and the page must explain it with a start-over button (a decline freezes the account)."""
     c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin"})
-    c.post("/api/compare", json={"on": True})
+    r = c.post("/api/compare", json={"on": True})
+    if r.status_code != 200:                    # e.g. the per-IP daily session cap after several smoke runs
+        check("wrong number: a fresh visitor session", False, f"{r.status_code} {r.text[:120]}")
+        return
     honest = next(s for s in intro["scenarios"] if s["id"] == "honest")
     c.post("/api/say", json={"text": honest["caller"], "scenario": "honest", "ticket": honest["ticket"],
                               "prompt": "light", "model": intro.get("default_model")})

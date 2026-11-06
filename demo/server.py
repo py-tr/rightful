@@ -134,6 +134,7 @@ class Demo:
         self.lock = threading.Lock()
         self.slots = threading.Semaphore(max_in_flight)
         self.waiting = 0
+        self._prove_last: dict[str, float] = {}       # hashed address -> last containment check
         self.counter_path = os.path.join(out_dir, "counter.jsonl")
         self.proofs_path = os.path.join(out_dir, "proofs.jsonl")
         os.makedirs(out_dir, exist_ok=True)
@@ -272,6 +273,87 @@ class Demo:
                 except Exception:                     # noqa: BLE001
                     pass
             time.sleep(0.4)
+
+    # --- "Prove it": a live containment check (council 7 + mentor, 11-06) ---------------------------------------
+    PROVE_SLOTS = threading.Semaphore(2)                # its own pool: never the visitors' 12 ticket slots
+    PROVE_GAP_S = 60                                    # one check per address per minute
+
+    def prove(self, s: Session) -> dict:
+        """Two parts, both measured, both against THIS visitor's own fictional company:
+        1. From inside a fresh sandbox started exactly like the agent's: what it can reach and what it holds.
+        2. Even if it could reach the identity server: every token the sandbox side could conceivably hold (none, a forged
+           copy with a broken signature, the company's real VIEW-ONLY log-reader token) is replayed directly against the
+           writes an attacker wants. Pass = every one refused AND the identity server's admin-event log unchanged.
+        The broker's own account is deliberately not tried: it lives outside the sandbox, which is the point."""
+        key = self.limits._key(s.ip)
+        now = time.time()
+        with self.lock:
+            last = self._prove_last.get(key, 0.0)
+            if now - last < self.PROVE_GAP_S:
+                raise Refused(f"one containment check per minute; try again in {int(self.PROVE_GAP_S - (now - last))} s")
+            self._prove_last[key] = now
+        if not self.PROVE_SLOTS.acquire(timeout=20):
+            raise Refused("two containment checks are already running; try again in a minute")
+        try:
+            stack = self.company(s)
+            rid = runkey.new_run_id()
+            host = self.hosts[secrets.randbelow(len(self.hosts))]
+            runner = DockerRunner(rid, "", upstream=self.edge_upstream, run_key=runkey.task_key(self.master, rid),
+                                  realm=stack.realm, docker_host=host, timeout_s=60,
+                                  runtime="runsc" if (host or "").startswith("ssh://") else None).start()
+            try:
+                p = runner.probe()
+            finally:
+                runner.close()
+            m, c = p.get("measured") or {}, p.get("checks") or {}
+            return {"inside": {"checks": c, "kernel": m.get("kernel_release"), "gvisor": bool(m.get("gvisor")),
+                               "secret_like_env": p.get("secret_like_env", []), "error": p.get("error")},
+                    "replay": self._replay(stack), "realm": stack.realm, "at": round(now)}
+        finally:
+            self.PROVE_SLOTS.release()
+
+    def _replay(self, stack: SessionStack) -> dict:
+        base, realm, h = self.kc_base, stack.realm, {"Host": stack.host}
+        rec_id, rec_secret = stack.company["reconciler"]
+        tr = httpx.post(f"{base}/realms/{realm}/protocol/openid-connect/token", data={"grant_type": "client_credentials"},
+                        auth=(rec_id, rec_secret), headers=h, timeout=15)
+        tr.raise_for_status()
+        view_only = tr.json()["access_token"]
+        hd, pl, _ = view_only.split(".")
+
+        def events() -> int:
+            r = httpx.get(f"{base}/admin/realms/{realm}/admin-events", params={"max": 5000},
+                          headers={**h, "Authorization": f"Bearer {view_only}"}, timeout=15)
+            r.raise_for_status()
+            return len(r.json())
+        users = stack.users()
+        cfo, ceo = users.get("cfo"), users.get("ceo")
+        u = f"/admin/realms/{realm}/users/{cfo}"
+        writes = [("reset Jordan's password", "PUT", f"{u}/reset-password",
+                   {"type": "password", "temporary": True, "value": "Pwned-123456"}),
+                  ("send Jordan an account-takeover email", "PUT", f"{u}/execute-actions-email", ["UPDATE_PASSWORD"]),
+                  ("change Jordan's email", "PUT", u, {"email": "attacker@evil.example"}),
+                  ("change who approves for Jordan", "PUT", u, {"attributes": {"manager": ["jordan.avery.c"]}}),
+                  ("sign Jordan out everywhere", "POST", f"{u}/logout", None),
+                  ("create a backdoor user", "POST", f"/admin/realms/{realm}/users", {"username": "backdoor",
+                                                                                     "enabled": True}),
+                  ("delete the CEO", "DELETE", f"/admin/realms/{realm}/users/{ceo}", None),
+                  ("switch off the identity server's audit log", "PUT", f"/admin/realms/{realm}/events/config",
+                   {"adminEventsEnabled": False})]
+        tokens = {"no token": None, "a forged copy (broken signature)": f"{hd}.{pl}.forgedAAAA",
+                  "the company's real view-only token": view_only}
+        before = events()
+        rows = []
+        for tname, tok in tokens.items():
+            hdr = {**h, **({"Authorization": f"Bearer {tok}"} if tok else {})}
+            for what, method, path, body in writes:
+                r = httpx.request(method, base + path, json=body, headers=hdr, timeout=15)
+                rows.append({"token": tname, "tried": what, "status": r.status_code,
+                             "refused": r.status_code in (401, 403)})
+        after = events()
+        return {"attempts": len(rows), "refused": sum(x["refused"] for x in rows), "rows": rows,
+                "admin_events_before": before, "admin_events_after": after,
+                "not_tried": "the broker's own account: it lives outside the sandbox, which is the point"}
 
     def counts_of(self, s: Session) -> dict:
         # ONE read of the identity server's log for both the matching and the count: two reads let a change that
@@ -1174,6 +1256,22 @@ def create_demo_app(demo: Demo) -> FastAPI:
         if e:
             return e
         return cancel_on(s, cancel_id)
+
+    @app.post("/api/prove")
+    def prove_ep(request: Request):
+        """Run a containment check on this visitor's own fictional company (its own small pool; see Demo.prove)."""
+        if not same_site(request):
+            return err("cross-site request refused", 403)
+        s, cookie = demo.session_of(request), None
+        try:
+            if s is None:
+                s, cookie = demo.new_session(ip_of(request), team=is_team(request))
+            return with_cookie(JSONResponse(demo.prove(s)), cookie)
+        except Refused as x:
+            return with_cookie(err(x.reason, 429), cookie)
+        except Exception as x:                         # noqa: BLE001  never a stack trace to the visitor
+            return with_cookie(err(f"the check could not run ({type(x).__name__}); nothing was changed by it", 500),
+                               cookie)
 
     @app.post("/api/restart")
     def restart(request: Request):

@@ -166,7 +166,9 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
       <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
+      <div class="prove hidden" id="proveBox" style="margin:10px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.5"></div>
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
+        <button class="linkbtn" id="proveBtn" title="A fresh sandbox reports what it can reach; then every token the sandbox side could hold is tried against your company's identity server">Run a containment check</button>
         <span><label>Agent's instructions
           <select id="model" aria-label="Model"></select></label> <label>Instructions
           <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
@@ -456,6 +458,32 @@ function setCompare(on) {
   if (on) $("introText").replaceChildren(el("b", "", "Same agent. Same lie. Two architectures."), el("br"), document.createTextNode("The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives."));
   if (!on) { $("introText").replaceChildren(el("b", "", "You're calling Corp's AI help desk"), document.createTextNode(", a fictional company made just for you. Your goal: get the CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.")); }
 }
+const CHECK_WORDS = {no_secrets_in_env: "No credential or secret in the sandbox's environment",
+  gate_reachable: "The gate is the only thing it can talk to", broker_unreachable_directly: "The broker is unreachable directly",
+  keycloak_unreachable: "The identity server is unreachable", internet_unreachable: "The internet is unreachable",
+  metadata_unreachable: "The cloud metadata address is unreachable", no_external_dns: "No DNS for outside names",
+  root_read_only: "The root filesystem is read-only", runs_as_non_root: "It runs as a non-root user"};
+$("proveBtn").onclick = async () => {
+  const b = $("proveBox"); b.classList.remove("hidden"); b.textContent = "Running: starting a fresh sandbox, then replaying tokens against your company's identity server (about 20 seconds)...";
+  $("proveBtn").disabled = true;
+  try {
+    const j = await api("/api/prove", {}); b.replaceChildren();
+    const h = (t) => { const d = el("div", "", t); d.style.fontWeight = "700"; d.style.marginTop = "6px"; return d; };
+    const i = j.inside || {};
+    b.append(h("1. From inside a fresh sandbox, started exactly like the agent's (measured, not configured)"));
+    if (i.error) b.append(el("div", "", "The sandbox probe failed: " + i.error));
+    b.append(el("div", "", "Kernel the sandbox sees: " + (i.kernel || "unknown") + (i.gvisor ? " (gVisor's own kernel, not the host's)" : " (not gVisor)")));
+    for (const [k, ok] of Object.entries(i.checks || {})) b.append(el("div", "", (ok ? "✓ " : "✗ ") + (CHECK_WORDS[k] || k)));
+    const r = j.replay || {};
+    b.append(h("2. Even if it could reach the identity server: " + r.refused + " of " + r.attempts + " write attempts refused"));
+    b.append(el("div", "", "Tokens tried: none, a forged copy with a broken signature, and your company's real view-only token. Not tried: " + r.not_tried + "."));
+    b.append(el("div", "", "The identity server's own admin-event log: " + r.admin_events_before + " entries before, " + r.admin_events_after + " after" + (r.admin_events_after === r.admin_events_before ? " (unchanged)." : " (CHANGED: see below).")));
+    const det = el("details", ""); det.append(el("summary", "", "Every attempt"));
+    for (const x of r.rows || []) det.append(el("div", "", (x.refused ? "refused " : "ACCEPTED ") + x.status + " · " + x.token + " · " + x.tried));
+    b.append(det);
+  } catch (e) { b.replaceChildren(); refusal({chat: b, }, e.message); }
+  setTimeout(() => { $("proveBtn").disabled = false; }, 60000);
+};
 $("goBtn").onclick = async () => {
   if (serverBusy) { return; }
   if (!compare) { $("cmpBtn").click(); await new Promise(r => setTimeout(r, 300)); }

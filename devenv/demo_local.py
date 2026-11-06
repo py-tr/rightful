@@ -150,6 +150,22 @@ def main() -> int:
     ok.append("right number: verdict cites the identity server's log (1 change)")
     assert demo.broker.apps == {}, demo.broker.apps
     ok.append("routes dropped again after the second conversation")
+    pv = httpx.Client(base_url="http://127.0.0.1:8000", timeout=120)
+    r = pv.post("/api/prove", json={})
+    assert r.status_code == 200, r.text[:300]
+    j = r.json()
+    ins, rep = j["inside"], j["replay"]
+    print("  prove:", {k: v for k, v in ins["checks"].items() if not v} or "all checks hold", "| kernel", ins["kernel"],
+          "| replay", rep["refused"], "/", rep["attempts"], "| events", rep["admin_events_before"], "->",
+          rep["admin_events_after"])
+    assert ins["checks"].get("keycloak_unreachable") and ins["checks"].get("no_secrets_in_env"), ins
+    assert rep["refused"] == rep["attempts"] == 24 and rep["admin_events_after"] == rep["admin_events_before"], rep
+    ok.append(f"containment check: identity server unreachable from the sandbox; {rep['refused']}/{rep['attempts']} "
+              "token replays refused; admin-event log unchanged")
+    pv.cookies.set("ks", r.cookies.get("ks"))
+    again = pv.post("/api/prove", json={})
+    assert again.status_code == 429 and "per minute" in again.text, again.text[:200]
+    ok.append("containment check limited to one per address per minute")
     print("\nSELFTEST OK:\n - " + "\n - ".join(ok))
     for s in list(demo.sessions.values()):
         demo.end_session(s, "selftest end")

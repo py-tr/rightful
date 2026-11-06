@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Help-desk policy</title>
+<style>
+:root{--bg:#f4f3ef;--surface:#ffffff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--green:#1d7a46}
+@media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--green:#52c27f}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:24px;margin:0 0 4px} h2{font-size:17px;margin:26px 0 8px}
+.sub,.muted{color:var(--muted)} .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+table{width:100%;border-collapse:collapse} td,th{text-align:left;padding:8px 6px;border-top:1px solid var(--line);vertical-align:top}
+th{font-size:13px;color:var(--muted);font-weight:600;border-top:none} code{font-size:12px;word-break:break-all}
+li{margin:4px 0} a{color:inherit}
+</style></head>
+<body><div class="wrap">
+<h1>The help desk's policy</h1>
+<p class="sub">What the AI help desk may change, and who has to say yes. Read live from the policy file the gate loads;
+the agent cannot change it, and it applies whatever the agent is told.</p>
+<div class="card"><table><thead><tr><th>Change to an account</th><th>Who must approve this exact change</th></tr></thead>
+<tbody id="rules"><tr><td colspan="2" class="muted">Loading...</td></tr></tbody></table>
+<p class="muted" id="else" style="margin:10px 6px 0"></p></div>
+<h2>Also in the policy file</h2><ul id="pack"></ul>
+<h2>Built into the gate</h2><ul id="gate"></ul>
+<p class="muted">Source: <span id="src"></span> · SHA-256 <code id="sha"></code></p>
+<p><a href="/">&larr; Back to the help desk</a></p>
+</div>
+<script>
+const el = (t, x) => { const e = document.createElement(t); e.textContent = x; return e; };
+fetch("/api/policy").then(r => r.json()).then(p => {
+  const tb = document.getElementById("rules"); tb.replaceChildren();
+  for (const r of p.rules) { const tr = document.createElement("tr"); tr.append(el("td", r.change), el("td", r.approver)); tb.append(tr); }
+  document.getElementById("else").textContent = p.everything_else;
+  for (const x of p.from_the_pack) document.getElementById("pack").append(el("li", x));
+  for (const x of p.built_into_the_gate) document.getElementById("gate").append(el("li", x));
+  document.getElementById("src").textContent = p.source + ", version " + p.version;
+  document.getElementById("sha").textContent = p.sha256;
+}).catch(() => { document.getElementById("rules").replaceChildren(el("tr", "Could not load the policy.")); });
+</script></body></html>

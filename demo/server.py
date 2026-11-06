@@ -795,6 +795,7 @@ class Demo:
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"token": token, "t": time.time(), "summary": text, "proof": proof,
                                 "pair": s.pair, "mode": s.mode,
+                                "policy_sha256": policy_doc()["sha256"] if s.mode != "agent_decides" else None,
                                 "verdict": ("Account taken over: the caller was given Jordan's temporary password."
                                             if s.taken_over else s.verdict),
                                 "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
@@ -996,6 +997,46 @@ class Demo:
         return {"since": self.counter_since, **tot, "left": left, "archived": archived}
 
 
+def policy_doc() -> dict:
+    import hashlib
+    from demo.stack import DEMO_PACK_OVERRIDES
+    path = os.path.join(os.path.dirname(HERE), "packs", "helpdesk.json")
+    raw = open(path, "rb").read()
+    pack = json.loads(raw)
+    who = {"owner": "the account owner, on their own registered device",
+           "manager": "the account owner's manager, on their own device",
+           "contact": "the account owner's manager (a change of contact details is never approved through the contact "
+                      "being changed)"}
+    words = {"reset_password": "Reset the password", "send_actions_email": "Send an account email (e.g. set a new "
+             "password, set up an authenticator)", "remove_credential": "Remove a sign-in method (e.g. an authenticator)",
+             "logout_sessions": "Sign the user out everywhere", "change_email": "Change the email address",
+             "mfa_reenroll_owner": "Set up a new authenticator (owner still has the old phone)",
+             "mfa_recovery_lost_device": "Recover from a lost phone", "compromise_response": "Respond to a compromised "
+             "account (reset, sign out everywhere, re-enrol)"}
+    rules = [{"change": words.get(op, op), "operation": op, "approver": who.get(w.get("receipt"), w.get("receipt"))}
+             for op, w in {**pack.get("writes", {}), **pack.get("composites", {})}.items()]
+    co, demo_co = pack.get("cooling_off_seconds", {}), DEMO_PACK_OVERRIDES.get("cooling_off_seconds", {})
+    return {"pack": pack.get("pack"), "version": pack.get("version"), "sha256": hashlib.sha256(raw).hexdigest(),
+            "source": "packs/helpdesk.json (the file the gate loads)", "rules": rules,
+            "everything_else": "Any request the pack does not describe is refused (a strict grammar, not a blocklist).",
+            "from_the_pack": [
+                f"One decline freezes further changes to that account for {pack.get('decline_tripwire_seconds', 0)//3600} "
+                "hours, so nobody can wear the owner down with repeated pushes.",
+                f"After an approval, a cooling-off period before the change runs: {co.get('default')} s, or "
+                f"{co.get('privileged')} s for privileged accounts; the owner can cancel during it. In this public demo: "
+                f"{demo_co.get('default')} s and {demo_co.get('privileged')} s, so visitors don't wait.",
+                "Who approves for whom is a managed attribute nobody can edit through the admin API, the broker included."],
+            "built_into_the_gate": [
+                "Every approval is a single-use receipt bound to the run, the operation, the user and a hash of the exact "
+                "request; it is burned when the change runs. The agent never holds it.",
+                "Number matching on the approver's phone; a wrong number declines the request.",
+                "At most 3 pushes per approver in 10 minutes.",
+                "A run that retries a declined change, or sends hostile malformed requests, is quarantined: every further "
+                "request it makes is refused.",
+                "The sandbox holds no credential; the identity server's own log, read with a view-only account, is the "
+                "record of what changed."]}
+
+
 def create_demo_app(demo: Demo) -> FastAPI:
     app = FastAPI(title="Keyless demo", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -1053,6 +1094,16 @@ def create_demo_app(demo: Demo) -> FastAPI:
     @app.get("/healthz")
     def health():
         return {"ok": True, **demo.limits.status()}
+
+    @app.get("/policy")
+    def policy_page():
+        return FileResponse(os.path.join(HERE, "static", "policy.html"), headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/policy")
+    def policy_api():
+        """The live help-desk policy as plain rules (council 7: a control a security team can sign off), read from the
+        pack file the gate loads, with its SHA-256; the demo's shorter cooling-off is stated, not hidden."""
+        return policy_doc()
 
     @app.get("/api/intro")
     def intro():

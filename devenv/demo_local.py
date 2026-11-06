@@ -7,6 +7,7 @@ optionally self-test it through its real HTTP API with a scripted stand-in for t
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import sys
@@ -153,6 +154,13 @@ def main() -> int:
     ok.append("right number: verdict cites the identity server's log (1 change)")
     assert demo.broker.apps == {}, demo.broker.apps
     ok.append("routes dropped again after the second conversation")
+    pol = httpx.get("http://127.0.0.1:8000/api/policy", timeout=30).json()
+    page = httpx.get("http://127.0.0.1:8000/policy", timeout=30)
+    assert page.status_code == 200 and len(pol["sha256"]) == 64 and any(
+        r["operation"] == "reset_password" and "owner" in r["approver"] for r in pol["rules"]), pol
+    recs = [json.loads(x) for x in open(os.path.join(demo.out_dir, "proofs.jsonl"), encoding="utf-8")]
+    assert any(r.get("policy_sha256") == pol["sha256"] for r in recs), "no share record carries the policy hash"
+    ok.append(f"policy page from the live pack ({len(pol['rules'])} rules, sha256 {pol['sha256'][:12]}...), its hash on share links")
     pv = httpx.Client(base_url="http://127.0.0.1:8000", timeout=120)
     r = pv.post("/api/prove", json={})
     assert r.status_code == 200, r.text[:300]

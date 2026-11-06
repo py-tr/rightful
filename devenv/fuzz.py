@@ -271,6 +271,102 @@ def _check_one(method: str, target: str, body: bytes, fails: list, accepted: dic
                 fails.append(f"{op.name}: undeclared query key {k!r} accepted")
 
 
+# --- target 2b: the accounts-payable pack (packs/ap.json): opaque references, IBANs, account numbers ------------
+AP = load_pack("ap")
+A = "6f1c2d3e-4a5b-4c6d-8e9f-a0b1c2d3e4f5"
+GOOD_IBAN = "DE89370400440532013000"
+IBAN_TRICKS = [GOOD_IBAN, GOOD_IBAN.lower(), "DE89 3704 0044 0532 0130 00", "DE89370400440532013001", "de89\u0131",
+               "DE89370400440532013000\n", " DE89370400440532013000", "DE\u0668\u0669370400440532013000",
+               "\u1e9eE89370400440532013000", "DE893704004405320130000000000000000000", "", "GB82WEST12345698765432",
+               "GB82 WEST 1234 5698 7654 32", "XX00", "DE89370400440532O13000", "de89370400440532013000\u0131"]
+ACCT_TRICKS = ["4400002210", "4400 0022 10", "44000022\uff110", "\u0664\u0664\u0660\u0660\u0660\u0660\u0662\u0662\u0661\u0660",
+               "12345", "1" * 25, "4400002210\n", "-4400002210", "0x1234567", "4400002210 ", 4400002210, None,
+               "\uff14\uff14\uff10\uff10\uff10\uff10\uff12\uff12\uff11\uff10"]
+BANK_TRICKS = ["Example New Bank", "Bank\u0000", "x", "B" * 80, 7, "Bank; DROP", "B\u00e4nk"]
+
+
+def _ap_body(r: random.Random) -> bytes:
+    if r.random() < 0.15:
+        return json.dumps(rand_json_body(r)).encode()
+    body = {}
+    for k, pool in (("iban", IBAN_TRICKS), ("bank_account_no", ACCT_TRICKS), ("bank", BANK_TRICKS)):
+        if r.random() < 0.6:
+            body[k] = r.choice(pool)
+    if r.random() < 0.2:
+        body[r.choice(["party", "party_type", "is_default", "is_company_account", "account", "owner"])] = \
+            r.choice(["Evil", 1, True, "Customer", None])
+    return json.dumps(body, ensure_ascii=r.random() < 0.5).encode()
+
+
+def _ap_conforms(op) -> str | None:
+    if op.kind != "write":
+        return None
+    spec = AP["writes"][op.name]["body"]
+    data = json.loads(op.canonical_body) if op.canonical_body else None
+    if spec["type"] == "none":
+        return None if data is None else "a body on a no-body operation"
+    if not isinstance(data, dict):
+        return "object expected"
+    extra = set(data) - set(spec["fields"])
+    if extra:
+        return f"undeclared field(s) {sorted(extra)}"
+    iban = data.get("iban")
+    if iban is not None:
+        if not (isinstance(iban, str) and iban.isascii() and iban == iban.upper() and " " not in iban):
+            return f"non-canonical IBAN accepted: {iban!r:.40}"
+        digits = "".join(str(int(c, 36)) for c in iban[4:] + iban[:4])
+        if int(digits) % 97 != 1:
+            return f"IBAN with a bad checksum accepted: {iban!r:.40}"
+    no = data.get("bank_account_no")
+    if no is not None and not (isinstance(no, str) and no.isascii() and no.isdigit() and 6 <= len(no) <= 20):
+        return f"bad account number accepted: {no!r:.40}"
+    bank = data.get("bank")
+    if bank is not None and not (isinstance(bank, str) and bank.isascii() and 2 <= len(bank) <= 60):
+        return f"bad bank name accepted: {bank!r:.40}"
+    return None
+
+
+def fuzz_ap(n: int, seed: int) -> dict:
+    r = random.Random(seed)
+    fails, accepted = [], {"read": 0, "write": 0}
+    paths = [f"/ap/v1/bank-accounts/{A}/details", f"/ap/v1/bank-accounts/{A}/default", "/ap/v1/suppliers",
+             f"/ap/v1/suppliers/{A}/bank-accounts", f"/ap/v1/payment-check/{A}"]
+    name_tricks = ["Acme Supplies - Deutsche Bank", "Acme%20Supplies", "Acme+Supplies", "..", "%2e%2e", A.upper(),
+                   A + "%00", A + ";x=y", A[:-1], "Acme Supplies - Deutsche Bank/details", "*", "%252e"]
+    for _ in range(n):
+        method = r.choice(["GET", "PUT", "PUT", "POST", "DELETE"])
+        target = r.choice(paths + ["/api/method/frappe.client.set_value", "/api/resource/Bank Account/x",
+                                   "/api/method/frappe.model.rename_doc.rename_doc", "/api/method/upload_file"])
+        if r.random() < 0.4:
+            target = target.replace(A, r.choice(name_tricks), 1)
+        if r.random() < 0.15:
+            target += r.choice(["?x=1", "?filters=[]", "/", "#f", "?iban=DE89"])
+        body = _ap_body(r) if method in ("PUT", "POST") and r.random() < 0.9 else b""
+        try:
+            op = parse(AP, method, target, body)
+        except Reject:
+            continue
+        except Exception as e:                                      # noqa: BLE001
+            fails.append(f"exception {type(e).__name__}: {method} {target[:70]} body={body[:60]!r}")
+            continue
+        accepted[op.kind] = accepted.get(op.kind, 0) + 1
+        if any(tr in op.path for tr in ("..", "%", ";", "//", "\\", " ", "+")):
+            fails.append(f"accepted a tricky path: {method} {op.path[:80]}")
+        if op.user is not None and op.user != A:
+            fails.append(f"accepted a non-reference subject {op.user!r:.50}")
+        why = _ap_conforms(op)
+        if why:
+            fails.append(f"{op.name}: {why}; sent {body[:80]!r}")
+        try:
+            again = parse(AP, method, op.path, op.canonical_body)
+            if (again.name, again.request_hash) != (op.name, op.request_hash):
+                fails.append(f"canonical form changes meaning: {method} {target[:70]}")
+        except Exception as e:                                      # noqa: BLE001
+            fails.append(f"canonical form does not re-parse ({type(e).__name__}): {method} {target[:70]}")
+    return {"target": "accounts-payable pack (references, IBANs, account numbers)", "cases": n,
+            "accepted": accepted, "failures": fails[:20], "n_failures": len(fails)}
+
+
 # --- target 4: the whole broker, no receipts ------------------------------------------------------------------
 def fuzz_broker(n: int, seed: int, tmp: str) -> dict:
     r = random.Random(seed)
@@ -380,7 +476,8 @@ def false_rejections() -> dict:
 def run_all(n: int = 2000, seed: int = 1, tmp: str | None = None) -> list[dict]:
     import tempfile
     tmp = tmp or tempfile.mkdtemp(prefix="keyless-fuzz-")
-    return [fuzz_console(n, seed), fuzz_grammar(n, seed + 1), fuzz_broker(max(n // 4, 50), seed + 2, tmp),
+    return [fuzz_console(n, seed), fuzz_grammar(n, seed + 1), fuzz_ap(n, seed + 4),
+            fuzz_broker(max(n // 4, 50), seed + 2, tmp),
             fuzz_signatures(n, seed + 3), false_rejections()]
 
 

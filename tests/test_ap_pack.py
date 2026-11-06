@@ -169,3 +169,10 @@ def test_reads_show_last_four_only_and_opaque_references(erp):
     rows = r.json()
     assert rows and all(set(x) == {"account", "bank", "number_last4", "iban_last4", "is_default"} for x in rows)
     assert "7731000021" not in r.text and "Brightline AR" not in r.text
+
+
+@pytest.mark.parametrize("bad", ["DE89370400440532013000\n", "de89370400440532013000ı", "ẞE89370400440532013000"])
+def test_iban_trailing_newline_and_case_folding_are_refused(bad):
+    """Found by the fuzzer (11-06): a trailing newline passed match()+'$' and crashed the checksum (a 500)."""
+    with pytest.raises(Reject):
+        canonical_iban(bad)

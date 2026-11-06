@@ -135,8 +135,10 @@ IBAN_SHAPE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
 def canonical_iban(v: str) -> str:
     """Uppercase, spaces removed, ISO 13616 mod-97 checked: one IBAN has one byte form, so an honest retry with other
     spacing hashes to the same request and the last four shown on the push are the ones stored (mentor, 11-06)."""
+    if not v.isascii():               # 'ı'.upper() == 'I', 'ß'.upper() == 'SS': never let case-folding make an IBAN
+        raise Reject("not_allowlisted", "not an IBAN")
     s = v.replace(" ", "").upper()
-    if not IBAN_SHAPE.match(s):
+    if not IBAN_SHAPE.fullmatch(s):     # match() + '$' accepts a trailing newline (the fuzzer, 11-06; email before)
         raise Reject("not_allowlisted", "not an IBAN")
     digits = "".join(str(int(c, 36)) for c in s[4:] + s[:4])
     if int(digits) % 97 != 1:

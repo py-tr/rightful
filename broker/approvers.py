@@ -77,6 +77,8 @@ class SupplierContactResolver:
         body = challenge.get("body") or {}
         new = body.get("iban") or body.get("bank_account_no")
         old = snap.get("iban") if body.get("iban") else snap.get("account_no")
+        if challenge.get("operation") == "identity_check":      # the call-back: a confirmation, no change named
+            return "confirm"
         if challenge.get("operation") == "set_default_bank_account":
             return f"default{last4(snap.get('account_no')) or ''}"
         return f"bank{last4(old) or 'none'}to{last4(new) or 'same'}"

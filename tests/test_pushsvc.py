@@ -25,11 +25,19 @@ def test_approve_needs_the_matching_number():
     assert notify(c).status_code == 201
     p = c.get("/phone/cfo").json()["pending"][0]
     assert "callback_token" not in p and p["number"] == "48"
-    assert c.post(f"/phone/cfo/{p['id']}/approve", json={"number": "12"}).status_code == 409
-    assert calls == []
     assert c.post(f"/phone/cfo/{p['id']}/approve", json={"number": "48"}).status_code == 200
     assert calls[0]["auth"] == "Bearer CALLBACK-TOKEN" and '"SUCCEED"' in calls[0]["body"]
     assert c.post(f"/phone/cfo/{p['id']}/approve", json={"number": "48"}).status_code == 404   # once only
+
+
+def test_a_wrong_number_declines_the_request_so_tapping_every_option_never_approves():
+    app, c, calls = make()
+    notify(c)
+    p = c.get("/phone/cfo").json()["pending"][0]
+    assert c.post(f"/phone/cfo/{p['id']}/approve", json={"number": "12"}).status_code == 409
+    assert len(calls) == 1 and '"CANCELLED"' in calls[0]["body"]          # Keycloak is told: declined
+    assert c.post(f"/phone/cfo/{p['id']}/approve", json={"number": "48"}).status_code == 404   # no second try
+    assert all('"SUCCEED"' not in x["body"] for x in calls)
 
 
 def test_another_users_phone_cannot_answer():

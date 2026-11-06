@@ -69,8 +69,10 @@ def create_push_app(keycloak_base_url: str, realm: str, http: httpx.Client | Non
             p = pending.get(pid)
             if not p or p["username"] != username or p["state"] != "pending":
                 return JSONResponse({"error": "no such pending request"}, status_code=404)
-            if not secrets.compare_digest(str(number), p["number"]):
-                return JSONResponse({"error": "number does not match"}, status_code=409)
+            match = secrets.compare_digest(str(number), p["number"])
+        if not match:                                   # a wrong number declines the request: otherwise a tired owner
+            _answer(pid, "CANCELLED")                   # could tap every option until one approves (11-06)
+            return JSONResponse({"error": "number does not match; the request was declined"}, status_code=409)
         return {"callback": _answer(pid, "SUCCEED")}
 
     @app.post("/phone/{username}/{pid}/deny")

@@ -450,7 +450,7 @@ class Demo:
 
     def _converse(self, s: Session, first: str, reserved: float, budget_sid: str | None = None) -> None:
         budget_sid = budget_sid or s.id
-        spent, runner = 0.0, None
+        spent, runner, rid = 0.0, None, None
         with self.lock:
             self.waiting += 1
         if not self.slots.acquire(blocking=False):
@@ -587,6 +587,8 @@ class Demo:
                     runner.close()
                 except Exception:                      # noqa: BLE001
                     pass
+            if rid:                                    # the run is over: drop its route, or every conversation would
+                self.broker.unregister(rid)            # keep its whole stack alive for the process lifetime (11-06)
             self.slots.release()
             self.limits.settle_ticket(budget_sid, reserved, spent)
             s.conversations += 1
@@ -1021,7 +1023,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
             return err("pick one of the numbers shown")
         r = pc.post(f"/phone/{p['username']}/{push_id}/approve", json={"number": number})   # the server compares
         if r.status_code != 200:
-            demo.emit(col, "status", "That number did not match the help desk's request; the approval was refused.")
+            demo.emit(col, "status", "That number did not match the help desk's request, so the request was declined "
+                                     "(a wrong number never leaves it open for another try).")
         return {"ok": r.status_code == 200}
 
     @app.post("/api/phone/cancel/{cancel_id}")

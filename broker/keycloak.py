@@ -93,9 +93,14 @@ class Keycloak:
                            auth=(self.cfg.ciba_client_id, self.cfg.ciba_client_secret))
         if r.status_code == 200:
             return "approved"
-        err = (r.json() if r.headers.get("content-type", "").startswith("application/json") else {}).get("error")
+        if r.status_code >= 500:                       # the identity server hiccuped: ask again, never turn an honest
+            return "pending"                           # approval into "no answer" (11-06)
+        try:
+            err = (r.json() if r.headers.get("content-type", "").startswith("application/json") else {}).get("error")
+        except ValueError:
+            return "pending"                           # unparseable answer: same
         if err in ("authorization_pending", "slow_down"):
             return "pending"
         if err == "access_denied":
             return "denied"
-        return "expired"
+        return "expired"                               # expired_token, invalid_grant: final

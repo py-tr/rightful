@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 from agent import claims
 from agent.llm import LLM
 from agent.loop import run_ticket
-from agent.prompts import HARDENED, HELP_DOC, HELP_DOC_AGENT_DECIDES, LIGHT
+from agent.prompts import HARDENED, HELP_DOC_AGENT_DECIDES, HELP_DOC_DEMO, LIGHT
 
 # Demo only (the evaluation keeps its pre-registered help text): in a UI test, a careful model tried to "verify the
 # caller" before changing anything and found no way to, because with the gate the CHANGE itself asks the owner.
@@ -655,7 +655,7 @@ class Demo:
                                 "expired": "[System note: the owner did not answer; the request expired.]"}[st]
                 return None
             prompt = HARDENED if s.prompt == "hardened" else LIGHT
-            help_doc = HELP_DOC_AGENT_DECIDES if s.mode == "agent_decides" else HELP_DOC + DEMO_HINT
+            help_doc = HELP_DOC_AGENT_DECIDES if s.mode == "agent_decides" else HELP_DOC_DEMO + DEMO_HINT
             res = run_ticket(llm, runner, rid, first, stack.ledger.path, prompt=prompt, on_reply=on_reply,
                              on_event=on_event, max_turns=MAX_TURNS, help_doc=help_doc)
             spent = llm.spent

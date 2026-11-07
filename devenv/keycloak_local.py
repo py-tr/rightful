@@ -92,6 +92,24 @@ def _realistic_credentials() -> list[dict]:
                                             "algorithm": "HmacSHA1"})}]
 
 
+def seed_failed_signins(base: str, realm: str, username: str = "cfo", n: int = 3, host: str | None = None) -> int:
+    """The demo's honest caller says they are locked out after mistyping their password (11-07): make that true in the
+    fictional company, so the agent's read-only lock_status() finds what the caller describes. n stays below the
+    realm's failureFactor (5), so the account is NOT locked. Used by the demo's factory AND its measurement harness,
+    so the measured setup and the live one are the same. Returns the failures the identity server then reports."""
+    import secrets
+    import httpx as _hx
+    hdr = {"Host": host} if host else {}
+    for i in range(n):
+        if i:
+            time.sleep(1.2)                 # > quickLoginCheckMilliSeconds (1 s): faster failures trip a temporary
+                                            # lockout, which made the seeded state depend on timing (measured 11-07)
+        _hx.post(f"{base}/realms/{realm}/protocol/openid-connect/token", headers=hdr, timeout=15,
+                 data={"grant_type": "password", "client_id": "admin-cli", "username": username,
+                       "password": "wrong-" + secrets.token_hex(4)})
+    return n
+
+
 def bootstrap(base: str, realm: str = "corp", smtp: bool = False, realistic: bool = False) -> dict:
     """realistic=True (the demo's companies): every person has a password and an enrolled authenticator. The
     evaluation keeps the default (False), exactly as pre-registered."""

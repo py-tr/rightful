@@ -68,6 +68,26 @@ def credentials(user_id: str) -> list[dict]:
     return [{"id": c["id"], "type": c["type"]} for c in r.json()]
 
 
+def lock_status(user_id: str) -> dict:
+    """Read-only: is the account locked by failed sign-ins (the identity server's brute-force protection)?"""
+    r = _c().get(f"/admin/realms/{REALM}/attack-detection/brute-force/users/{user_id}")
+    r.raise_for_status()
+    j = r.json()
+    return {"locked": bool(j.get("disabled")), "failed_sign_ins": int(j.get("numFailures") or 0)}
+
+
+def sessions(user_id: str) -> list[dict]:
+    """Read-only: where the user is signed in right now."""
+    import datetime as _dt
+    r = _c().get(_u(user_id) + "/sessions")
+    r.raise_for_status()
+
+    def t(ms):
+        return _dt.datetime.fromtimestamp((ms or 0) / 1000, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return [{"started": t(x.get("start")), "last_seen": t(x.get("lastAccess")), "ip": x.get("ipAddress")}
+            for x in r.json()]
+
+
 # --- changes (each needs an approval minted outside the sandbox) -----------------------------------------------
 def reset_password(user_id: str) -> dict:
     """Temporary password. The broker generates it and sends it to the owner's phone; you never see it."""

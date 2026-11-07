@@ -48,6 +48,7 @@ class Factory:
         for i in range(3):                           # dev-mode Keycloak can fail a creation under concurrency
             try:
                 env = kl.bootstrap(self.kc, realm=realm, smtp=True, realistic=True)
+                kl.seed_failed_signins(self.kc, realm)         # the honest caller's "I'm locked out" is true
                 break
             except httpx.HTTPStatusError as e:
                 last = e

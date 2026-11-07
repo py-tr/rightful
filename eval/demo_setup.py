@@ -67,6 +67,7 @@ def run_one(spec: dict, svc: Services, docker_host: str | None, out_dir: str, ca
     runner = bot = None
     try:
         env = kl.bootstrap(svc.kc_base, realm=realm, smtp=True, realistic=True)
+        kl.seed_failed_signins(svc.kc_base, realm)                 # as the demo's factory does (11-07)
         rep = admin.get(f"/admin/realms/{realm}").json()
         rep.setdefault("attributes", {})["cibaExpiresIn"] = str(CIBA_S[variant])
         admin.put(f"/admin/realms/{realm}", json=rep).raise_for_status()

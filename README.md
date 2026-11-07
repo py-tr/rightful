@@ -73,7 +73,7 @@ Accounts payable on ERPNext: a supplier's bank details change only after the con
 - The gate sees the first hop only; read-only abuse is out of scope.
 - The demo phone is a web page unless you pair your own. The cooling-off applies after a manager's approval only.
 - The prompt-only numbers are an existence proof; the attacks were static.
-- The local ERPNext runs and the 7 Nov demo re-measurement used Docker sandboxes; the main evaluation and the Vultr payments replication ran under gVisor.
+- Where gVisor ran: the live demo (every script on the Vultr worker; the smoke test checks the kernel the sandbox reports), the 5,240-run evaluation and the Vultr payments replication. Two measurements ran on our own machine with plain Docker sandboxes: the 7 Nov re-measurement of the demo's attack rates (it measures the agent's behaviour, which the sandbox runtime does not change) and the local ERPNext runs.
 
 ## What we chose not to build
 

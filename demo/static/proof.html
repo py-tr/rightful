@@ -68,6 +68,10 @@ fetch("/api/proof/" + encodeURIComponent(token)).then(r => r.ok ? r.json() : Pro
     const left = mine ? p : (p.other || null), right = mine ? (p.other || null) : p;
     cols.append(column(left, true), column(right, false));
   } else cols.append(column(p, null));
+  // the same record as data (mentor, 11-07): what this page shows, downloadable, so "verify it yourself" is a file
+  const ev = el("a", "", "Download this run's evidence (JSON: transcripts, each change's path to the identity server's log, the policy's SHA-256)");
+  ev.href = "/api/proof/" + encodeURIComponent(token); ev.download = "run-" + token + ".json";
+  const box = el("div", "card"); box.append(ev); cols.after(box);
 }).catch(() => { document.getElementById("cols").append(el("div", "card", "This result was not found.")); });
 </script>
 </body></html>

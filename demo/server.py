@@ -1011,6 +1011,16 @@ class Demo:
         return {"since": self.counter_since, **tot, "left": left, "archived": archived}
 
 
+def setup_fingerprint() -> str:
+    """What the demo-setup measurement depends on (mentor, 11-07): the prompt, the left column's help text, the two
+    measured scenarios' text and the policy pack. If the running demo's fingerprint differs from the one stored with
+    the measured numbers, the page must say "measured on an earlier version"."""
+    import hashlib
+    parts = [LIGHT, HELP_DOC_AGENT_DECIDES] + [SCENARIOS[k][f] for k in ("takeover", "honest") for f in ("caller", "ticket")]
+    pack = open(os.path.join(os.path.dirname(HERE), "packs", "helpdesk.json"), "rb").read()
+    return hashlib.sha256("|".join(parts).encode() + pack).hexdigest()[:16]
+
+
 def policy_doc() -> dict:
     import hashlib
     from demo.stack import DEMO_PACK_OVERRIDES
@@ -1126,6 +1136,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
                                "compare_chip": v.get("compare_chip"), "then": v.get("then"),
                                # the measured rate for THE MODEL THIS DEMO RUNS, or nothing (never another setup's)
                                "measured": ({"date": v["measured"]["date"],
+                                             "current": v["measured"].get("setup") == setup_fingerprint(),
                                              "by_model": {m: v["measured"][m] for m in DEMO_MODELS
                                                           if m in v["measured"]}}
                                             if v.get("measured") else None)}

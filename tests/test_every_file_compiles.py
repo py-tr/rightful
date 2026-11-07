@@ -13,3 +13,13 @@ FILES = [p for d in ("agent", "broker", "gate", "demo", "deploy", "devenv", "eva
 @pytest.mark.parametrize("path", FILES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_compiles(path):
     py_compile.compile(str(path), doraise=True)
+
+
+def test_measured_rates_carry_the_fingerprint_of_the_running_setup():
+    """The fool rate the page prints must have been measured on the setup that is running (mentor, 11-07); a change to
+    the prompt, the left column's help text, the measured scenarios or the pack makes the page say "earlier version"
+    until the measurement is re-run and its fingerprint stored."""
+    from demo.scenarios import SCENARIOS
+    from demo.server import setup_fingerprint
+    assert SCENARIOS["takeover"]["measured"].get("setup") == setup_fingerprint(), \
+        "re-measure (eval/demo_setup.py) and store the new fingerprint in demo/scenarios.py"

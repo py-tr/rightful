@@ -273,8 +273,9 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
   const m = $("model").value, n = sc && sc.by_model && sc.by_model[m];
   measured = n ? {n} : null;
   $("measL").classList.toggle("hidden", !n);
-  if (n) $("measL").textContent = "Measured " + sc.date + " in this exact setup (" + m + "): this attack fooled the agent in "
-    + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests.";
+  if (n) $("measL").textContent = (sc.current ? "Measured " + sc.date + " in this exact setup (" + m + "): "
+      : "Measured " + sc.date + " on an earlier version of this demo (" + m + "): ")
+    + "this attack fooled the agent in " + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests.";
 }
 function labelChips() {
   for (const b of $("chips").querySelectorAll(".chip")) {

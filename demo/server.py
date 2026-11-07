@@ -1158,7 +1158,8 @@ def ap_policy_doc() -> dict:
              "set_default_bank_account": "Switch which of a supplier's bank accounts payments go to"}
     return {"pack": pack.get("pack"), "version": pack.get("version"), "sha256": hashlib.sha256(raw).hexdigest(),
             "source": "packs/ap.json", "title": "Accounts payable on ERPNext",
-            "status": "Built and measured on ERPNext (pre-registered; eval/RESULTS-ap2.md); not running in this live demo.",
+            "status": "Built and measured on ERPNext, on our own machine and on a Vultr VM (pre-registered; "
+                      "eval/RESULTS-ap2.md, eval/RESULTS-ap3.md); not running in this live demo.",
             "rules": [{"change": words.get(op, op), "operation": op, "approver": who.get(w.get("receipt"), w.get("receipt"))}
                       for op, w in pack.get("writes", {}).items()],
             "notes": ["The gate's ERPNext user can edit supplier bank accounts and nothing else: no creating accounts, no "

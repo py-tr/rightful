@@ -42,6 +42,7 @@ details{margin-top:16px;color:var(--muted);font-size:14px}details .rq{font-famil
 .flow .arrow{align-self:center;font-size:26px;color:var(--muted)}
 .feed{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 16px}
 .feed .fh{font-size:14px;color:var(--muted);font-weight:600;margin-bottom:6px}
+#feed{max-height:430px;overflow-y:auto;padding-right:6px;scroll-behavior:smooth}
 .line{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);animation:in .35s ease-out}
 .line:first-of-type{border-top:none}.line .x{font-size:19px;font-weight:600}.line .vv{font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;text-align:right}
 .line .w{grid-column:1/3;font-size:14px;color:var(--muted)}
@@ -109,27 +110,36 @@ let shown = 0, phoneKey = "", mode = "hostile";
 // the feed is revealed at a readable pace (mentor: "streaming text at full speed is unreadable"): one line about every
 // 0.9 s, the newest 6 on screen; when the agent outpaces that, jump to the newest and say how many were skipped
 let feedAll = [], feedShown = 0;
-const FEED_MAX = 6;
-function feedKey(x) { return x.text + "|" + x.verdict; }
-let feedSig = "";
+// owner 11-07: "scroll through the event log" and "it keeps blinking": the whole log stays, in a scrollable box, and
+// lines are APPENDED, never redrawn (a merged repeat updates its "×n" in place). If an earlier line ever changes (a
+// late entry sorted in), only the lines from there on are rebuilt.
+let rendered = [];                              // [{key, n, el}]
+function feedKey(x) { return x.tone + "|" + x.text + "|" + x.verdict; }
+function lineEl(x) {
+  const d = el("div", "line " + x.tone + (x.tone === "agent" ? "" : " gate"));
+  const t = el("div", "x", x.n > 1 ? x.text + "  ×" + x.n : x.text); d.append(t);
+  if (x.tone !== "agent") d.append(el("div", "vv", "Gate: " + x.verdict));
+  if (x.why) d.append(el("div", "w", x.why));
+  return {key: feedKey(x), n: x.n, el: d, t};
+}
 function drawFeed() {
+  const box = $("feed");
+  if (!feedShown && rendered.length) { box.replaceChildren(); rendered = []; return; }
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   const vis = feedAll.slice(0, feedShown);
-  const from = Math.max(0, vis.length - FEED_MAX);
-  const sig = from + "#" + vis.slice(from).map(x => x.text + x.verdict + x.n).join("|");
-  if (sig === feedSig) return;                 // nothing new on screen: no redraw, no replayed animation
-  feedSig = sig; const box = $("feed"); box.replaceChildren();
-  $("more").textContent = from ? "+" + from + " earlier" : "";
-  for (const x of vis.slice(from)) {             // oldest first, like a story read top to bottom
-    const d = el("div", "line " + x.tone + (x.tone === "agent" ? "" : " gate"));
-    d.append(el("div", "x", (x.n > 1 ? x.text + "  ×" + x.n : x.text)));
-    if (x.tone !== "agent") d.append(el("div", "vv", "Gate: " + x.verdict));
-    if (x.why) d.append(el("div", "w", x.why));
-    box.append(d);
+  let i = 0;
+  while (i < rendered.length && i < vis.length && rendered[i].key === feedKey(vis[i])) {
+    if (rendered[i].n !== vis[i].n) { rendered[i].n = vis[i].n; rendered[i].t.textContent = vis[i].text + "  ×" + vis[i].n; }
+    i++;
   }
+  for (const r of rendered.slice(i)) r.el.remove();   // rare: an earlier line changed
+  rendered = rendered.slice(0, i);
+  for (const x of vis.slice(i)) { const r = lineEl(x); rendered.push(r); box.append(r.el); }
+  if (atBottom) box.scrollTop = box.scrollHeight;     // follow new lines unless the viewer scrolled up to read
 }
 setInterval(() => {
   if (feedShown < feedAll.length) {
-    if (feedAll.length - feedShown > 12) feedShown = feedAll.length - FEED_MAX;   // far behind: catch up
+    if (feedAll.length - feedShown > 12) feedShown = feedAll.length - 4;   // far behind: catch up (all stays scrollable)
     else feedShown += 1;
     drawFeed();
   }
@@ -164,7 +174,7 @@ function render(v) {
     if (lw) { const w = el("div", "words"); w.append(el("div", "pl", "The agent's last words (quoted from the run)"), el("div", "pt", "“" + (lw.length > 280 ? lw.slice(0, 280) + "…" : lw) + "”")); $("wordsBox").append(w); } }
   const nf = v.feed || [];                       // same entries as before, the last one may have grown (×n)
   feedAll = nf; if (feedShown > nf.length) feedShown = nf.length;
-  if (feedShown && nf[feedShown - 1]) drawFeed();
+  drawFeed();
   if (hostile) {
     $("tried").textContent = v.refused || 0;
     $("triedCap").textContent = (v.refused === 1 ? "request" : "requests") + " from the hijacked agent" + (v.refused_writes ? " (" + v.refused_writes + " of them bank-detail changes without approval)" : "");
@@ -185,9 +195,11 @@ function render(v) {
         const deny = el("button", "", "Deny"); deny.style.marginTop = "10px"; deny.onclick = () => post("/api/phone/" + p.id + "/deny", {}).catch(e => alert(e.message));
         d.append(nums, deny); $("phoneBox").append(d); } }
   }
-  const det = $("details"); det.replaceChildren(el("div", "", r.model + " · " + r.elapsed + " s · " + (r.done ? "finished" : "running") + (r.supplier ? " · " + r.supplier : "")));
-  for (const h of (v.highlights || [])) det.append(el("div", "rq", h.request + "  ->  " + h.rule));
-  for (const s of (r.steps || [])) det.append(el("div", "", "· " + s));
+  const det = $("details"); const dsig = r.model + r.done + (r.supplier || "") + JSON.stringify(v.highlights || []) + (r.steps || []).join("|");
+  if (det.dataset.k !== dsig) { det.dataset.k = dsig;           // rebuilt only when it changed (no blinking)
+    det.replaceChildren(el("div", "", r.model + " · " + (r.done ? "finished" : "running") + (r.supplier ? " · " + r.supplier : "")));
+    for (const h of (v.highlights || [])) det.append(el("div", "rq", h.request + "  ->  " + h.rule));
+    for (const s of (r.steps || [])) det.append(el("div", "", "· " + s)); }
   if (r.done && r.result) {
     const x = r.result; $("status").className = "status " + (x.changed_without_supplier ? "bad" : "ok");
     $("status").textContent = hostile ? (x.number_changed ? "The account changed." : "Finished. The bank details did not change." + (x.quarantined ? " The run ended locked out." : ""))

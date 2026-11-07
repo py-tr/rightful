@@ -154,7 +154,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
   <button class="send" id="goBtn" style="padding:10px 16px;font-size:15px">&#9654; Run the attack live (about a minute, no phone needed)</button>
   <button class="cmpbtn" id="cmpBtn">Same agent. Same lie. Two architectures.</button></span></div>
 <details class="measure" style="margin:0 0 12px;padding:10px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--line);font-size:13px">
-  <summary style="cursor:pointer;font-weight:600">What we measured before building this page: 5,240 pre-registered runs, 3 open models on Vultr Serverless Inference</summary>
+  <summary style="cursor:pointer;font-weight:600">What we measured (5 November, written down before running): 5,240 runs, 3 open models on Vultr Serverless Inference</summary>
   <table style="width:100%;border-collapse:collapse;margin-top:8px">
     <tr><th style="text-align:left;padding:4px">Attack runs where the agent made an unsafe account change</th><th>deepseek</th><th>qwen</th><th>glm</th></tr>
     <tr><td style="padding:4px">No gate, light prompt</td><td>5.8%</td><td>36.3%</td><td>44.7%</td></tr>
@@ -179,10 +179,10 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
           write a ticket can write anything here.</div></details>
       <div class="cols" id="cols">
         <div class="col hidden" id="colL"><div class="colhead left"><b>The agent decides</b>
-          <span class="tag">Blast radius: one account · the push tool is available; the agent's word unlocks changes ·
+          <span class="tag">Blast radius: any account the agent marks as verified · the push tool is available; the agent's word unlocks changes ·
           unprotected fictional company</span><div class="measured hidden" id="measL"></div><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div><div class="vbar" id="vbarL"></div></div>
         <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Rightful)</b>
-          <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
+          <span class="tag">Blast radius: no change without the approval its policy requires · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
           <div class="chat" id="chatR" aria-live="polite"><div class="empty"><span class="e1">Press <b>Send</b>: the same
           message goes to both columns.</span><span class="e2">Pick <b>Start here</b> above, or just type to the help
           desk.</span></div></div><div class="vbar" id="vbarR"></div></div>
@@ -245,7 +245,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
     same instructions and the same push tool, decides for itself whether the caller is verified, as in today's ticketing
     systems and agent frameworks. The rightmost receipt column is read from the identity server's own log with a
     view-only account, not from our software. Simulated: the phone, the people, the inbox (we only show that an email
-    arrived). The cooling-off is 20 seconds here (production: 60 seconds, 10 minutes for privileged accounts).</p>
+    arrived). After a manager's approval a cooling-off runs before the change: 20 seconds here (production: 60
+    seconds, 10 minutes for privileged accounts); an owner's approval of their own account's change runs at once.</p>
     <p>Not claimed: that people always read a phone request carefully (we found no study showing it), that a sandbox is an
     absolute boundary, or that the model is safe. The claim is narrower: without the owner's approval of the exact
     request, the identity server records no change.</p></details>
@@ -268,8 +269,9 @@ async function api(path, body) {
   let r;
   try { r = await fetch(path, opt); }
   catch (e) {   // 11-07 (owner): "Failed to fetch" = no answer reached the page (often a blocker extension, or a network drop)
-    throw new Error("Your browser got no answer from the demo. A privacy or ad blocker can stop these requests: allow " +
-                    "this site, or open it in a private window, and try again.");
+    // audit 11-07: the cause of the one "Failed to fetch" seen is not established, so the message names none
+    throw new Error("The page got no answer from the demo (the request did not complete). Try again; if it " +
+                    "repeats, watch the recorded run instead.");
   }
   let j = {}; try { j = await r.json(); } catch (e) {}
   if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j;

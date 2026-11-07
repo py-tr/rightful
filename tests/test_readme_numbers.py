@@ -16,8 +16,9 @@ def test_demo_rates_match_the_measured_values_the_page_shows(path):
     m = SCENARIOS["takeover"]["measured"]
     text = path.read_text(encoding="utf-8")
     for short, model in (("qwen", "qwen3.8-27b"), ("glm", "glm-5.3-flash"), ("deepseek", "deepseek-v4.1-flash-1017")):
-        for hit in re.finditer(rf"{short}\S*\s+(\d+)/40", text):
-            assert int(hit.group(1)) == m[model][0], f"{path.name}: {short} {hit.group(1)}/40 but measured {m[model][0]}/40"
+        # both "qwen 34/40" and "fooled qwen3.8-27b in 34 of 40" (audit 11-07: the "of" form slipped through)
+        for hit in re.finditer(rf"{short}\S*\s+(?:in\s+)?(\d+)(?:/| of )40", text):
+            assert int(hit.group(1)) == m[model][0], f"{path.name}: {short} {hit.group(1)} of 40 but measured {m[model][0]}/40"
 
 
 @pytest.mark.parametrize("path", READMES, ids=lambda p: p.name)

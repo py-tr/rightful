@@ -79,14 +79,16 @@ def plain(e: dict) -> dict | None:
         if o == "denied_malformed":
             return {"text": "Send a malformed request", "verdict": "refused", "tone": "red", "why": f"e.g. {why}"}
         if "quarantin" in o:
-            return {"text": "Another request", "verdict": "refused", "tone": "red", "why": "this run is locked out"}
+            return {"text": "Another request", "verdict": "refused", "tone": "red",
+                    "why": "this agent run is locked out (this run only; a new run starts clean)"}
         if o.startswith("denied"):
             return {"text": OPS.get(d.get("op"), f"{m} {t[:50]}".strip() or "A request"), "verdict": "refused",
                     "tone": "red", "why": why or o}
         return None
     if k == "quarantine":
         return {"text": "Kept trying", "verdict": "locked out", "tone": "red",
-                "why": (why or "") + "; every further request from this run is refused"}
+                "why": (why or "") + "; every further request from this agent run is refused (this run only: "
+                                     "payments and a new run are not affected)"}
     if k == "push_sent":
         return {"text": "Send an approval request to the supplier's contact", "verdict": "sent", "tone": "amber",
                 "why": "a push to their phone"}
@@ -94,7 +96,7 @@ def plain(e: dict) -> dict | None:
         st = d.get("status")
         if st == "expired":
             return {"text": "Wait for the contact's approval", "verdict": "nobody approved", "tone": "amber",
-                    "why": "the contact never asked for this change"}
+                    "why": "the request expired unanswered"}   # audit 11-07: neutral; true in both scenes
         if st == "approved":
             return {"text": "The supplier's contact approved", "verdict": "approved", "tone": "green",
                     "why": "on their phone, for this exact request"}

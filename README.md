@@ -9,7 +9,7 @@ Live demo: **https://136-244-91-162.sslip.io/** (fictional companies, created pe
    the same model go to two columns. Press **Send**.
 2. **Left, "the agent decides":** the agent has the same push tool, and a change goes through once the agent itself
    says the caller is verified, as in today's ticketing systems and agent frameworks. Above it, the measured rate for
-   exactly this setup: the attack fooled qwen3.8-27b in 32 of 40 runs.
+   exactly this setup: the attack fooled qwen3.8-27b in 34 of 40 runs.
 3. **Right, Rightful:** the agent's sandbox holds no credential. Every account change is refused by a gate and turned
    into a request on the owner's phone that names the exact action and account. Watch it refuse, ask the phone, and
    end with "Nothing changed."
@@ -52,15 +52,15 @@ Pre-registrations: eval/PREREG-gateon.md (with its amendments and deviation log)
   and burned atomically.
 - **The oracle** is the identity server's own admin log (Keycloak), read by a view-only account and reconciled to the
   receipts: any change without a receipt would show as an orphan.
-- **Consent-fatigue controls:** number matching, the named target, push rate limits, a cooling-off with a cancel on
-  every device, and a decline that sends the account to human-only help.
+- **Consent-fatigue controls:** number matching, the named target, push rate limits, a cooling-off after a manager's
+  approval with a cancel on every device, and a decline that sends the account to human-only help.
 
 Infrastructure on Vultr: Cloud Compute (a control-plane VM: the broker, Keycloak, the realm factory and the demo; a
 worker VM for the sandboxes), a private VPC between them, firewall groups, Serverless Inference for the models. The
 evaluation ran on temporary workers created and deleted by `deploy/vultr_deploy.py`.
 
 ## Run it
-- Tests: `python -m pytest tests --ignore=tests/integration` (342 tests).
+- Tests: `python -m pytest tests --ignore=tests/integration` (385 tests).
 - Local demo (Docker): `python -m devenv.demo_local`, then open http://127.0.0.1:8000.
 - Deploy to your own Vultr account: `python -m deploy.vultr_deploy up`, then `demo-deploy`; smoke test with
   `python -m devenv.smoke https://<host>`.

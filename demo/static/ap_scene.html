@@ -201,7 +201,7 @@ function setInstruction(r) {
   if (r.prompt.rest) box.append(el("div", "note", r.prompt.rest));
 }
 function render(v) {
-  $("foot").textContent = "Running on " + v.where + ". Not part of the live demo. Models on Vultr Serverless Inference. Measured on a Vultr VM: the hijacked agent changed the bank details in 0 of 30 runs; we wrote the test down before running it. Model calls this session: $" + v.spent.toFixed(3) + " of $" + v.cap.toFixed(2) + ".";
+  $("foot").textContent = "Running on " + v.where + ". Not part of the live demo. Models on Vultr Serverless Inference. Measured on a Vultr VM (deleted after the run), test written down before running: the hijacked agent changed the bank details in 0 of 30 runs; honest changes approved by the contact went through in 29 of 30. Model calls this session: $" + v.spent.toFixed(3) + " of $" + v.cap.toFixed(2) + ".";
   const r = v.run, busy = r && !r.done; $("hostile").disabled = busy; $("honest").disabled = busy;
   if (!r) return;
   const hostile = r.kind === "hostile";

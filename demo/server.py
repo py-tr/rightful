@@ -1189,10 +1189,15 @@ def policy_doc() -> dict:
             "everything_else": "Any request the pack does not describe is refused (a strict grammar, not a blocklist).",
             "from_the_pack": [
                 f"One decline freezes further changes to that account for {pack.get('decline_tripwire_seconds', 0)//3600} "
-                "hours, so nobody can wear the owner down with repeated pushes.",
-                f"After an approval, a cooling-off period before the change runs: {co.get('default')} s, or "
-                f"{co.get('privileged')} s for privileged accounts; the owner can cancel during it. In this public demo: "
-                f"{demo_co.get('default')} s and {demo_co.get('privileged')} s, so visitors don't wait.",
+                "hours, so nobody can wear the owner down with repeated pushes. It expires on its own; there is no "
+                "manual override.",
+                # audit 11-07: the cooling-off applies only to a MANAGER's approval (broker/challenges.py _delay);
+                # an owner approving a change to their own account runs at once
+                f"After a manager's approval (a lost device, a change of contact details), a cooling-off runs before "
+                f"the change: {co.get('default')} s, or {co.get('privileged')} s for privileged accounts, and the owner "
+                f"can cancel during it. In this public demo: {demo_co.get('default')} s and "
+                f"{demo_co.get('privileged')} s, so visitors don't wait. An owner's approval of a change to their own "
+                f"account runs at once.",
                 "Who approves for whom is a managed attribute nobody can edit through the admin API, the broker included."],
             "built_into_the_gate": [
                 "Every approval is a single-use receipt bound to the run, the operation, the user and a hash of the exact "
@@ -1226,8 +1231,9 @@ def ap_policy_doc() -> dict:
                       "deleting, no supplier, invoice or payment edits.",
                       "ERPNext's own change log (its Version records), read by a separate user, is the record of what "
                       "changed.",
-                      f"One decline freezes further changes for that supplier for "
-                      f"{pack.get('decline_tripwire_seconds', 0)//3600} hours."]}
+                      f"One decline freezes further agent-driven changes for that supplier for "
+                      f"{pack.get('decline_tripwire_seconds', 0)//3600} hours (it expires on its own; payment runs and "
+                      f"reads continue)."]}
 
 
 def create_demo_app(demo: Demo) -> FastAPI:

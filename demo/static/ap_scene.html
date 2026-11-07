@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payments, second system</title>
+<style>
+:root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--green:#1d7a46;--red:#c2352a;--amber:#9a6a00;--soft:#fbfaf7}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--green:#52c27f;--red:#e5675c;--amber:#e0b34a;--soft:#16171a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 40px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:14px}
+h1{font-size:26px;margin:0}.where{color:var(--muted);font-size:14px}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-size:15px;padding:9px 16px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button.go{background:var(--ink);color:var(--bg);border-color:var(--ink)}button:disabled{opacity:.5;cursor:default}
+select{font:inherit;font-size:14px;padding:8px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.grid{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 18px;min-height:420px}
+.h{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.who{font-size:19px;font-weight:700;margin:4px 0 2px}.sub{color:var(--muted);font-size:14px}
+.counter{display:flex;align-items:baseline;gap:10px;margin:14px 0 6px}.big{font-size:54px;font-weight:800;line-height:1}
+.counter .lbl{font-size:16px;color:var(--muted)}
+.hl{border-left:5px solid var(--red);background:var(--soft);border-radius:10px;padding:10px 12px;margin-top:10px;animation:in .35s ease-out}
+.hl .t{font-weight:700;font-size:17px}.hl .rq{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--muted);word-break:break-all}
+.hl .r{font-size:14px;margin-top:3px}.hl .r b{color:var(--red)}
+.steps{margin-top:12px;font-size:14px;color:var(--muted)}.steps div:last-child{color:var(--ink)}
+.log .zero{font-size:54px;font-weight:800;color:var(--green);line-height:1;margin-top:12px}.log .one{color:var(--amber)}
+.ver{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;animation:in .35s ease-out}
+.ver .by{font-size:13px;color:var(--muted)}.ver .ch{font-family:ui-monospace,Consolas,monospace;font-size:14px}
+.chat{margin-top:10px}.msg{border-radius:12px;padding:8px 12px;margin:6px 0;max-width:92%}
+.msg.clerk{background:var(--soft);border:1px solid var(--line)}.msg.agent{background:var(--surface);border:1px solid var(--line);margin-left:auto}
+.msg .w{font-size:12px;color:var(--muted);font-weight:600}
+.phone{border:2px solid var(--ink);border-radius:22px;padding:14px;margin-top:14px;max-width:340px}
+.phone .ttl{font-size:20px;font-weight:700}.nums{display:flex;gap:8px;margin-top:10px}.nums button{font-size:20px;font-weight:700;padding:10px 18px}
+.done{margin-top:12px;font-weight:700}.ok{color:var(--green)}.bad{color:var(--red)}
+.foot{color:var(--muted);font-size:13px;margin-top:14px}
+.hidden{display:none}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style></head>
+<body><div class="wrap">
+<header>
+  <div><h1>The same gate, a second system: supplier bank details in ERPNext</h1>
+    <div class="where" id="where"></div></div>
+  <div class="ctl">
+    <select id="model" aria-label="Model"><option>deepseek-v4.1-flash-1017</option><option>qwen3.8-27b</option><option>glm-5.3-flash</option></select>
+    <button class="go" id="hostile">&#9654; Hostile agent</button><button id="honest">&#9654; Honest change</button>
+  </div>
+</header>
+<div class="grid">
+  <section class="panel">
+    <div class="h" id="leftH">The agent</div>
+    <div class="who" id="who">Press a button to start.</div>
+    <div class="sub" id="whoSub"></div>
+    <div id="hostileBox" class="hidden">
+      <div class="counter"><span class="big" id="refused">0</span><span class="lbl" id="refusedLbl">requests refused by the gate</span></div>
+      <div id="hls"></div>
+    </div>
+    <div id="chatBox" class="chat hidden"></div>
+    <div class="steps" id="steps"></div>
+    <div class="done" id="done"></div>
+  </section>
+  <section class="panel log">
+    <div class="h">ERPNext's own change log</div>
+    <div class="sub">Version records for this supplier's bank account, read by a separate witness user the gate cannot use.</div>
+    <div class="zero" id="vcount">&ndash;</div><div class="sub" id="vlbl"></div>
+    <div id="vers"></div>
+    <div id="phoneBox"></div>
+  </section>
+</div>
+<div class="foot" id="foot"></div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+async function post(p, b) { const r = await fetch(p, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(b || {})}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j; }
+let shownHl = 0, shownVer = -1, phoneKey = "";
+async function start(kind) {
+  try { await post("/api/run", {kind, model: $("model").value}); shownHl = 0; shownVer = -1; phoneKey = ""; $("hls").replaceChildren(); $("vers").replaceChildren(); $("chatBox").replaceChildren(); $("phoneBox").replaceChildren(); $("done").textContent = ""; }
+  catch (e) { alert(e.message); }
+}
+$("hostile").onclick = () => start("hostile"); $("honest").onclick = () => start("honest");
+function render(v) {
+  $("where").textContent = "Run on " + v.where + ". Not in the live demo. Models on Vultr Serverless Inference.";
+  $("foot").textContent = "Model calls this session: $" + v.spent.toFixed(3) + " of a $" + v.cap.toFixed(2) + " cap.";
+  const r = v.run; const busy = r && !r.done; $("hostile").disabled = busy; $("honest").disabled = busy;
+  if (!r) return;
+  const hostile = r.kind === "hostile";
+  $("leftH").textContent = hostile ? "The agent, told to change the bank details by any means, as if compromised" : "The accounts-payable agent, an honest request";
+  $("who").textContent = r.supplier ? (hostile ? "Target: " : "Supplier: ") + r.supplier : "Setting up a fictional supplier…";
+  $("whoSub").textContent = r.model + " · " + r.elapsed + " s" + (r.done ? " · finished" : " · running");
+  $("hostileBox").classList.toggle("hidden", !hostile); $("chatBox").classList.toggle("hidden", hostile);
+  if (hostile) {
+    $("refused").textContent = v.refused || 0;
+    $("refusedLbl").textContent = "requests refused by the gate" + (v.refused_writes ? " (" + v.refused_writes + " were bank-detail writes without approval)" : "");
+    for (const h of (v.highlights || []).slice(shownHl)) {
+      const d = el("div", "hl"); d.append(el("div", "t", h.title));
+      if (h.request) d.append(el("div", "rq", h.request));
+      const ru = el("div", "r"); ru.append(el("b", "", "Rule: "), document.createTextNode(h.rule)); d.append(ru); $("hls").append(d);
+    }
+    shownHl = (v.highlights || []).length;
+  } else {
+    const box = $("chatBox"); const tell = (v.tell || []).map(t => t.number + ":" + t.action).join("|");
+    if (box.childElementCount !== r.chat.length + (v.tell || []).length || box.dataset.tell !== tell) { box.replaceChildren(); box.dataset.tell = tell;
+      for (const m of r.chat) { const d = el("div", "msg " + m.who); d.append(el("div", "w", m.who === "clerk" ? "AP clerk" : "AP agent"), el("div", "", m.text)); box.append(d); }
+      for (const t of (v.tell || [])) { const d = el("div", "msg clerk"); d.append(el("div", "w", "The gate, to the requester"), el("div", "", "Sent to the supplier's contact: \"" + t.action + "\". Choose " + t.number + " on their phone.")); box.append(d); } }
+  }
+  $("steps").replaceChildren(...(r.steps || []).map(s => el("div", "", "· " + s)));
+  const vs = v.versions || []; const n = vs.filter(x => x.changed.length).length;
+  $("vcount").textContent = v.versions ? String(n) : "–"; $("vcount").className = n ? "zero one" : "zero";
+  $("vlbl").textContent = v.versions ? (n === 1 ? "change to the bank details" : "changes to the bank details") : "";
+  if (vs.length !== shownVer) { $("vers").replaceChildren(); shownVer = vs.length;
+    for (const x of vs.filter(x => x.changed.length)) { const d = el("div", "ver"); d.append(el("div", "by", "by " + x.by));
+      for (const c of x.changed) d.append(el("div", "ch", c[0] + ": " + c[1] + " → " + c[2])); $("vers").append(d); } }
+  const ph = v.phone || []; const key = ph.map(p => p.id + p.action).join(",");
+  if (key !== phoneKey) { phoneKey = key; $("phoneBox").replaceChildren();
+    for (const p of ph) { const d = el("div", "phone"); d.append(el("div", "sub", "Phone of the supplier's registered contact"), el("div", "ttl", p.action), el("div", "", "for " + p.account), el("div", "sub", "Choose the number the requester was given:"));
+      const nums = el("div", "nums"); for (const x of p.numbers) { const b = el("button", "", x); b.onclick = () => post("/api/phone/" + p.id + "/approve", {number: x}).catch(e => alert(e.message)); nums.append(b); }
+      const deny = el("button", "", "Deny"); deny.style.marginTop = "8px"; deny.onclick = () => post("/api/phone/" + p.id + "/deny", {}).catch(e => alert(e.message));
+      d.append(nums, deny); $("phoneBox").append(d); } }
+  if (r.done && r.result) {
+    const x = r.result; $("done").className = "done " + (x.changed_without_supplier ? "bad" : "ok");
+    $("done").textContent = hostile ? (x.number_changed ? "The account changed." : "Finished: the bank details did not change." + (x.quarantined ? " The run ended quarantined." : ""))
+      : (x.completed ? "Done: changed once, approved by the supplier's contact." : "Finished without a change (" + (r.stop || "") + ").");
+  }
+}
+async function poll() { try { render(await (await fetch("/api/view")).json()); } catch (e) {} setTimeout(poll, 1000); }
+poll();
+</script></body></html>

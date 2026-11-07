@@ -180,7 +180,11 @@ class ERPAdmin:
 
 
 def run_one(spec: dict, svc: Services, erp_base: str, adm: ERPAdmin, gate_tok: str, wit_tok: str,
-            docker_host: str | None, out_dir: str, cap_left) -> dict:
+            docker_host: str | None, out_dir: str, cap_left, on_event=None, on_ready=None,
+            manual_contact: bool = False) -> dict:
+    """on_event / on_ready / manual_contact: hooks for the filmed payments scene (demo/ap_scene.py, mentor 11-07), all
+    off by default, so measured runs are unchanged: on_event streams the agent's steps, on_ready reports the run's
+    supplier/account/push app once set up, manual_contact leaves the contact's phone to a person instead of PhoneBot."""
     rid, arm = spec["run_id"], spec["arm"]
     S = SUITES[spec.get("suite", "v1")]
     mode, contact_profile = S["arms"][arm]
@@ -220,8 +224,11 @@ def run_one(spec: dict, svc: Services, erp_base: str, adm: ERPAdmin, gate_tok: s
         svc.push.register(realm, push)
         from fastapi.testclient import TestClient
         prof = contact_profile if contact_profile != "absent_or_decline" else ["absent", "decline"][spec["i"] % 2]
-        bot = PhoneBot(TestClient(push), {CONTACT: prof}).start()
+        bot = None if manual_contact else PhoneBot(TestClient(push), {CONTACT: prof}).start()
         ask, ticket = letter(supplier, new_no, honest, S["letter"])
+        if on_ready:
+            on_ready({"rid": rid, "supplier": supplier, "account": account_name, "old_no": old_no, "new_no": new_no,
+                      "ledger": ledger.path, "push": push, "contact": CONTACT, "ask": ask})
         prompt = AP_LIGHT
         if is_hostile(S, arm):
             prompt, ask = hostile_prompt(supplier, new_no), "Begin the test."
@@ -267,7 +274,8 @@ def run_one(spec: dict, svc: Services, erp_base: str, adm: ERPAdmin, gate_tok: s
                 time.sleep(1.5)
             return None
         res = run_ticket(llm, runner, rid, ask, ledger.path, prompt=prompt, help_doc=help_doc,
-                         on_reply=on_reply, max_turns=S["max_turns"], interject=interject)
+                         on_reply=on_reply, max_turns=S["max_turns"], interject=interject,
+                         **({"on_event": on_event} if on_event else {}))
         rec["clerk_spoke"] = said
         with svc.lock:
             svc.spent += llm.spent
@@ -276,7 +284,8 @@ def run_one(spec: dict, svc: Services, erp_base: str, adm: ERPAdmin, gate_tok: s
         with open(os.path.join(out_dir, f"{rid}.transcript.json"), "w", encoding="utf-8") as f:
             json.dump({"transcript": res.transcript, "replies": res.replies}, f, ensure_ascii=False)
         time.sleep(1.0)
-        bot.stop()
+        if bot:
+            bot.stop()
         app.state.close_run(rid)
         versions = adm.versions(account_name, wit_tok)
         by_gate = [v for v in versions if v["owner"].startswith("ap-gate")]

@@ -2,9 +2,17 @@
 
 **Authorization is not a model output.** An AI help desk whose agent can be fooled and still cannot change an account: the account owner approves the exact change on their own phone, and the identity server's own log keeps the score.
 
-For IT service desks and accounts-payable teams that want an AI agent doing real work without letting a convincing caller or a hijacked agent reset an executive's password or redirect a supplier's payments.
-
 Live on Vultr: **https://136-244-91-162.sslip.io/** (no login; a fictional company is created for you and deleted afterwards).
+
+## Why this exists
+
+The help desk is how attackers get in. The US CISA and FBI advisory on Scattered Spider ([AA23-320A](https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a), updated July 2025) says they "posed as employees to convince IT and/or helpdesk staff to ... reset the employee's password, and transfer the employee's MFA to a device they control." Caesars' 8-K (September 2023) describes a "social engineering attack on an outsourced IT support vendor". Clorox, in its lawsuit against its outsourced service desk (filed July 2025), alleges passwords and MFA were reset "without any identity verification at all". The UK NCSC (May 2025) asks organisations to review how their help desks reset accounts.
+
+Companies are now putting AI agents on those same desks: ServiceNow announced its purchase of Moveworks, an AI help-desk agent company, at $2.85 billion in March 2025. An AI agent can be talked into it like a person can: in our measurement, without a gate, the agent made an unsafe account change in up to 44.7% of attack runs (one model with a light prompt; 0.5% at best).
+
+Payments have the same weakness. Most business email compromise impersonates an outside party, usually a vendor (61% in Abnormal Security's data, about 800,000 attacks, second half of 2025), and the standard defence is to confirm a bank change with a contact already on file (UK National Crime Agency guidance). Rightful turns that habit into a requirement the agent cannot skip.
+
+**Who it is for:** IT service desks and the MSPs that run them, as they add AI agents; accounts-payable teams; identity and security teams who must answer "what can the agent change on its own?" The answer here: nothing that changes an account or a bank detail. The approval uses an OpenID standard for out-of-band login (CIBA), which Auth0 documents for AI agents and Okta supports through a custom authenticator, so the same design can sit on identity systems companies already run.
 
 | Vultr product | Role here |
 |---|---|

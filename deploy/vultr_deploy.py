@@ -579,8 +579,94 @@ def eval_fetch() -> None:
     print("fetched to", out)
 
 
+# --- the payments replication VM (eval/PREREG-ap3.md): one temporary machine, never the live demo's ------------------
+AP_PLAN = "vc2-4c-8gb"                                # ERPNext + Keycloak + gVisor sandboxes on one box
+AP_PWD_YML = os.environ.get("KEYLESS_AP_PWD_YML", "")   # frappe_docker's pwd.yml with the port bound to 127.0.0.1:8095
+
+
+def ap_vm_up() -> None:
+    s = load()
+    if not s.get("ssh_key") or not s.get("vpc"):
+        sys.exit("no SSH key / VPC in the state file")
+    if not AP_PWD_YML or not os.path.exists(AP_PWD_YML):
+        sys.exit("set KEYLESS_AP_PWD_YML to the local pwd.yml")
+    if not s.get("ap_vm"):
+        w = call("POST", "/instances", {"region": REGION, "plan": AP_PLAN, "os_id": OS_ID,
+                                        "label": "keyless-ap-replication", "hostname": "keyless-ap-replication",
+                                        "sshkey_id": [s["ssh_key"]], "backups": "disabled", "attach_vpc": [s["vpc"]],
+                                        "tags": ["keyless", "keyless-ap"]})["instance"]
+        s.update({"ap_vm": w["id"], "ap_vm_created": time.time()})   # tracked AT ONCE, so ap-vm-down always finds it
+        save(s)
+        print("created", w["id"])
+    inst = wait_instance(s["ap_vm"])
+    s["ap_vm_ip"] = inst["main_ip"]
+    s.setdefault("ap_kc_pw", secrets.token_urlsafe(18))
+    save(s)
+    ip = s["ap_vm_ip"]
+    wait_ssh(ip)
+    scp(ip, tarball(), "/root/keyless.tgz")
+    scp(ip, AP_PWD_YML, "/root/pwd.yml")
+    script = open(os.path.join(ROOT, "deploy", "ap_vm.sh"), encoding="utf-8").read()
+    r = ssh(ip, "bash -s", input_text=f"export KC_ADMIN_PW='{s['ap_kc_pw']}'\n" + script, timeout=3600)
+    print("\n".join(l for l in r.stdout.splitlines() if l.startswith(("===", "PASS", "FAIL", "ALL", "runsc", "keycloak",
+                                                                       "erpnext", "release", "FAILED"))))
+    if "AP VM OK" not in r.stdout:
+        print(r.stderr[-1500:])
+        sys.exit("AP VM setup FAILED (the VM still exists: ap-vm-down removes it)")
+    key_line = next(l.strip() for l in open(os.path.join(ROOT, ".env"), encoding="utf-8")
+                    if l.startswith("VULTR_INFERENCE_API_KEY="))
+    ssh(ip, "umask 077; cat > /opt/keyless/eval.env; chmod 600 /opt/keyless/eval.env",
+        input_text=f"{key_line}\nKC_ADMIN_PASSWORD={s['ap_kc_pw']}\nPYTHONIOENCODING=utf-8\nKEYLESS_EVAL=1\n")
+    print(f"AP VM ready ({AP_PLAN}, ${HOURLY[AP_PLAN]}/h); ERPNext on the VM's 127.0.0.1:8095 (ssh tunnel to film)")
+
+
+def ap_vm_start(cmd: str, cap: str) -> None:
+    s = load()
+    ip = s["ap_vm_ip"]
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True,
+                            text=True).stdout.strip()
+    r = ssh(ip, f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_COMMIT={commit} && "
+                f"nohup .venv/bin/python -W ignore -m eval.ap_setup {cmd} --suite replicate --cap {float(cap)} "
+                f"--hosts ssh://root@127.0.0.1 --per-host 3 --bind 172.17.0.1 --edge-upstream http://172.17.0.1:8090 "
+                f"--out /var/lib/keyless/eval/ap-vultr > /var/lib/keyless/eval/ap-{cmd}.log 2>&1 & echo started")
+    print(r.stdout.strip(), "commit", commit)
+
+
+def ap_vm_log(cmd: str = "run") -> None:
+    s = load()
+    print(ssh(s["ap_vm_ip"], f"tail -n 25 /var/lib/keyless/eval/ap-{cmd}.log").stdout)
+
+
+def ap_vm_fetch() -> None:
+    s = load()
+    out = os.path.join(ROOT, "eval", "out")
+    ssh(s["ap_vm_ip"], "cd /var/lib/keyless/eval && tar -czf /root/ap-out.tgz ap-vultr* ap-*.log")
+    kh = os.path.join(STATE_DIR, "known_hosts")
+    subprocess.run(["scp", "-q", "-i", os.path.join(STATE_DIR, "id_ed25519"), "-o", "StrictHostKeyChecking=no",
+                    "-o", f"UserKnownHostsFile={kh}", f"root@{s['ap_vm_ip']}:/root/ap-out.tgz",
+                    os.path.join(out, "ap-vultr-out.tgz")], check=True, timeout=1800)
+    with tarfile.open(os.path.join(out, "ap-vultr-out.tgz")) as t:
+        t.extractall(out)
+    print("fetched to", out)
+
+
+def ap_vm_down() -> None:
+    s = load()
+    if not s.get("ap_vm"):
+        print("no AP VM in the state file")
+        return
+    call("DELETE", f"/instances/{s['ap_vm']}")
+    print(f"deleted the AP VM (lived {(time.time() - s.get('ap_vm_created', time.time())) / 3600:.2f} h)")
+    for k in ("ap_vm", "ap_vm_ip", "ap_vm_created", "ap_kc_pw"):
+        s.pop(k, None)
+    save(s)
+
+
 def down() -> None:
     s = load()
+    if s.get("ap_vm"):
+        ap_vm_down()
+        s = load()
     if s.get("fleet"):
         fleet_down()
         s = load()
@@ -616,8 +702,13 @@ def down() -> None:
 if __name__ == "__main__":
     cmds = {"up": up, "provision": provision, "status": status, "recycle-worker": recycle_worker, "down": down,
             "fleet-down": fleet_down, "eval-setup": eval_setup, "eval-fetch": eval_fetch, "demo-deploy": demo_deploy, "fleet-sync": fleet_sync,
-            "counter-archive": counter_archive}
-    if sys.argv[1] == "fleet":
+            "counter-archive": counter_archive, "ap-vm-up": ap_vm_up, "ap-vm-fetch": ap_vm_fetch,
+            "ap-vm-down": ap_vm_down}
+    if sys.argv[1] == "ap-vm-start":
+        ap_vm_start(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "ap-vm-log":
+        ap_vm_log(*(sys.argv[2:3]))
+    elif sys.argv[1] == "fleet":
         fleet(int(sys.argv[2]))
     elif sys.argv[1] == "eval-start":
         eval_start(sys.argv[2], sys.argv[3], *(sys.argv[4:5]))

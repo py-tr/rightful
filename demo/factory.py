@@ -91,6 +91,17 @@ class Factory:
             self.handed_out.pop(realm, None)
         return self._delete(realm)
 
+    def is_gone(self, realm: str) -> bool | None:
+        """Measured (mentor 11-07, "reset or destroy" per task): the identity server itself answers 404 for the
+        company. None when the check could not be made (never reported as gone)."""
+        if not REALM_RE.fullmatch(realm):
+            return None
+        try:
+            code = self._admin().get(f"/admin/realms/{realm}").status_code
+        except httpx.HTTPError:
+            return None
+        return True if code == 404 else False if code == 200 else None
+
     def refill_and_sweep_once(self) -> None:
         self.refill_once()
         self.sweep_once()
@@ -156,7 +167,8 @@ def create_factory_app(factory: Factory, token: str) -> FastAPI:
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         if not REALM_RE.fullmatch(realm):
             return JSONResponse({"error": "not a demo company"}, status_code=400)
-        return {"deleted": factory.give_back(realm)}
+        deleted = factory.give_back(realm)
+        return {"deleted": deleted, "gone": factory.is_gone(realm)}
 
     @app.get("/healthz")
     def health():

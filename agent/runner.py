@@ -50,10 +50,14 @@ class DockerRunner:
     def __init__(self, run_id: str, ticket_text: str, upstream: str = "http://host.docker.internal:8090",
                  task_image: str = "keyless-task:dev", edge_image: str = "keyless-edge:dev", runtime: str | None = None,
                  timeout_s: int = 120, memory: str = "256m", probe_targets: dict | None = None,
-                 run_key: str | None = None, realm: str | None = None, docker_host: str | None = None):
+                 run_key: str | None = None, realm: str | None = None, docker_host: str | None = None,
+                 track_lifecycle: bool = False):
         """run_key: this task's edge key, runkey.task_key(master, run_id), derived by the control plane. The edge signs
         every request with it; the broker refuses unsigned run ids when it has a master key (always, in deployment).
-        realm: the realm the SDK addresses (default 'corp'; the evaluation uses a scratch realm 'eval-...')."""
+        realm: the realm the SDK addresses (default 'corp'; the evaluation uses a scratch realm 'eval-...').
+        track_lifecycle (the public demo only; mentor 11-07, "make the containment bullets measured"): record each
+        script's container id from Docker and check afterwards, on the Docker host, that the container no longer
+        exists. Off for the evaluation, whose runner stays exactly as measured."""
         import re as _re
         self.run_id, self.run_key = run_id, run_key
         if realm:
@@ -85,6 +89,9 @@ class DockerRunner:
                 f.write(ticket_text)
         self.n = 0
         self.containers: list[str] = []
+        self.track_lifecycle = track_lifecycle
+        self.lifecycle: list[dict] = []                # per script: {"script", "id", "exit", "gone"} (measured)
+        self._checks: list = []
 
     def _remote(self, cmd: str, input_text: str | None = None) -> subprocess.CompletedProcess:
         data = input_text.encode("utf-8") if input_text is not None else None
@@ -157,13 +164,65 @@ class DockerRunner:
         self.n += 1
         name = f"kl-task-{self.tag}-{self.n}"
         self.containers.append(name)
+        cidfile = None
+        extra: list[str] = []
+        if self.track_lifecycle:                       # the Docker CLI writes the new container's id here (client side)
+            cidfile = os.path.join(tempfile.gettempdir(), f"kl-cid-{self.tag}-{self.n}-{os.getpid()}")
+            with contextlib.suppress(OSError):
+                os.remove(cidfile)                     # --cidfile refuses an existing file
+            extra = ["--cidfile", cidfile]
         try:
-            p = self._docker(*self._sandbox_args(name), self.task_image, *self.CLEAN_ENV, self.PY, "-",
+            p = self._docker(*self._sandbox_args(name), *extra, self.task_image, *self.CLEAN_ENV, self.PY, "-",
                              input_text=code, timeout=self.timeout)
-            return p.returncode, p.stdout[-4000:], p.stderr[-2000:]
+            rc, out, err = p.returncode, p.stdout[-4000:], p.stderr[-2000:]
         except subprocess.TimeoutExpired:
             self._docker("rm", "-f", name)
-            return 124, "", f"timeout after {self.timeout} s: container destroyed"
+            rc, out, err = 124, "", f"timeout after {self.timeout} s: container destroyed"
+        if cidfile:
+            self._track(cidfile, rc)
+        return rc, out, err
+
+    def _track(self, cidfile: str, rc: int) -> None:
+        cid = ""
+        with contextlib.suppress(OSError):
+            with open(cidfile, encoding="utf-8") as f:
+                cid = f.read().strip()
+            os.remove(cidfile)
+        entry = {"script": self.n, "id": cid[:12], "exit": rc, "gone": None}
+        self.lifecycle.append(entry)
+        if not cid:
+            return
+        import threading
+
+        def check():                                   # measured on the Docker host, never assumed from --rm
+            import time as _t
+            for attempt in range(3):                   # --rm removal can trail the CLI's return by a moment
+                try:
+                    q = self._docker("inspect", "--format", "{{.Id}}", cid, timeout=30)
+                except Exception:                      # noqa: BLE001  unknown stays unknown, never "gone"
+                    entry["gone"] = None
+                    return
+                if q.returncode == 0:
+                    entry["gone"] = False              # Docker still lists it
+                elif "no such" in (q.stderr or "").lower():
+                    entry["gone"] = True               # Docker on the host: no such container
+                    return
+                else:
+                    entry["gone"] = None               # the check itself failed: unknown, not "gone"
+                    return
+                _t.sleep(1.0)
+        t = threading.Thread(target=check, daemon=True)
+        t.start()
+        self._checks.append(t)
+
+    def lifecycle_report(self, wait_s: float = 20.0) -> list[dict]:
+        """Each script's container id and whether Docker on the host says it no longer exists (True), still exists
+        (False) or could not be checked (None)."""
+        import time as _t
+        end = _t.time() + wait_s
+        for t in self._checks:
+            t.join(timeout=max(0.0, end - _t.time()))
+        return [dict(e) for e in self.lifecycle]
 
     def probe(self) -> dict:
         import json as _json

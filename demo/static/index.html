@@ -132,7 +132,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
     <p class="sub">An AI help desk that can be fooled and still cannot change an account.</p></div>
   <div class="counters">
     <div class="counter" id="cRightBox"><span class="big zero" id="cWithout">0</span> account changes without the owner's approval
-      <small id="cDetail">with Rightful, from the identity server's own log</small></div>
+      <small id="cDetail">with Rightful, from the identity server's own log</small>
+      <small id="cDeleted" class="hidden"></small></div>
     <div class="counter hidden" id="cLeftBox"><span class="big bad" id="cLeft">0</span> takeovers in the unprotected column
       <small id="cLeftDetail">attack runs where the caller got Jordan's temporary password, from each company's identity-server log</small>
       <small id="cLeftArch" class="hidden"></small></div>
@@ -305,6 +306,7 @@ function renderCounter(c) {
   $("cWithout").textContent = c.without_approval; $("cWithout").className = "big " + (c.without_approval ? "bad" : "zero");
   const pl = (n, one, many) => n + " " + (n === 1 ? one : many);
   $("cDetail").textContent = "with Rightful, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
+  const d = c.deletions; if (d && d.deleted) { $("cDeleted").textContent = pl(d.deleted, "company", "companies") + " deleted when their session ended; the identity server confirmed " + d.confirmed_gone + " of " + d.deleted + " gone" + (d.unchecked ? " (" + d.unchecked + " not checked)" : "") + (d.still_there ? " (" + d.still_there + " still there)" : "") + "."; $("cDeleted").classList.remove("hidden"); }
   if (c.left) { $("cLeft").textContent = c.left.without_approval; $("cLeft").className = "big " + (c.left.without_approval ? "bad" : "zero");
     $("cLeft").textContent = c.left.taken_over || 0; $("cLeft").className = "big " + (c.left.taken_over ? "bad" : "zero");
     $("cLeftDetail").textContent = "in " + pl(c.left.attack_runs || 0, "attack run", "attack runs") + " by visitors (the caller got Jordan's temporary password); " + pl(c.left.without_approval, "account change", "account changes") + " without the owner's approval in all; from each company's identity-server log";
@@ -356,6 +358,7 @@ function render(c, e) {
     chat.append(d); return; }
   if (e.who === "phone") { const d = el("div", "ph"); const t = e.text.split(String(e.number));
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
+  if (e.who === "sandbox") { const d = el("div", "sys"); d.append(el("div", "h", "Sandboxes (measured)"), el("div", "", e.text)); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
     const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d);
     return; }
@@ -366,7 +369,7 @@ function render(c, e) {
     const G = c.group; G.n += 1;
     const wrap = el("div"); const d = el("div", "line"); d.append(el("span", "dot")); const t = el("span", "", e.text + " ");
     const v = el("a", "", "view"); const pre = el("pre", "code hidden");
-    v.onclick = () => { pre.textContent = "# the script\n" + (e.code || "") + "\n\n# what it printed\n" + (e.output || "(still running)"); pre.classList.toggle("hidden"); };
+    v.onclick = () => { pre.textContent = (e.container ? "# ran in container " + e.container + " (a new one for this script)\n" : "") + "# the script\n" + (e.code || "") + "\n\n# what it printed\n" + (e.output || "(still running)"); pre.classList.toggle("hidden"); };
     t.append(v); d.append(t); wrap.append(d, pre); G.body.append(wrap);
     G.ht.textContent = e.text.replace(/ \(script \d+ in a fresh sandbox\)/, "") + " "; label(G); return; }
   const d = el("div", "line"); d.append(el("span", "dot"), el("span", "", e.text)); chat.append(d);

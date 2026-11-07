@@ -76,11 +76,14 @@ class FactoryClient:
         r = self.http.post("/companies", params={"unprotected": "true" if unprotected else "false"})
         return r.json() if r.status_code == 200 else None
 
-    def give_back(self, realm: str) -> None:
+    def give_back(self, realm: str) -> bool | None:
+        """Deletes the company; returns what the identity server answered afterwards: True = gone (404), False = still
+        there, None = not checked."""
         try:
-            self.http.delete(f"/companies/{realm}")
-        except httpx.HTTPError:
-            pass
+            r = self.http.delete(f"/companies/{realm}")
+            return r.json().get("gone") if r.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            return None
 
 
 @dataclass
@@ -193,14 +196,42 @@ class Demo:
         if s.stack is not None:
             self.archive(s, why)                      # BEFORE the company is deleted: the counter never loses it
             self.push.unregister(s.stack.realm)
-            self.factory.give_back(s.stack.realm)
+            self._delete_company(s.stack.realm, s.team)
 
     def end_twin(self, t: Session, why: str) -> None:
         t.alive = False
         if t.stack is not None:
             self.archive(t, why)
             self.push.unregister(t.stack.realm)
-            self.factory.give_back(t.stack.realm)
+            self._delete_company(t.stack.realm, t.team)
+
+    def _delete_company(self, realm: str, team: bool = False) -> bool | None:
+        """Delete the visitor's company and record what the identity server answered afterwards (mentor 11-07: the
+        "reset or destroy" clause, measured, not asserted)."""
+        gone = self.factory.give_back(realm)
+        rec = {"t": round(time.time(), 1), "realm": realm, "gone": gone, **({"team": True} if team else {})}
+        try:
+            with self.lock, open(os.path.join(self.out_dir, "deletions.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+        except OSError:
+            pass
+        return gone
+
+    def deletions(self) -> dict:
+        """Companies deleted at the end of their session, and how many the identity server confirmed gone."""
+        out = {"deleted": 0, "confirmed_gone": 0, "still_there": 0, "unchecked": 0}
+        p = os.path.join(self.out_dir, "deletions.jsonl")
+        if not os.path.exists(p):
+            return out
+        for line in open(p, encoding="utf-8"):
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            out["deleted"] += 1
+            g = r.get("gone")
+            out["confirmed_gone" if g is True else "still_there" if g is False else "unchecked"] += 1
+        return out
 
     def compare(self, s: Session, on: bool) -> None:
         if on and s.twin is None:
@@ -579,7 +610,8 @@ class Demo:
             runner = DockerRunner(rid, s.ticket, upstream=self.edge_upstream, run_key=runkey.task_key(self.master, rid),
                                   realm=stack.realm, docker_host=host, timeout_s=100,   # > a push's 60 s life:
                                   # at 60 a script that waits on the phone was killed before it saw the answer (11-05)
-                                  runtime="runsc" if (host or "").startswith("ssh://") else None).start()
+                                  runtime="runsc" if (host or "").startswith("ssh://") else None,
+                                  track_lifecycle=True).start()
             if s.mode != "agent_decides" and not s.strip:       # the run strip: measured once per visitor, in the
                 prober = threading.Thread(target=self._measure_strip, args=(s, runner), daemon=True)   # background
                 prober.start()
@@ -610,6 +642,9 @@ class Demo:
                                 ev["output"] = (data.get("stdout", "") + ("\n" + data["stderr"] if data.get("stderr")
                                                                           else ""))[-3000:]
                                 ev["exit"] = data.get("exit")
+                                lc = getattr(runner, "lifecycle", None)
+                                if lc:                 # this script's container, as Docker named it (measured)
+                                    ev["container"] = lc[-1].get("id")
                                 break
                 elif kind == "reply":
                     s.typing = False
@@ -690,6 +725,8 @@ class Demo:
                     if (c.id, "expired") not in s.narrated:    # said before the summary, not after it
                         self._narrate(s, {"kind": "challenge", "data": {"challenge": c.id, "status": "expired"}})
             self.summarize(s, rid)
+            if s.mode != "agent_decides":
+                self._lifecycle_line(s, runner)
         except Refused as e:
             self.emit(s, "status", e.reason)
         except Exception as e:                         # noqa: BLE001  never a stack trace to the visitor
@@ -709,6 +746,42 @@ class Demo:
             self.limits.settle_ticket(budget_sid, reserved, spent)
             s.conversations += 1
             s.busy = False
+
+    def _lifecycle_line(self, s: Session, runner) -> None:
+        """Mentor 11-07: the brief's "resource caps and environment reset/destroy per task", MEASURED per script: each
+        container's id (different every time), that Docker on the host no longer has it, the limits read from inside
+        the sandbox; the timeout is labelled as set, because it is configuration, not a measurement."""
+        try:
+            rep = runner.lifecycle_report()
+        except Exception:                              # noqa: BLE001
+            return
+        if not rep:
+            return
+        ids = [r["id"] for r in rep if r.get("id")]
+        gone = sum(1 for r in rep if r.get("gone") is True)
+        unknown = sum(1 for r in rep if r.get("gone") is None)
+        n = len(rep)
+        parts = [f"{n} script{'s' if n != 1 else ''} ran in {len(set(ids))} new container{'s' if len(set(ids)) != 1 else ''}"
+                 + (f" ({', '.join(ids[:4])}{', …' if len(ids) > 4 else ''})" if ids else ""),
+                 f"{gone} of {n} confirmed gone afterwards (Docker on the {'worker' if runner.remote else 'host'} "
+                 f"reports no such container)" + (f"; {unknown} could not be checked" if unknown else "")]
+        cm = (s.strip or {}).get("caps_measured") or {}
+        lim = []
+        if cm.get("memory_limit_mb"):
+            lim.append(f"memory {cm['memory_limit_mb']} MB")
+        if cm.get("pids_limit"):
+            lim.append(f"{cm['pids_limit']} processes")
+        if cm.get("cpu_max"):                          # cgroup cpu.max "quota period", e.g. "50000 100000" = 0.5 CPU
+            q = str(cm["cpu_max"]).split()
+            try:
+                lim.append(f"{int(q[0]) / int(q[1]):g} CPU")
+            except (ValueError, IndexError, ZeroDivisionError):
+                lim.append(f"CPU {cm['cpu_max']}")
+        if lim:
+            parts.append("limits read inside the sandbox: " + ", ".join(lim))
+        parts.append(f"time limit {runner.timeout} s per script (set by the runner)")
+        self.emit(s, "sandbox", "; ".join(parts) + ".", scripts=n, containers=len(set(ids)), gone=gone,
+                  unknown=unknown, ids=ids)
 
     def _measure_strip(self, s: Session, runner) -> None:
         """The run strip (council 7 + mentor, 11-06): only MEASURED values from inside a sandbox started exactly like the
@@ -1019,7 +1092,7 @@ class Demo:
                             f"runs (archived {a['date']}, kept in counter-archived.jsonl).")
             except (OSError, ValueError, KeyError):
                 archived = None
-        return {"since": self.counter_since, **tot, "left": left, "archived": archived}
+        return {"since": self.counter_since, **tot, "left": left, "archived": archived, "deletions": self.deletions()}
 
 
 def setup_fingerprint() -> str:

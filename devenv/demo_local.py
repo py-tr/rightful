@@ -130,6 +130,8 @@ def main() -> int:
                                                                                   ("kernel", "gvisor", "model")})
         return {"answered": answered, "verdicts": verdicts, "sources": sources, "tiles": tiles, "strip": strip,
                 "rules": [e["rule"] for e in evs if e.get("rule")],
+                "sandbox": [e for e in evs if e["who"] == "sandbox"],
+                "step_containers": [e.get("container") for e in evs if e["who"] == "step"],
                 "restart_offered": any(e["who"] == "explain" and e.get("restart") for e in evs),
                 "wrong_number_line": any(e["text"].startswith("Wrong number: request declined") for e in evs)}
 
@@ -154,6 +156,16 @@ def main() -> int:
     ok.append("right number: verdict cites the identity server's log (1 change)")
     assert demo.broker.apps == {}, demo.broker.apps
     ok.append("routes dropped again after the second conversation")
+    for x in (a, b):                                   # mentor 11-07: the containment bullets, measured per script
+        assert x["sandbox"], "no measured sandbox line"
+        sb = x["sandbox"][-1]
+        print("  sandbox:", sb["text"])
+        assert sb["scripts"] >= 1 and sb["containers"] == sb["scripts"] == sb["gone"] and not sb["unknown"], sb
+        assert all(x["step_containers"]) and len(set(x["step_containers"])) == len(x["step_containers"]), x["step_containers"]
+    all_ids = a["sandbox"][-1]["ids"] + b["sandbox"][-1]["ids"]
+    assert len(set(all_ids)) == len(all_ids), all_ids
+    ok.append(f"sandbox lifecycle measured: {len(all_ids)} scripts, {len(set(all_ids))} distinct containers, every one "
+              "confirmed gone by Docker afterwards; each step shows its container id")
     pol = httpx.get("http://127.0.0.1:8000/api/policy", timeout=30).json()
     page = httpx.get("http://127.0.0.1:8000/policy", timeout=30)
     assert page.status_code == 200 and len(pol["sha256"]) == 64 and any(
@@ -180,9 +192,16 @@ def main() -> int:
     again = pv.post("/api/prove", json={})
     assert again.status_code == 429 and "per minute" in again.text, again.text[:200]
     ok.append("containment check limited to one per address per minute")
-    print("\nSELFTEST OK:\n - " + "\n - ".join(ok))
+    d0 = demo.deletions()
+    n_cols = sum(1 + (s.twin is not None and s.twin.stack is not None) for s in demo.sessions.values() if s.stack)
     for s in list(demo.sessions.values()):
         demo.end_session(s, "selftest end")
+    d1 = demo.deletions()
+    print("  deletions:", d0, "->", d1)
+    assert d1["deleted"] - d0["deleted"] == n_cols and d1["confirmed_gone"] - d0["confirmed_gone"] == n_cols, (d0, d1)
+    ok.append(f"companies deleted at the end of their session: {n_cols} of {n_cols} confirmed gone by the identity server "
+              "(404)")
+    print("\nSELFTEST OK:\n - " + "\n - ".join(ok))
     return 0
 
 if __name__ == "__main__":

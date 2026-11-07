@@ -137,6 +137,35 @@ def main() -> int:
                 "wrong_number_line": any(e["text"].startswith("Wrong number: request declined") for e in evs)}
 
     ok.append("compare sessions; cookie HttpOnly/Secure")
+    # 11-07: the reply countdown, "More time" and "End now"; pairing gives both columns' companies 2-minute pushes
+    tc, ts = visitor()
+    tc.post("/api/say", json={"text": "Hi, I'm Jordan, I'm locked out."}).raise_for_status()
+    rin, t0 = None, time.time()
+    while time.time() - t0 < 180 and rin is None:
+        time.sleep(1.5)
+        rin = tc.get("/api/events").json().get("reply_in_s")
+    assert rin is not None and 60 < rin <= 120, rin
+    tc.post("/api/reply-timer", json={"action": "more"}).raise_for_status()
+    more = tc.get("/api/events").json().get("reply_in_s")
+    assert more is not None and more > 150, more
+    tok = tc.post("/api/phone-link", json={}).json()["url"].rsplit("/", 1)[-1]
+    httpx.get(f"http://127.0.0.1:8000/m/{tok}", timeout=30)
+    from devenv import keycloak_local as _kl
+    life = {r: _kl.master_admin(demo.kc_base).get(f"/admin/realms/{r}").json()["attributes"].get("cibaExpiresIn")
+            for r in (ts.stack.realm, ts.twin.stack.realm)}
+    assert set(life.values()) == {"120"}, life
+    tc.post("/api/reply-timer", json={"action": "end"}).raise_for_status()
+    t1 = time.time()
+    def _busy():
+        j = tc.get("/api/events").json()
+        return j.get("busy") or (j.get("left") or {}).get("busy")
+    while time.time() - t1 < 90 and _busy():
+        time.sleep(1)
+    assert not _busy(), "End now did not end the conversation"
+    ended_s = round(time.time() - t1)
+    demo.end_session(ts, "selftest timer check done")   # frees its two companies (the local pool is small)
+    ok.append(f"reply countdown shown ({rin} s), 'More time' extends it ({more} s), 'End now' ends it ({ended_s} s); pairing a phone "
+              "gives both columns' companies 2-minute pushes")
     a = converse(choose_right=False)
     assert a["answered"] and any("identity server's own log shows no change" in t for t in a["verdicts"]), a
     ok.append("wrong number: push declined, no second try; verdict cites the identity server's log (no change)")

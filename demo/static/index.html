@@ -87,7 +87,10 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .card .app{font-size:11.5px;color:#6b6d72;text-transform:uppercase;letter-spacing:.05em}.card .what{font-weight:700;font-size:16px;margin:4px 0}
 .card .acct{font-size:13.5px}.card .what{font-size:19px;line-height:1.25}
 .card .nth{font-size:12px;font-weight:600;color:#7a4b00;background:#fff3d6;border-radius:8px;padding:4px 8px;margin-top:8px}
-.card .ref{font-size:10.5px;color:#9a9ca3;margin-top:6px}.card .warn{font-size:12.5px;color:#9a6a00;background:#fff5db;border-radius:8px;padding:6px 8px;margin-top:8px}
+.card .ref{font-size:10.5px;color:#9a9ca3;margin-top:6px}
+.replybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 12px 0;font-size:12.5px;color:var(--muted)}
+.replybar button{font-size:12px;padding:4px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.card .deny.also{font-weight:700;border:2px solid #c2352a}.card .warn{font-size:12.5px;color:#9a6a00;background:#fff5db;border-radius:8px;padding:6px 8px;margin-top:8px}
 .card .co{display:inline-block;font-size:11px;border-radius:6px;padding:1px 6px;margin-left:6px;background:#efeff2;color:#3b3d42}
 .card .q{font-size:12.5px;color:#6b6d72;margin-top:10px}.nums{display:flex;gap:8px;margin-top:6px}
 .nums button{flex:1;font:inherit;font-size:22px;font-weight:700;border:1px solid #dcdce2;background:#fff;border-radius:12px;padding:10px 0;cursor:pointer;color:#17181a}
@@ -188,6 +191,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
       <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
+      <div class="replybar hidden" id="replyBar"><span id="replyText"></span>
+        <button id="moreBtn">More time</button><button id="endBtn">End now</button></div>
       <div class="prove hidden" id="proveBox" style="margin:10px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.5"></div>
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
         <a class="linkbtn" href="/policy" target="_blank" rel="noopener">The policy</a>
@@ -218,7 +223,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
     <div class="pair"><button class="pairbtn" id="pairBtn">Use your own phone</button>
       <div class="pairbox hidden" id="pairBox"><img id="pairQr" alt="QR code that opens this session's phone page">
         <div>Scan with your phone's camera. The page answers this session's requests; it works once, on one device,
-        for 15 minutes. <span id="pairUrl" class="pairurl"></span></div></div></div>
+        for 15 minutes. On your phone, each request waits 2 minutes for you (the page's own phone: 60 seconds, as
+        measured). <span id="pairUrl" class="pairurl"></span></div></div></div>
     <p class="phonenote">Simulated device: in production this is the owner's authenticator app. The only way a change
       happens with Rightful is this phone saying yes to the exact request. If you approve as the owner, you've taken the
       honest path, not found a bypass.</p>
@@ -418,13 +424,14 @@ function renderPhone(p) {
       if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
       // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
       c.append(el("div", "what", x.title || ("Help desk requests: " + x.action)), el("div", "acct", "for " + x.account));
-      if (x.nth > 1) c.append(el("div", "nth", (x.nth === 2 ? "2nd" : x.nth === 3 ? "3rd" : x.nth + "th") + " request in this conversation" + (x.before ? " · " + x.before : "")));
+      // mentor 11-07: name the extra request; it is the binding happening live, and Deny is a fine answer
+      if (x.nth > 1) c.append(el("div", "nth", "The agent also asked to " + x.action + ". Every change needs its own approval." + (x.before ? " (Earlier in this conversation: " + x.before + ".)" : "")));
       app.textContent = "ref " + x.ref; app.className = "ref"; c.append(app);
       if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
       c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
       const nums = el("div", "nums");
       for (const n of x.numbers) { const b = el("button", "", n); b.onclick = () => act(x.id, "approve", {number: n}); nums.append(b); }
-      const pa = el("div", "pact"); const d = el("button", "deny", "Deny"); d.onclick = () => act(x.id, "deny", {});
+      const pa = el("div", "pact"); const d = el("button", "deny" + (x.nth > 1 ? " also" : ""), x.nth > 1 ? "Deny this one" : "Deny"); d.onclick = () => act(x.id, "deny", {});
       const na = el("button", "noans", "The owner doesn't answer"); na.onclick = () => act(x.id, "noanswer", {});
       pa.append(d, na); c.append(nums, pa); cards.append(c);
     }
@@ -480,6 +487,10 @@ async function poll(once) {
       const split = j.compare && j.left && (!!j.busy !== !!j.left.busy);
       $("state").textContent = split ? "One column is still finishing; send when both are done." : serverBusy ? "The help desk is working..." : "The help desk is waiting for you.";
       $("sendBtn").disabled = split;
+      // 11-07 (owner): the wait for your reply, visible, with more time or an end on request
+      const rs = j.reply_in_s;
+      $("replyBar").classList.toggle("hidden", rs == null);
+      if (rs != null) $("replyText").textContent = "Reply within " + Math.floor(rs / 60) + ":" + String(rs % 60).padStart(2, "0") + ", or the conversation ends and you get the summary.";
       $("thenBar").classList.toggle("hidden", !(nextThen && thenArmed));
       $("thenBtn").textContent = nextThen ? '"' + nextThen + '"' : "";
     }
@@ -571,6 +582,8 @@ async function send() {
   poll(true);
 }
 $("sendBtn").onclick = send;
+$("moreBtn").onclick = () => api("/api/reply-timer", {action: "more"}).then(() => poll(true)).catch(e => alert(e.message));
+$("endBtn").onclick = () => api("/api/reply-timer", {action: "end"}).then(() => poll(true)).catch(e => alert(e.message));
 $("pairBtn").onclick = async () => {
   try { if (compare && !serverCompare) { await api("/api/compare", {on: true}); serverCompare = true; }   // keep the landing's two columns
     const j = await api("/api/phone-link", {}); $("pairQr").src = j.qr; $("pairUrl").textContent = j.url;

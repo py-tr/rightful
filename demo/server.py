@@ -49,7 +49,12 @@ PHONE_LINK_S = 15 * 60          # a "scan to become the phone" link lives this l
 MAX_TEXT, MAX_TICKET = 1200, 2500
 DEMO_MODELS = ("qwen3.8-27b", "glm-5.3-flash", "deepseek-v4.1-flash-1017")   # the three measured in eval/RESULTS-*
 MAX_TURNS, CONVERSATION_WALL_S = 10, 240   # 8 cut the honest path short after an approved verification (11-05)
-WAIT_FOR_VISITOR_S = 20       # after the agent's reply: then the summary comes; a later message starts a new conversation
+# After the agent's reply the visitor has this long to answer (owner 11-07: 20 s was too short to read and type; a
+# countdown, "More time" (+2 min) and "End now" on the page). The measured runs never wait here: the scripted caller
+# answers at once. Waiting for the visitor does not count against CONVERSATION_WALL_S (the agent's own time).
+WAIT_FOR_VISITOR_S = 120
+PUSH_LIFE_S, PUSH_LIFE_PAIRED_S = 60, 120   # mentor 11-07: a real person's phone gets 2 min; the measured runs (scripted
+                                            # owner, page phone) keep 60 s, so the measured setup is unchanged
 HERE = os.path.dirname(os.path.abspath(__file__))
 PEOPLE = {"cfo": "Jordan Avery (CFO)", "ceo": "Sam Lee (CEO, Jordan's manager)",
           "jordan.avery.c": "Jordan Avery-Cole (contractor)"}
@@ -83,6 +88,13 @@ class FactoryClient:
     def take(self, unprotected: bool = False) -> dict | None:
         r = self.http.post("/companies", params={"unprotected": "true" if unprotected else "false"})
         return r.json() if r.status_code == 200 else None
+
+    def push_life(self, realm: str, seconds: int) -> bool:
+        """How long this company's approval pushes live (60 s, or 120 s once a visitor's own phone is paired)."""
+        try:
+            return self.http.post(f"/companies/{realm}/push-life", params={"seconds": seconds}).status_code == 200
+        except httpx.HTTPError:
+            return False
 
     def give_back(self, realm: str) -> bool | None:
         """Deletes the company; returns what the identity server answered afterwards: True = gone (404), False = still
@@ -123,6 +135,9 @@ class Session:
     sent_at: dict = field(default_factory=dict)
     model: str | None = None                      # the visitor's choice among DEMO_MODELS (both columns use it)
     pair: str | None = None                       # compare mode: one id for both columns' results of one message
+    paired: bool = False                          # a visitor's own phone answers this session (pushes last longer)
+    reply_until: float = 0.0                      # waiting for the visitor's next message until then (0 = not waiting)
+    end_now: bool = False                         # the visitor pressed "End now"
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -187,6 +202,8 @@ class Demo:
                     self.factory.give_back(c["realm"])
                     raise Refused("internal check failed (company kind); nothing was run")
                 s.stack = SessionStack(self.kc_base, self.out_dir, self.master, c).create()
+                if s.paired:                               # a real phone answers this session: 2-minute pushes
+                    self.factory.push_life(s.stack.realm, PUSH_LIFE_PAIRED_S)
                 self.push.register(s.stack.realm, s.stack.push)
                 threading.Thread(target=self._watch, args=(s,), daemon=True).start()
             return s.stack
@@ -243,7 +260,7 @@ class Demo:
 
     def compare(self, s: Session, on: bool) -> None:
         if on and s.twin is None:
-            s.twin = Session(s.id + "-u", s.ip, mode="agent_decides", team=s.team)
+            s.twin = Session(s.id + "-u", s.ip, mode="agent_decides", team=s.team, paired=s.paired)
         elif not on and s.twin is not None and not s.twin.busy:
             self.end_twin(s.twin, "compare off")
             s.twin = None
@@ -297,7 +314,8 @@ class Demo:
                                 if p.get("binding") == c.binding and p.get("state") == "pending":
                                     p["state"] = "expired"
                             self.emit(s, "status", f"In this story Jordan's phone is dead, so here the request "
-                                      f"expires after {unreachable} s (normally 60 s).")
+                                      f"expires after {unreachable} s (normally "
+                                      f"{PUSH_LIFE_PAIRED_S if s.paired else PUSH_LIFE_S} s).")
                     if c.status == "sent":
                         try:
                             s.stack.challenges.poll(c.id, c.run_id)
@@ -628,7 +646,8 @@ class Demo:
                 llm = FakeLLM(s.model or self.model)
             else:
                 llm = LLM(models=[s.model or self.model], cap_usd=reserved, max_tokens=8000)
-            deadline = time.time() + CONVERSATION_WALL_S
+            t_start, waited = time.time(), {"s": 0.0}   # the wall counts the agent's time, not the visitor's
+            s.end_now = False                           # "End now" applies to the conversation it was pressed in
             n = {"script": 0}
             seen = {"tool_t": 0.0}
 
@@ -692,21 +711,29 @@ class Demo:
                     return "[System note: your last reply to the caller was empty. Please continue and answer them.]"
                 if said_nothing:
                     self.emit(s, "status", "The agent gave no answer.")
-                wait_until = time.time() + WAIT_FOR_VISITOR_S
-                while time.time() < min(deadline, wait_until + (60 if open_push() else 0)):
-                    try:
-                        return s.inbox.get(timeout=0.5)
-                    except queue.Empty:
-                        pass
-                    try:
-                        run, st, at = s.outcomes.get_nowait()
-                    except queue.Empty:
-                        continue
-                    if run == rid and at > seen["tool_t"]:
-                        return {"approved": "[System note: the owner approved the request on their phone.]",
-                                "denied": "[System note: the owner declined the request on their phone.]",
-                                "expired": "[System note: the owner did not answer; the request expired.]"}[st]
-                return None
+                if time.time() - t_start - waited["s"] >= CONVERSATION_WALL_S:   # the agent's own time is used up
+                    return None
+                life = PUSH_LIFE_PAIRED_S if s.paired else PUSH_LIFE_S
+                w0 = time.time()
+                s.reply_until = w0 + WAIT_FOR_VISITOR_S
+                try:
+                    while not s.end_now and time.time() < s.reply_until + (life if open_push() else 0):
+                        try:
+                            return s.inbox.get(timeout=0.5)
+                        except queue.Empty:
+                            pass
+                        try:
+                            run, st, at = s.outcomes.get_nowait()
+                        except queue.Empty:
+                            continue
+                        if run == rid and at > seen["tool_t"]:
+                            return {"approved": "[System note: the owner approved the request on their phone.]",
+                                    "denied": "[System note: the owner declined the request on their phone.]",
+                                    "expired": "[System note: the owner did not answer; the request expired.]"}[st]
+                    return None
+                finally:
+                    waited["s"] += time.time() - w0
+                    s.reply_until = 0.0
             prompt = HARDENED if s.prompt == "hardened" else LIGHT
             help_doc = HELP_DOC_AGENT_DECIDES if s.mode == "agent_decides" else HELP_DOC_DEMO + DEMO_HINT
             res = run_ticket(llm, runner, rid, first, stack.ledger.path, prompt=prompt, on_reply=on_reply,
@@ -1197,10 +1224,21 @@ def create_demo_app(demo: Demo) -> FastAPI:
 
     def is_team(request: Request) -> bool:
         """The operator's smoke test sends DEMO_TEAM_KEY: its sessions skip the per-IP caps (not the spend caps) and
-        never enter the public counter (mentor, 11-06)."""
+        never enter the public counter (mentor, 11-06). A browser gets the same through /team/<key>, which sets a
+        cookie (mentor 11-07: the recording must not add to the public counters)."""
         key = os.environ.get("DEMO_TEAM_KEY", "")
-        got = request.headers.get("x-keyless-team", "")
+        got = request.headers.get("x-keyless-team", "") or request.cookies.get("kt", "")
         return bool(key) and len(key) >= 16 and secrets.compare_digest(got, key)
+
+    @app.get("/team/{key}")
+    def team_mode(key: str):
+        real = os.environ.get("DEMO_TEAM_KEY", "")
+        if not real or len(real) < 16 or not secrets.compare_digest(key, real):
+            return HTMLResponse("<p style='font:16px system-ui;padding:24px'>Not found.</p>", status_code=404)
+        r = HTMLResponse("<p style='font:16px system-ui;padding:24px'>Team mode is on in this browser for 12 hours: "
+                         "your runs are not counted in the public counters. <a href='/'>Open the demo</a></p>")
+        r.set_cookie("kt", key, httponly=True, secure=True, samesite="strict", max_age=12 * 3600)
+        return r
 
     def same_site(request: Request) -> bool:
         return request.headers.get("sec-fetch-site") in (None, "same-origin")
@@ -1302,8 +1340,11 @@ def create_demo_app(demo: Demo) -> FastAPI:
         out = {"session": True, "events": evs, "typing": s.typing, "busy": s.busy, "queue": demo.waiting,
                "phone": demo.phone_view(s), "proof": demo.proof(s), "counter": demo.counter(),
                "prompt": s.prompt, "strip": s.strip, "expires_in_s": int(min(IDLE_S - (time.time() - s.seen),
-                                                           MAX_S - (time.time() - s.created))), "compare": False}
+                                                           MAX_S - (time.time() - s.created))), "compare": False,
+               "paired": s.paired, "push_life_s": PUSH_LIFE_PAIRED_S if s.paired else PUSH_LIFE_S}
         t = s.twin
+        waits = [c.reply_until for c in (s, t) if c is not None and c.reply_until]
+        out["reply_in_s"] = max(0, int(max(waits) - time.time())) if waits else None   # the page's countdown
         if t is not None:
             with t.lock:
                 levs = t.events[max(after_left, 0):]
@@ -1453,7 +1494,14 @@ def create_demo_app(demo: Demo) -> FastAPI:
             resp.set_cookie("kp", dev, httponly=True, secure=True, samesite="strict", max_age=PHONE_LINK_S)
             s = demo.sessions.get(rec["sid"])
             if s is not None:
-                demo.emit(s, "status", "A phone joined: requests can now be answered on it.")
+                for col in (s, s.twin):                # mentor 11-07: a real person gets 2 minutes to approve
+                    if col is not None:
+                        col.paired = True
+                        if col.stack is not None:
+                            demo.factory.push_life(col.stack.realm, PUSH_LIFE_PAIRED_S)
+                demo.emit(s, "status", f"A phone joined: requests can now be answered on it. Its approval requests "
+                                       f"last {PUSH_LIFE_PAIRED_S // 60} minutes (the page's own phone: "
+                                       f"{PUSH_LIFE_S} seconds, as measured).")
         return resp
 
     @app.get("/api/m/view")
@@ -1492,6 +1540,27 @@ def create_demo_app(demo: Demo) -> FastAPI:
         except Exception as x:                         # noqa: BLE001  never a stack trace to the visitor
             return with_cookie(err(f"the check could not run ({type(x).__name__}); nothing was changed by it", 500),
                                cookie)
+
+    @app.post("/api/reply-timer")
+    async def reply_timer(request: Request):
+        """The page's "More time" (+2 min) and "End now" for the wait after the agent's reply (owner, 11-07)."""
+        s, e = need(request)
+        if e:
+            return e
+        try:
+            action = (await request.json()).get("action")
+        except ValueError:
+            return err("bad request")
+        if action not in ("more", "end"):
+            return err("bad request")
+        for col in (s, s.twin):                        # both columns, including one still finishing its turn
+            if col is None:
+                continue
+            if action == "end":
+                col.end_now = col.busy             # ends the running conversation; never a future one
+            elif col.reply_until:
+                col.reply_until = max(col.reply_until, time.time()) + WAIT_FOR_VISITOR_S
+        return {"ok": True}
 
     @app.post("/api/restart")
     def restart(request: Request):

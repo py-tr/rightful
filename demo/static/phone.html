@@ -68,7 +68,7 @@ async function act(id, action, body) {
 }
 function render(v) {
   $("title").textContent = v.title || "Your phone";
-  $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min";
+  $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min · each request waits 2 minutes for you";
   const key = JSON.stringify([v.pending.map(x => x.id), (v.history || []).length, v.notices.length]);
   if (key === last) return; last = key;
   const cards = $("cards"); cards.replaceChildren();
@@ -79,13 +79,15 @@ function render(v) {
     if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
     // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
     c.append(el("div", "what", x.title || ("Help desk requests: " + x.action)), el("div", "acct", "for " + x.account));
-    if (x.nth > 1) c.append(el("div", "nth", (x.nth === 2 ? "2nd" : x.nth === 3 ? "3rd" : x.nth + "th") + " request in this conversation" + (x.before ? " · " + x.before : "")));
+    // mentor 11-07: name the extra request; it is the binding happening live, and Deny is a fine answer
+    if (x.nth > 1) c.append(el("div", "nth", "The agent also asked to " + x.action + ". Every change needs its own approval." + (x.before ? " (Earlier in this conversation: " + x.before + ".)" : "")));
     c.append(el("div", "app", "ref " + x.ref));
     if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
     c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
     const nums = el("div", "nums");
     for (const n of x.numbers) { const b = el("button", "", n); b.onclick = () => act(x.id, "approve", {number: n}); nums.append(b); }
-    const d = el("button", "deny", "Deny"); d.onclick = () => act(x.id, "deny", {});
+    const d = el("button", "deny", x.nth > 1 ? "Deny this one" : "Deny"); d.onclick = () => act(x.id, "deny", {});
+    if (x.nth > 1) d.style.cssText = "font-weight:700;border:2px solid #c2352a";
     c.append(nums, d); cards.append(c);
     if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
   }

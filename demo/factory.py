@@ -91,6 +91,19 @@ class Factory:
             self.handed_out.pop(realm, None)
         return self._delete(realm)
 
+    def push_life(self, realm: str, seconds: int) -> bool:
+        """The company's CIBA push lifetime: only 60 or 120 s, only on demo companies (mentor 11-07: 2 minutes when a
+        visitor's own phone is paired)."""
+        if not REALM_RE.fullmatch(realm) or seconds not in (CIBA_EXPIRES_S, 120):
+            return False
+        try:
+            a = self._admin()
+            rep = a.get(f"/admin/realms/{realm}").json()
+            rep.setdefault("attributes", {})["cibaExpiresIn"] = str(seconds)
+            return a.put(f"/admin/realms/{realm}", json=rep).status_code in (200, 204)
+        except httpx.HTTPError:
+            return False
+
     def is_gone(self, realm: str) -> bool | None:
         """Measured (mentor 11-07, "reset or destroy" per task): the identity server itself answers 404 for the
         company. None when the check could not be made (never reported as gone)."""
@@ -169,6 +182,14 @@ def create_factory_app(factory: Factory, token: str) -> FastAPI:
             return JSONResponse({"error": "not a demo company"}, status_code=400)
         deleted = factory.give_back(realm)
         return {"deleted": deleted, "gone": factory.is_gone(realm)}
+
+    @app.post("/companies/{realm}/push-life")
+    def push_life(realm: str, request: Request, seconds: int = 60):
+        if not authorized(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        if not factory.push_life(realm, seconds):
+            return JSONResponse({"error": "refused"}, status_code=400)
+        return {"ok": True, "seconds": seconds}
 
     @app.get("/healthz")
     def health():

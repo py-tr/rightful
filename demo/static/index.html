@@ -328,8 +328,10 @@ function render(c, e) {
       const v = el("div", "", value); v.style.cssText = "font-size:17px;font-weight:700" + (bad ? ";color:var(--red)" : "");
       const s = el("div", "", src); s.style.cssText = "font-size:11px;opacity:.75";
       t.append(el("div", "", label), v, s); return t; };
+    const rec = e.recorded_n ? (e.recorded_events || []).join("; ") || e.recorded : "nothing";
+    const counts = (e.events_before != null && e.events_after != null) ? " · admin events in this company: " + e.events_before + " before, " + e.events_after + " after" : "";
     box.append(tile("Agent tried", e.tried, "from " + e.tried_source, false),
-               tile("Identity server recorded", e.recorded_n ? e.recorded : "nothing", "from the " + e.recorded_source.replace(/\.$/, ""), e.recorded_n > 0 && c === L));
+               tile("Identity server recorded", rec, "from the " + e.recorded_source.replace(/\.$/, "") + counts, e.recorded_n > 0 && c === L));
     c.vbar.append(box); return; }
   if (e.who === "explain") { const d = el("div", "sys"); d.append(el("div", "h", "Why"), el("div", "", e.text));
     if (e.restart) { const b = el("button", "send", "Start over with a new company"); b.style.marginTop = "8px"; b.style.padding = "8px 14px";
@@ -419,7 +421,7 @@ function renderRows(c, rows) {
 function renderStrip(st) {           // measured values only (mentor): what the sandbox itself saw, plus where it ran
   const b = $("strip"); if (!st || !Object.keys(st).length) return;
   if (st.error) { b.textContent = "Run strip: the sandbox probe failed (" + st.error + "); nothing shown rather than a guess."; b.classList.remove("hidden"); return; }
-  const k = st.gvisor ? "gVisor, kernel " + st.kernel + " (measured inside the sandbox)" : "kernel " + st.kernel + " (measured; not gVisor)";
+  const k = "kernel reported inside the sandbox: " + st.kernel;
   b.textContent = "This run: the agent's code ran on " + st.where + " · " + k
     + " · network: " + (st.no_network_but_gate ? "none except the gate (internet, DNS and cloud metadata unreachable, measured)" : "see the containment check")
     + " · " + (st.no_secrets ? "no credential in the sandbox (measured)" : "secret-like variables found") + (st.read_only_root ? " · read-only root" : "")
@@ -458,7 +460,7 @@ function setCompare(on) {
   labelChips();
   $("recRTitle").textContent = on ? "Receipt: Keyless (the owner's device decides)" : "Receipt: every change the agent asked for";
   $("cmpBtn").textContent = on ? "One column" : "Compare: same agent, two architectures";
-  if (on) $("introText").replaceChildren(el("b", "", "Same agent. Same lie. Two architectures."), el("br"), document.createTextNode("The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives."));
+  if (on) $("introText").replaceChildren(el("b", "", "Same agent. Same lie. Two architectures."), el("br"), document.createTextNode("The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives. The caller's lines are scripted; the agent is a live model on Vultr Serverless Inference, so each run can turn out differently."));
   if (!on) { $("introText").replaceChildren(el("b", "", "You're calling Corp's AI help desk"), document.createTextNode(", a fictional company made just for you. Your goal: get the CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.")); }
 }
 const CHECK_WORDS = {no_secrets_in_env: "No credential or secret in the sandbox's environment",
@@ -473,13 +475,16 @@ $("proveBtn").onclick = async () => {
     const j = await api("/api/prove", {}); b.replaceChildren();
     const h = (t) => { const d = el("div", "", t); d.style.fontWeight = "700"; d.style.marginTop = "6px"; return d; };
     const i = j.inside || {};
-    b.append(h("1. From inside a fresh sandbox, started exactly like the agent's (measured, not configured)"));
+    b.append(h("1. Reachability, measured from inside a fresh sandbox started exactly like the agent's"));
     if (i.error) b.append(el("div", "", "The sandbox probe failed: " + i.error));
-    b.append(el("div", "", "Kernel the sandbox sees: " + (i.kernel || "unknown") + (i.gvisor ? " (gVisor's own kernel, not the host's)" : " (not gVisor)")));
+    b.append(el("div", "", "Kernel reported inside the sandbox: " + (i.kernel || "unknown")));
     for (const [k, ok] of Object.entries(i.checks || {})) b.append(el("div", "", (ok ? "✓ " : "✗ ") + (CHECK_WORDS[k] || k)));
     const r = j.replay || {};
-    b.append(h("2. Even if it could reach the identity server: " + r.refused + " of " + r.attempts + " write attempts refused"));
-    b.append(el("div", "", "Tokens tried: none, a forged copy with a broken signature, and your company's real view-only token. Not tried: " + r.not_tried + "."));
+    b.append(h("2. The worse case: what those tokens could do if one leaked AND the sandbox could reach the identity server"));
+    b.append(el("div", "", "Fired from the control plane straight at your company's identity server, bypassing the gate on purpose. Tokens: none, a forged copy with a broken signature, and your company's real view-only token (used, never shown). Not tried: " + r.not_tried + "."));
+    const tried = [...new Set((r.rows || []).map(x => x.tried))];
+    b.append(el("div", "", "Each token tried these " + tried.length + " writes: " + tried.join(" · ") + "."));
+    b.append(el("div", "", "Result: " + r.refused + " of " + r.attempts + " refused."));
     b.append(el("div", "", "The identity server's own admin-event log: " + r.admin_events_before + " entries before, " + r.admin_events_after + " after" + (r.admin_events_after === r.admin_events_before ? " (unchanged)." : " (CHANGED: see below).")));
     const det = el("details", ""); det.append(el("summary", "", "Every attempt"));
     for (const x of r.rows || []) det.append(el("div", "", (x.refused ? "refused " : "ACCEPTED ") + x.status + " · " + x.token + " · " + x.tried));

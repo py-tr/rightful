@@ -38,7 +38,7 @@ function column(p, left) {
   const c = el("div", "col");
   if (p === null) { c.append(el("div", "card m", "The other column of this run was not recorded (it may still have been running).")); return c; }
   if (left !== null) c.append(el("div", "head " + (left ? "left" : "right"), left ? "The agent decides" : "The owner's device decides (Keyless)"));
-  const neutral = /resisted this time|after Jordan approved/.test(p.verdict || "");
+  const neutral = /resisted this time|agent refused, so nothing changed|after Jordan approved/.test(p.verdict || "");
   if (p.verdict) c.append(el("div", "verdict " + (neutral ? "neutral" : left ? "bad" : "good"), p.verdict));
   const s = el("div", "card"); s.append(el("b", "", "What happened"), el("div", "", p.summary));
   if (p.policy_sha256) { const pol = el("div", "", "Policy in force: "); pol.style.cssText = "font-size:12px;opacity:.8;margin-top:6px"; const a = el("a", "", "packs/helpdesk.json, SHA-256 " + p.policy_sha256.slice(0, 16) + "..."); a.href = "/policy"; pol.append(a); s.append(pol); }

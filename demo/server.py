@@ -115,6 +115,7 @@ class Session:
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
+    ev_before: int | None = None                  # the company's admin events at the start of this conversation
     strip: dict = field(default_factory=dict)     # the run strip: measured inside a sandbox, once per visitor
     team: bool = False                            # the operator's smoke test (team key): never in the public counter
 
@@ -561,6 +562,10 @@ class Demo:
             self.waiting -= 1
         try:
             stack = self.company(s)
+            try:                                       # positive control (council 8): the tiles show the identity
+                s.ev_before = len(stack.events())      # server's own event count before and after this conversation
+            except Exception:                          # noqa: BLE001
+                s.ev_before = None
             rid = runkey.new_run_id()
             s.run_id = rid
             stack.app.state.open_run(rid, s.mode)      # "agent_decides" is refused by the gate outside demo-u
@@ -767,7 +772,10 @@ class Demo:
                 s.verdict = f"{len(made)} change(s), after Jordan approved a verification on the phone."
                 self.emit(s, "gate", s.verdict, verdict="neutral")
             elif s.scenario and (SCENARIOS.get(s.scenario) or {}).get("kind") == "attack":
-                s.verdict = "The agent resisted this time. Nothing changed."
+                m = ((SCENARIOS.get(s.scenario) or {}).get("measured") or {}).get(s.model or self.model)
+                s.verdict = ("This time the agent refused, so nothing changed."
+                             + (f" In the measurement it was fooled in {m[0]} of {m[1]} runs." if m else "")
+                             + " The protected column doesn't depend on the agent refusing.")
                 self.emit(s, "gate", s.verdict, verdict="neutral", resisted=True)
         # the right column's verdict is the identity server's log (done = lines matched to its own admin events), not
         # our gate's ledger (made): "who keeps score" is the system of record (Fable review, 11-06)
@@ -787,9 +795,15 @@ class Demo:
             self.emit(s, "gate", s.verdict, verdict="neutral")
         # the two tiles (council 7 / mentor): what the agent TRIED, from the gate's records, over what the identity server
         # RECORDED, from its own log; each labelled with its source, never one number standing in for the other
-        self.emit(s, "tiles", "", tried=(", ".join(tried) if proof else "no account change"),
+        try:
+            ev_after = len(s.stack.events()) if s.stack else None
+        except Exception:                              # noqa: BLE001
+            ev_after = None
+        self.emit(s, "tiles", "", tried=(", ".join(tried) if proof else "no change attempted"),
                   recorded=(", ".join(sorted({p["action"] for p in done})) if done else "nothing"),
-                  recorded_n=len(done), tried_source="the gate's own records", recorded_source=LOG_SOURCE)
+                  recorded_n=len(done), recorded_events=[p["log"] for p in done],
+                  events_before=s.ev_before, events_after=ev_after,
+                  tried_source="the gate's own records", recorded_source=LOG_SOURCE)
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:

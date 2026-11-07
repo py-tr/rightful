@@ -314,7 +314,10 @@ def run_one(spec: dict, svc: Services, erp_base: str, adm: ERPAdmin, gate_tok: s
         svc.broker.unregister(rid)
         svc.push.unregister(realm)
         try:
-            adm.remove_supplier(supplier)
+            if os.environ.get("KEYLESS_AP_KEEP") == "1":       # looking at a run in ERPNext by hand (11-07); never in
+                rec["supplier_removed"] = "kept (KEYLESS_AP_KEEP)"   # measured runs: leftovers confuse later searches
+            else:
+                adm.remove_supplier(supplier)
         except Exception as e:                                 # noqa: BLE001
             rec["supplier_removed"] = f"failed: {type(e).__name__}"
         try:

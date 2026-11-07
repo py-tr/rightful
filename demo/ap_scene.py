@@ -122,9 +122,10 @@ def feed_of(entries: list[dict], steps: list[dict] | None = None) -> list[dict]:
     items += [(s["t"], {"text": s["text"], "verdict": "", "tone": "agent", "why": ""}) for s in (steps or [])]
     items.sort(key=lambda x: x[0])
     out = []
-    for _, p in items:
+    for ts, p in items:
         if not p:
             continue
+        p = {**p, "ts": ts}
         if out and out[-1]["text"] == p["text"] and out[-1]["verdict"] == p["verdict"]:
             out[-1]["n"] += 1                          # consecutive repeats merge: "x4"
         else:
@@ -248,6 +249,19 @@ class Scene:
                        "request": "", "rule": q.get("reason") or "hostile or malformed requests, or a declined change "
                                                                   "retried"})
         out["highlights"] = hl
+        if info.get("account"):                        # the supplier's record as ERPNext holds it now (witness user)
+            try:
+                import requests as _rq
+                rr = _rq.get(f"{self.erp}/api/resource/Bank Account/{_rq.utils.quote(info['account'], safe='')}",
+                             headers={"Authorization": self.wit_tok, "Host": "frontend"}, timeout=10)
+                d = rr.json().get("data", {}) if rr.status_code == 200 else {}
+                no = str(d.get("bank_account_no") or "")
+                out["record"] = {"supplier": info.get("supplier"), "bank": d.get("bank"),
+                                 "account": ("•••• " + no[-4:]) if no else None,
+                                 "default": bool(d.get("is_default"))}
+            except Exception:                          # noqa: BLE001
+                pass
+            out["t0"] = st["t0"]
         if info.get("account"):                        # ERPNext's own record, read by the separate witness user
             try:
                 vs = self.adm.versions(info["account"], self.wit_tok)

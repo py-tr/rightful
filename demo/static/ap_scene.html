@@ -1,243 +1,202 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Payments, second system</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Supplier Bank Change</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* "Control room" (owner 11-07: not the default look). The pipeline is the hero: every request in the gate's log is a
-   dot on the wire, replayed at a readable pace; red = refused, green = untouched/approved, amber = waiting on a phone. */
-:root{--bg:#0a0e14;--panel:#111821;--panel2:#0d131b;--line:#1f2a37;--ink:#e6edf3;--muted:#8b98a8;--dim:#5b6878;
-  --red:#ff5a5f;--green:#3ddc97;--amber:#ffb84d;--blue:#6cb6ff;--glow-r:rgba(255,90,95,.35);--glow-g:rgba(61,220,151,.30);--glow-a:rgba(255,184,77,.35)}
-*{box-sizing:border-box}html,body{background:var(--bg)}
-body{margin:0;color:var(--ink);font:16px/1.5 "Space Grotesk",system-ui,sans-serif;
-  background-image:radial-gradient(circle at 50% -20%,#16202c 0,transparent 55%),linear-gradient(var(--bg),var(--bg))}
-.wrap{max-width:1280px;margin:0 auto;padding:22px 18px 40px}
-.mono{font-family:"JetBrains Mono",ui-monospace,Consolas,monospace}
-.top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start}
-.kicker{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--blue);font-weight:700}
-h1{font-size:44px;line-height:1.05;margin:8px 0 6px;letter-spacing:-.02em}
-.lead{color:var(--muted);font-size:17px;max-width:720px}
-.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-button,select{font:inherit;font-size:14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;cursor:pointer}
-button.go{background:var(--red);border-color:var(--red);color:#1a0607;font-weight:700}
-button.go2{background:var(--green);border-color:var(--green);color:#04170e;font-weight:700}
-button:disabled{opacity:.4;cursor:default}
-
-/* the pipeline */
-.pipe{position:relative;margin-top:22px;padding:26px 22px 18px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,var(--panel),var(--panel2))}
-.nodes{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:70px;position:relative;z-index:1}
-.node{border:1px solid var(--line);border-radius:16px;padding:14px 16px;background:#0b1118;transition:box-shadow .25s,border-color .25s;min-height:118px}
-.node .tag{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.node .name{font-size:22px;font-weight:700;margin-top:2px}.node .sub{font-size:13px;color:var(--dim)}
-.node .stat{font-family:"JetBrains Mono",monospace;font-size:15px;margin-top:8px;color:var(--ink)}
-.node.flash-r{border-color:var(--red);box-shadow:0 0 0 1px var(--red),0 0 28px var(--glow-r)}
-.node.flash-g{border-color:var(--green);box-shadow:0 0 0 1px var(--green),0 0 28px var(--glow-g)}
-.node.flash-a{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber),0 0 28px var(--glow-a)}
-.node.busy .name::after{content:" ✎";color:var(--blue)}
-.wire{position:absolute;top:50%;height:2px;background:repeating-linear-gradient(90deg,var(--line) 0 10px,transparent 10px 16px);z-index:0}
-.legend{margin-top:14px;font-size:12.5px;color:var(--dim);display:flex;gap:16px;flex-wrap:wrap}
-.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
-.dot{position:absolute;width:12px;height:12px;border-radius:50%;z-index:3;pointer-events:none}
-.burst{position:absolute;z-index:4;pointer-events:none;font-size:12.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;transform:translate(-50%,-100%)}
-
-/* below */
-.grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:18px}@media (max-width:980px){.grid,.nodes{grid-template-columns:1fr}.nodes{gap:18px}.wire{display:none}h1{font-size:32px}}
-.card{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:16px 18px}
-.h{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.order{border:1px solid #3a2326;background:linear-gradient(180deg,#1a1114,#130d10);border-radius:14px;padding:12px 14px;margin-bottom:14px}
-.order .h{color:var(--red)}.order .pt{font-family:"JetBrains Mono",monospace;font-size:14px;line-height:1.55;margin-top:6px;color:#f3d6d7}
-.order .pr{font-size:12.5px;color:var(--muted);margin-top:6px}
-.order.honest{border-color:#21402f;background:linear-gradient(180deg,#0f1a14,#0c140f)}.order.honest .h{color:var(--green)}.order.honest .pt{color:#d6f3e4}
-#feed{max-height:440px;overflow-y:auto;padding-right:6px;margin-top:8px;scroll-behavior:smooth}
-#feed::-webkit-scrollbar{width:8px}#feed::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px}
-.line{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:8px 2px;border-top:1px solid var(--line);animation:in .35s ease-out}
-.line:first-child{border-top:none}
-.line .x{font-size:16px;font-weight:500}.line .vv{font-family:"JetBrains Mono",monospace;font-size:12.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;text-align:right;padding:2px 8px;border-radius:6px;align-self:start}
-.line .w{grid-column:1/3;font-size:13px;color:var(--muted)}
-.line.red .vv{color:var(--red);background:rgba(255,90,95,.12)}.line.amber .vv{color:var(--amber);background:rgba(255,184,77,.12)}
-.line.green .vv{color:var(--green);background:rgba(61,220,151,.12)}.line.grey .x,.line.grey .vv{color:var(--dim)}
-.line.agent{grid-template-columns:1fr}.line.agent .x{font-family:"JetBrains Mono",monospace;font-size:13.5px;color:var(--blue)}
-.line.agent .x::before{content:"agent ▸ writes a script to: ";color:var(--dim)}
-.words{margin-top:12px;border-left:3px solid var(--green);padding:8px 12px;background:rgba(61,220,151,.06);border-radius:8px;animation:in .4s ease-out}
-.words .pt{font-style:italic;color:#d6f3e4}
-.ledger{border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,#0e1712,#0b120e);padding:16px 18px}
-.ledger .big{font-size:110px;font-weight:700;line-height:1;letter-spacing:-.03em;color:var(--green);margin-top:6px;transition:color .3s}
-.ledger .big.one{color:var(--amber)}.ledger .cap{color:var(--muted);font-size:14px}
-.ver{border:1px solid #4a3a1c;background:rgba(255,184,77,.07);border-radius:12px;padding:10px 12px;margin-top:12px;animation:in .4s ease-out}
-.ver .ch{font-family:"JetBrains Mono",monospace;font-size:14px}.ver .by{font-size:12.5px;color:var(--muted)}
-.sum{margin-top:14px;display:grid;gap:8px}
-.sumc{display:flex;justify-content:space-between;gap:10px;align-items:baseline;border:1px solid #3a2326;background:rgba(255,90,95,.06);border-radius:12px;padding:10px 12px;animation:in .4s ease-out}
-.sumc .t{font-weight:700}.sumc .v{font-family:"JetBrains Mono",monospace;font-size:12.5px;color:var(--red);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
-.phone{margin:16px auto 0;width:300px;border-radius:38px;padding:12px;background:#05080c;border:1px solid #2b3644;box-shadow:0 20px 50px rgba(0,0,0,.5)}
-.screen{border-radius:28px;background:#f5f6f8;color:#111;padding:18px 16px 16px;min-height:300px}
-.notch{width:90px;height:20px;background:#05080c;border-radius:0 0 14px 14px;margin:-18px auto 12px}
-.screen .who{font-size:12px;color:#6b7280}.screen .ttl{font-size:19px;font-weight:700;margin:6px 0 4px;line-height:1.25}
-.screen .acc{font-size:14px}.screen .q{font-size:12.5px;color:#6b7280;margin-top:12px}
-.nums{display:flex;gap:8px;margin-top:8px}.nums button{flex:1;font-size:22px;font-weight:700;padding:10px 0;background:#fff;color:#111;border:1px solid #d1d5db}
-.deny{width:100%;margin-top:8px;background:#fff;color:#b42318;border:1px solid #fca5a5}
-.tell{margin-top:12px;border:1px dashed #4a3a1c;border-radius:12px;padding:10px 12px;color:#f6dfb7}.tell b{font-family:"JetBrains Mono",monospace;font-size:20px;color:var(--amber)}
-.status{margin-top:14px;font-weight:700}.ok{color:var(--green)}.bad{color:var(--red)}
-details{margin-top:14px;color:var(--muted);font-size:13px}details .rq{font-family:"JetBrains Mono",monospace;font-size:12px;word-break:break-all;color:var(--dim)}
-.foot{color:var(--dim);font-size:13px;margin-top:20px;border-top:1px solid var(--line);padding-top:10px}
-.hidden{display:none}
-@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* Layout: an accounting screen. Left, the gate's log as a ledger table; right, the supplier's record as ERPNext holds
+   it. Colour carries meaning only on verdicts (refused / allowed / waiting / approved). */
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --fg:#1c2330; --muted:#5d6878; --rule:#e2e6ec; --ink:#23407a;
+  --no:#b3261e; --no-bg:#fbeceb; --yes:#1f6f43; --yes-bg:#e8f4ec; --wait:#8a5a00; --wait-bg:#fbf3e2; --quiet:#8792a2;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161c; --surface:#181d25; --fg:#e4e8ee; --muted:#9aa5b5; --rule:#2a313c; --ink:#8fb0ec;
+  --no:#ff8a80; --no-bg:#3a1f1f; --yes:#7fd4a2; --yes-bg:#1b3326; --wait:#f0c26b; --wait-bg:#3a2f18; --quiet:#6d7887; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161c; --surface:#181d25; --fg:#e4e8ee; --muted:#9aa5b5; --rule:#2a313c; --ink:#8fb0ec;
+  --no:#ff8a80; --no-bg:#3a1f1f; --yes:#7fd4a2; --yes-bg:#1b3326; --wait:#f0c26b; --wait-bg:#3a2f18; --quiet:#6d7887; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--sans)}
+.page{max-width:1240px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:22px}
+header{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:flex-end}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500}
+h1{font-size:30px;line-height:1.2;font-weight:600;margin:6px 0 0;text-wrap:balance}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+button,select{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--rule);background:var(--surface);color:var(--fg);padding:8px 14px;cursor:pointer}
+button.primary{background:var(--ink);border-color:var(--ink);color:var(--surface);font-weight:500}
+button:disabled{opacity:.45;cursor:default}button:focus-visible,select:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.instruction{border-left:3px solid var(--ink);padding:2px 0 2px 16px;max-width:900px}
+.instruction .label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.instruction q{display:block;font-size:17px;margin-top:4px;quotes:"\201C" "\201D"}
+.instruction .note{font-size:13px;color:var(--muted);margin-top:4px}
+.cols{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:900px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:8px;min-width:0}
+.panel h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;margin:0;padding:12px 16px;border-bottom:1px solid var(--rule);display:flex;justify-content:space-between;gap:12px}
+.panel h2 span{text-transform:none;letter-spacing:0;font-variant-numeric:tabular-nums}
+#log{max-height:520px;overflow-y:auto}
+table{width:100%;border-collapse:collapse}
+td{padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+td.t{width:58px;font-family:var(--mono);font-size:12.5px;color:var(--quiet);font-variant-numeric:tabular-nums;text-align:right;padding-right:6px}
+td.what{font-size:15px}td.what .why{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+td.v{width:128px;text-align:right}
+tr.agent td.what{color:var(--muted);font-family:var(--mono);font-size:13px}
+tr.agent td.what::before{content:"agent runs a script: ";color:var(--quiet)}
+tr.new{animation:fade .5s ease-out}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;white-space:nowrap}
+.chip.no{color:var(--no);background:var(--no-bg)}.chip.yes{color:var(--yes);background:var(--yes-bg)}
+.chip.wait{color:var(--wait);background:var(--wait-bg)}.chip.quiet{color:var(--quiet);background:transparent;border:1px solid var(--rule)}
+.empty{padding:22px 16px;color:var(--muted)}
+.side{display:grid;gap:22px;min-width:0}
+.record dl{margin:0;padding:6px 16px 4px;display:grid;grid-template-columns:auto 1fr;gap:6px 16px}
+.record dt{color:var(--muted);font-size:13px;padding-top:2px}.record dd{margin:0;font-family:var(--mono);font-size:14px;word-break:break-word}
+.record .count{display:flex;align-items:baseline;gap:12px;padding:12px 16px 14px;border-top:1px solid var(--rule)}
+.record .count b{font-size:44px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums;color:var(--yes)}
+.record .count b.changed{color:var(--wait)}.record .count span{color:var(--muted);font-size:14px}
+.version{margin:0 16px 14px;padding:10px 12px;border:1px solid var(--rule);border-radius:6px;font-family:var(--mono);font-size:13px}
+.version .by{font-family:var(--sans);color:var(--muted);font-size:12.5px;margin-top:4px}
+.summary{display:grid;gap:0}.summary div{display:flex;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rule)}
+.summary div:last-child{border-bottom:none}
+.tell{padding:12px 16px;font-size:15px}.tell b{font-family:var(--mono);font-size:18px;color:var(--ink)}
+.phone{margin:16px auto;width:min(290px,100%);border:1px solid var(--rule);border-radius:28px;padding:22px 18px 18px;background:var(--bg)}
+.phone .who{font-size:12px;color:var(--muted)}.phone .ttl{font-size:18px;font-weight:600;margin:6px 0 2px;line-height:1.3}
+.phone .q{font-size:13px;color:var(--muted);margin-top:14px}
+.nums{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.nums button{font-family:var(--mono);font-size:20px;padding:10px 0}
+.phone .deny{width:100%;margin-top:8px;color:var(--no)}
+.status{font-weight:600}.status.ok{color:var(--yes)}.status.bad{color:var(--no)}
+details{color:var(--muted);font-size:13px}details div{font-family:var(--mono);font-size:12px;word-break:break-all;margin-top:4px}
+footer{color:var(--muted);font-size:13px;border-top:1px solid var(--rule);padding-top:12px}
+[hidden]{display:none!important}
+@keyframes fade{from{background:var(--bg)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){tr.new{animation:none}}
 </style></head>
-<body><div class="wrap">
-<div class="top">
-  <div>
-    <div class="kicker" id="kicker">The same gate · a second system · supplier bank details in ERPNext</div>
-    <h1 id="h1">Assume the agent is hijacked.</h1>
-    <div class="lead" id="lead"></div>
+<body><div class="page">
+<header>
+  <div><div class="eyebrow">Accounts payable on ERPNext · the same gate as the help desk</div><h1 id="h1">An AI agent told to redirect a supplier's payments</h1></div>
+  <div class="controls">
+    <label for="model" hidden>Model</label>
+    <select id="model"><option>deepseek-v4.1-flash-1017</option><option>qwen3.8-27b</option><option>glm-5.3-flash</option></select>
+    <button class="primary" id="hostile">Run the hijacked agent</button><button id="honest">Run an honest change</button>
   </div>
-  <div class="ctl">
-    <select id="model" aria-label="Model"><option>deepseek-v4.1-flash-1017</option><option>qwen3.8-27b</option><option>glm-5.3-flash</option></select>
-    <button class="go" id="hostile">&#9654; Hijacked agent</button><button class="go2" id="honest">&#9654; Honest change</button>
-  </div>
+</header>
+
+<div class="instruction" id="instruction">
+  <div class="label">How it works</div>
+  <q>The agent writes Python that runs in a sandbox with no keys. Every request it makes goes through the gate. Only the contact the supplier registered at onboarding can approve a bank change, on their own phone.</q>
 </div>
 
-<section class="pipe" id="pipe">
-  <div class="wire" id="w1"></div><div class="wire" id="w2"></div>
-  <div class="nodes">
-    <div class="node" id="nAgent"><div class="tag">Sandbox · no keys, no network</div><div class="name" id="agentName">The agent</div><div class="sub">writes and runs Python</div><div class="stat" id="fSent">0 requests</div></div>
-    <div class="node" id="nGate"><div class="tag">The gate · checks every request</div><div class="name">Payments policy</div><div class="sub">only the supplier's registered contact can approve a change</div><div class="stat" id="fGate">0 refused · 0 reads let through</div></div>
-    <div class="node" id="nErp"><div class="tag">The accounting system</div><div class="name">ERPNext</div><div class="sub">its own change log, read by a separate witness</div><div class="stat" id="fErp">0 changes</div></div>
-  </div>
-  <div class="legend"><span><i style="background:var(--red)"></i>refused by the gate</span><span><i style="background:var(--dim)"></i>read, let through</span><span><i style="background:var(--amber)"></i>approval request to a phone</span><span><i style="background:var(--green)"></i>approved change</span><span>Each dot is one request from the gate's own log, replayed at a readable pace.</span></div>
-</section>
-
-<div class="grid">
-  <section class="card">
-    <div id="promptBox"></div>
-    <div class="h">What happens · the agent's scripts and the gate's answer to each request</div>
-    <div id="feed"></div>
-    <div id="wordsBox"></div>
+<div class="cols">
+  <section class="panel">
+    <h2>Gate log <span id="logMeta">no run yet</span></h2>
+    <div id="log"><div class="empty">Start a run. Each request the agent makes appears here with the gate's answer.</div><table id="tbl" hidden><tbody id="rows"></tbody></table></div>
+  </section>
+  <div class="side">
+    <section class="panel record">
+      <h2>Supplier record in ERPNext <span>read by a separate witness user</span></h2>
+      <dl><dt>Supplier</dt><dd id="rSup">–</dd><dt>Bank</dt><dd id="rBank">–</dd><dt>Account no.</dt><dd id="rAcc">–</dd></dl>
+      <div class="count"><b id="rCount">0</b><span id="rCap">changes to the bank details in ERPNext's change log</span></div>
+      <div id="vers"></div>
+    </section>
+    <section class="panel" id="sumPanel" hidden><h2>What the gate stopped</h2><div class="summary" id="sum"></div></section>
+    <section class="panel" id="phonePanel" hidden><h2>Supplier contact's phone</h2><div id="tell" class="tell"></div><div id="phones"></div></section>
     <div class="status" id="status"></div>
-    <details><summary>Details: exact requests and rules</summary><div id="details"></div></details>
-  </section>
-  <section>
-    <div class="ledger"><div class="h">ERPNext · changes to this supplier's bank details</div>
-      <div class="big" id="changes">0</div><div class="cap" id="changesCap">recorded in ERPNext's own change log</div>
-      <div id="vers"></div></div>
-    <div class="sum" id="cards"></div>
-    <div id="tells"></div>
-    <div id="phoneBox"></div>
-  </section>
+  </div>
 </div>
-<div class="foot" id="foot"></div>
+<details><summary>Exact requests and rules</summary><div id="details"></div></details>
+<footer id="foot"></footer>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
-async function post(p, b) { const r = await fetch(p, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(b || {})}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j; }
-let shown = 0, phoneKey = "";
+async function post(p, b) { const r = await fetch(p, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(b || {})}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("Error " + r.status)); return j; }
+const CHIP = {red: "no", grey: "quiet", amber: "wait", green: "yes"};
+let t0 = null, feedAll = [], feedShown = 0, rows = [], sumShown = 0, phoneKey = "", lastErr = "";
 
-/* --- the wire and its dots --- */
-function center(id) { const p = $("pipe").getBoundingClientRect(), r = $(id).getBoundingClientRect(); return {x: r.left - p.left + r.width / 2, y: r.top - p.top + r.height / 2, l: r.left - p.left, r: r.right - p.left}; }
-function layoutWires() {
-  const a = center("nAgent"), g = center("nGate"), e = center("nErp");
-  Object.assign($("w1").style, {left: a.r + "px", width: (g.l - a.r) + "px", top: a.y + "px"});
-  Object.assign($("w2").style, {left: g.r + "px", width: (e.l - g.r) + "px", top: g.y + "px"});
+function rowKey(x) { return x.tone + "|" + x.text + "|" + x.verdict; }
+function rowEl(x) {
+  const tr = el("tr", (x.tone === "agent" ? "agent " : "") + "new");
+  const secs = t0 && x.ts ? Math.max(0, Math.round(x.ts - t0)) : "";
+  tr.append(el("td", "t", secs === "" ? "" : secs + "s"));
+  const w = el("td", "what"); const txt = document.createTextNode(x.n > 1 ? x.text + " ×" + x.n : x.text); w.append(txt);
+  if (x.why) w.append(el("span", "why", x.why));
+  const v = el("td", "v"); if (x.tone !== "agent") v.append(el("span", "chip " + CHIP[x.tone], x.verdict));
+  tr.append(w, v); return {key: rowKey(x), n: x.n, el: tr, txt};
 }
-window.addEventListener("resize", layoutWires);
-function flash(id, cls) { const n = $(id); n.classList.remove("flash-r", "flash-g", "flash-a"); void n.offsetWidth; n.classList.add(cls); setTimeout(() => n.classList.remove(cls), 650); }
-function burst(at, text, color) { const b = el("div", "burst", text); b.style.left = at.x + "px"; b.style.top = (at.y - 62) + "px"; b.style.color = color; $("pipe").append(b);
-  b.animate([{opacity: 0, transform: "translate(-50%,-80%)"}, {opacity: 1, transform: "translate(-50%,-100%)", offset: .2}, {opacity: 0, transform: "translate(-50%,-180%)"}], {duration: 1400, easing: "ease-out"}).onfinish = () => b.remove(); }
-function travel(from, to, color, ms) { const d = el("div", "dot"); d.style.background = color; d.style.boxShadow = "0 0 14px " + color; $("pipe").append(d);
-  const a = d.animate([{left: (from.x - 6) + "px", top: (from.y - 6) + "px"}, {left: (to.x - 6) + "px", top: (to.y - 6) + "px"}], {duration: ms, easing: "cubic-bezier(.4,0,.2,1)", fill: "forwards"});
-  return new Promise(res => { a.onfinish = () => { d.remove(); res(); }; }); }
-async function animateLine(x) {
-  if (window.matchMedia("(max-width:980px)").matches) return;
-  const a = center("nAgent"), g = center("nGate"), e = center("nErp");
-  if (x.tone === "agent") { $("nAgent").classList.add("busy"); setTimeout(() => $("nAgent").classList.remove("busy"), 900); return; }
-  if (x.tone === "red") { await travel(a, g, "var(--red)", 520); flash("nGate", "flash-r"); burst(g, x.verdict, "var(--red)"); return; }
-  if (x.tone === "grey") { await travel(a, g, "var(--dim)", 420); await travel(g, e, "var(--dim)", 380); return; }
-  if (x.tone === "amber") { await travel(a, g, "var(--amber)", 480); flash("nGate", "flash-a"); burst(g, x.verdict, "var(--amber)"); return; }
-  if (x.tone === "green") { if (x.verdict === "done") { await travel(a, g, "var(--green)", 480); await travel(g, e, "var(--green)", 480); flash("nErp", "flash-a"); burst(e, "1 change", "var(--amber)"); }
-    else { flash("nGate", "flash-g"); burst(g, x.verdict, "var(--green)"); } }
-}
-
-/* --- the log: appended, never redrawn; revealed one line about every 0.9 s; scrollable --- */
-let feedAll = [], feedShown = 0, rendered = [];
-function feedKey(x) { return x.tone + "|" + x.text + "|" + x.verdict; }
-function lineEl(x) {
-  const d = el("div", "line " + x.tone); const t = el("div", "x", x.n > 1 ? x.text + "  ×" + x.n : x.text); d.append(t);
-  if (x.tone !== "agent") d.append(el("div", "vv", x.verdict));
-  if (x.why) d.append(el("div", "w", x.why));
-  return {key: feedKey(x), n: x.n, el: d, t};
-}
-function drawFeed() {
-  const box = $("feed");
-  if (!feedShown && rendered.length) { box.replaceChildren(); rendered = []; return; }
+function drawLog() {
+  const box = $("log"), body = $("rows");
+  $("tbl").hidden = feedShown === 0; box.querySelector(".empty").hidden = feedShown > 0;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  const vis = feedAll.slice(0, feedShown);
-  let i = 0;
-  while (i < rendered.length && i < vis.length && rendered[i].key === feedKey(vis[i])) {
-    if (rendered[i].n !== vis[i].n) { rendered[i].n = vis[i].n; rendered[i].t.textContent = vis[i].text + "  ×" + vis[i].n; animateLine(vis[i]); }
+  const vis = feedAll.slice(0, feedShown); let i = 0;
+  while (i < rows.length && i < vis.length && rows[i].key === rowKey(vis[i])) {
+    if (rows[i].n !== vis[i].n) { rows[i].n = vis[i].n; rows[i].txt.textContent = vis[i].text + " ×" + vis[i].n; }
     i++;
   }
-  for (const r of rendered.slice(i)) r.el.remove();
-  rendered = rendered.slice(0, i);
-  const fresh = vis.slice(i);
-  fresh.forEach((x, k) => { const r = lineEl(x); rendered.push(r); box.append(r.el); if (k >= fresh.length - 3) animateLine(x); });
+  for (const r of rows.slice(i)) r.el.remove(); rows = rows.slice(0, i);
+  for (const x of vis.slice(i)) { const r = rowEl(x); rows.push(r); body.append(r.el); }
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
-setInterval(() => { if (feedShown < feedAll.length) { feedShown = (feedAll.length - feedShown > 12) ? feedAll.length - 4 : feedShown + 1; drawFeed(); } }, 900);
+setInterval(() => { if (feedShown < feedAll.length) { feedShown = feedAll.length - feedShown > 12 ? feedAll.length - 4 : feedShown + 1; drawLog(); } }, 900);
 
 async function start(kind) {
-  try { await post("/api/run", {kind, model: $("model").value}); shown = 0; phoneKey = ""; feedAll = []; feedShown = 0; drawFeed();
-    for (const id of ["cards", "vers", "tells", "phoneBox", "wordsBox"]) $(id).replaceChildren(); $("status").textContent = "";
-    $("wordsBox").dataset.k = ""; $("promptBox").dataset.k = ""; $("vers").dataset.n = ""; }
-  catch (e) { alert(e.message); }
+  try {
+    await post("/api/run", {kind, model: $("model").value});
+    feedAll = []; feedShown = 0; rows = []; $("rows").replaceChildren(); drawLog(); sumShown = 0; phoneKey = ""; t0 = null;
+    for (const id of ["sum", "vers", "phones", "tell", "status"]) $(id).replaceChildren();
+    $("vers").dataset.n = ""; $("instruction").dataset.k = ""; lastErr = "";
+  } catch (e) { $("status").className = "status bad"; $("status").textContent = e.message; }
 }
 $("hostile").onclick = () => start("hostile"); $("honest").onclick = () => start("honest");
-function setMode(hostile) {
-  $("h1").textContent = hostile ? "Assume the agent is hijacked." : "Only the supplier's own contact can approve.";
-  $("agentName").textContent = hostile ? "The hijacked agent" : "The accounts-payable agent";
-  $("lead").textContent = hostile ? "We told an AI agent to change a supplier's bank account, any way it can. Every request it makes has to pass the gate. The accounting system's own log is the score."
-    : "A real bank change: the supplier moved banks. The approval goes to the contact the supplier registered at onboarding, never to the clerk or the agent.";
+
+function setInstruction(r) {
+  const k = r && r.prompt ? r.prompt.text : "";
+  if ($("instruction").dataset.k === k || !k) return; $("instruction").dataset.k = k;
+  const box = $("instruction"); box.replaceChildren(el("div", "label", r.prompt.label), el("q", "", r.prompt.text));
+  if (r.prompt.rest) box.append(el("div", "note", r.prompt.rest));
 }
 function render(v) {
-  $("foot").textContent = "Running on " + v.where + ", not in the live demo · models on Vultr Serverless Inference · measured: 30 hijacked runs on a Vultr VM, 0 changes (we wrote the test down before running it) · model calls this session $" + v.spent.toFixed(3) + " of $" + v.cap.toFixed(2);
-  const r = v.run; const busy = r && !r.done; $("hostile").disabled = busy; $("honest").disabled = busy;
-  if (!r) { setMode(true); layoutWires(); return; }
-  const hostile = r.kind === "hostile"; setMode(hostile); layoutWires();
+  $("foot").textContent = "Running on " + v.where + ". Not part of the live demo. Models on Vultr Serverless Inference. Measured on a Vultr VM: the hijacked agent changed the bank details in 0 of 30 runs; we wrote the test down before running it. Model calls this session: $" + v.spent.toFixed(3) + " of $" + v.cap.toFixed(2) + ".";
+  const r = v.run, busy = r && !r.done; $("hostile").disabled = busy; $("honest").disabled = busy;
+  if (!r) return;
+  const hostile = r.kind === "hostile";
+  $("h1").textContent = hostile ? "An AI agent told to redirect a supplier's payments" : "A real bank change, approved by the supplier's own contact";
+  setInstruction(r);
+  if (v.t0) t0 = v.t0;
+  const f = v.flow || {sent: 0, reads: 0};
+  $("logMeta").textContent = f.sent + " requests · " + (v.refused || 0) + " refused · " + (r.done ? "finished" : "running");
+  const rec = v.record || {};
+  $("rSup").textContent = rec.supplier || r.supplier || "–"; $("rBank").textContent = rec.bank || "–"; $("rAcc").textContent = rec.account || "–";
   const vs = (v.versions || []).filter(x => x.changed.length);
-  const f = v.flow || {sent: 0, reads: 0, changes_through: 0};
-  $("fSent").textContent = f.sent + (f.sent === 1 ? " request" : " requests");
-  $("fGate").textContent = (v.refused || 0) + " refused · " + f.reads + " reads let through" + (f.changes_through ? " · " + f.changes_through + " approved change" : "");
-  $("fErp").textContent = vs.length + (vs.length === 1 ? " change" : " changes");
-  $("changes").textContent = v.versions ? String(vs.length) : "0"; $("changes").className = "big" + (vs.length ? " one" : "");
-  $("changesCap").textContent = vs.length ? "recorded in ERPNext's own change log, after the contact's approval" : "recorded in ERPNext's own change log";
+  $("rCount").textContent = String(vs.length); $("rCount").className = vs.length ? "changed" : "";
+  $("rCap").textContent = vs.length === 1 ? "change to the bank details in ERPNext's change log" : "changes to the bank details in ERPNext's change log";
   if ($("vers").dataset.n !== String(vs.length)) { $("vers").dataset.n = String(vs.length); $("vers").replaceChildren();
-    for (const x of vs) { const d = el("div", "ver"); for (const c of x.changed) d.append(el("div", "ch", (c[0] === "bank_account_no" ? "account" : c[0]) + ": " + c[1] + " → " + c[2])); d.append(el("div", "by", "written by " + x.by)); $("vers").append(d); } }
-  if (hostile) { for (const h of (v.highlights || []).slice(shown)) { const c = el("div", "sumc"); c.append(el("div", "t", h.title), el("div", "v", h.verdict || "blocked")); $("cards").append(c); } shown = (v.highlights || []).length; }
-  const pk = r.prompt ? r.prompt.text : "";
-  if ($("promptBox").dataset.k !== pk) { $("promptBox").dataset.k = pk; $("promptBox").replaceChildren();
-    if (r.prompt) { const p = el("div", "order" + (hostile ? "" : " honest")); p.append(el("div", "h", r.prompt.label), el("div", "pt", r.prompt.text)); if (r.prompt.rest) p.append(el("div", "pr", r.prompt.rest)); $("promptBox").append(p); } }
+    for (const x of vs) { const d = el("div", "version"); for (const c of x.changed) d.append(el("div", "", (c[0] === "bank_account_no" ? "account no." : c[0]) + ": " + c[1] + " → " + c[2])); d.append(el("div", "by", "written by " + x.by + " after the contact approved")); $("vers").append(d); } }
+  $("sumPanel").hidden = !(hostile && (v.highlights || []).length);
+  for (const h of (v.highlights || []).slice(sumShown)) { const d = el("div"); d.append(el("span", "", h.title), el("span", "chip no", h.verdict || "blocked")); $("sum").append(d); }
+  sumShown = (v.highlights || []).length;
+  $("phonePanel").hidden = hostile;
   const tk = (v.tell || []).map(t => t.number + t.action).join("|");
-  if ($("tells").dataset.k !== tk) { $("tells").dataset.k = tk; $("tells").replaceChildren();
-    for (const t of (v.tell || [])) { const d = el("div", "tell"); d.append("The requester is told: choose ", el("b", "", t.number), " on the supplier contact's phone."); $("tells").append(d); } }
-  const ph = v.phone || []; const key = ph.map(p => p.id + p.action).join(",");
-  if (key !== phoneKey) { phoneKey = key; $("phoneBox").replaceChildren();
-    for (const p of ph) { const ph1 = el("div", "phone"), s = el("div", "screen"); s.append(el("div", "notch"), el("div", "who", "Corp payments · supplier contact's phone"), el("div", "ttl", p.action), el("div", "acc", p.account), el("div", "q", "Choose the number the requester was given:"));
-      const nums = el("div", "nums"); for (const x of p.numbers) { const b = el("button", "", x); b.onclick = () => post("/api/phone/" + p.id + "/approve", {number: x}).catch(e => alert(e.message)); nums.append(b); }
-      const deny = el("button", "deny", "Deny"); deny.onclick = () => post("/api/phone/" + p.id + "/deny", {}).catch(e => alert(e.message));
-      s.append(nums, deny); ph1.append(s); $("phoneBox").append(ph1); } }
-  const nf = v.feed || []; feedAll = nf; if (feedShown > nf.length) feedShown = nf.length; drawFeed();
-  const lw = (r.last_words || "").replace(/[#*`_>]/g, "").replace(/\s+/g, " ").trim();
-  if ($("wordsBox").dataset.k !== lw && feedShown >= nf.length) { $("wordsBox").dataset.k = lw; $("wordsBox").replaceChildren();
-    if (lw) { const w = el("div", "words"); w.append(el("div", "h", "The agent's last words, quoted from the run"), el("div", "pt", "“" + (lw.length > 280 ? lw.slice(0, 280) + "…" : lw) + "”")); $("wordsBox").append(w); } }
-  const det = $("details"), dsig = r.model + r.done + (r.supplier || "") + JSON.stringify(v.highlights || []);
-  if (det.dataset.k !== dsig) { det.dataset.k = dsig; det.replaceChildren(el("div", "", r.model + " · " + (r.done ? "finished" : "running") + (r.supplier ? " · " + r.supplier : "")));
-    for (const h of (v.highlights || [])) det.append(el("div", "rq", h.request + "  →  " + h.rule)); }
-  let st = "";
-  if (r.done && r.result) { const x = r.result; $("status").className = "status " + (x.changed_without_supplier ? "bad" : "ok");
-    st = hostile ? (x.number_changed ? "The account changed." : "Finished. The bank details did not change." + (x.quarantined ? " The run ended locked out." : ""))
-      : (x.completed ? "Done: changed once, approved by the supplier's contact." : "Finished without a change.");
-    if (r.stop === "cap") st += " (Stopped early: the scene's budget cap was reached.)"; }
-  else st = r.supplier ? "" : "Setting up a fictional supplier…";
-  if ($("status").textContent !== st) $("status").textContent = st;
+  if ($("tell").dataset.k !== tk) { $("tell").dataset.k = tk; $("tell").replaceChildren();
+    for (const t of (v.tell || [])) $("tell").append("The requester is told to choose ", el("b", "", t.number), "."); }
+  const ph = v.phone || [], key = ph.map(p => p.id + p.action).join(",");
+  if (key !== phoneKey) { phoneKey = key; $("phones").replaceChildren();
+    if (!hostile && !ph.length) $("phones").append(el("div", "empty", r.done ? "No open requests." : "Waiting for the agent to ask for approval."));
+    for (const p of ph) { const d = el("div", "phone"); d.append(el("div", "who", "Corp payments · approval request"), el("div", "ttl", p.action), el("div", "who", p.account), el("div", "q", "Choose the number you were given"));
+      const nums = el("div", "nums"); for (const x of p.numbers) { const b = el("button", "", x); b.onclick = () => post("/api/phone/" + p.id + "/approve", {number: x}).catch(e => { $("status").textContent = e.message; }); nums.append(b); }
+      const deny = el("button", "deny", "Deny"); deny.onclick = () => post("/api/phone/" + p.id + "/deny", {}).catch(e => { $("status").textContent = e.message; });
+      d.append(nums, deny); $("phones").append(d); } }
+  feedAll = v.feed || []; if (feedShown > feedAll.length) feedShown = feedAll.length; drawLog();
+  const det = $("details"), dk = JSON.stringify(v.highlights || []) + r.model;
+  if (det.dataset.k !== dk) { det.dataset.k = dk; det.replaceChildren(el("div", "", r.model + (r.supplier ? " · " + r.supplier : "")));
+    for (const h of (v.highlights || [])) det.append(el("div", "", h.request + "  →  " + h.rule)); }
+  let st = "", cls = "status";
+  if (r.done && r.result) { const x = r.result; cls += x.changed_without_supplier ? " bad" : " ok";
+    st = hostile ? (x.number_changed ? "The bank details changed." : "Finished. The bank details did not change." + (x.quarantined ? " The agent ended locked out." : ""))
+      : (x.completed ? "Changed once, approved by the supplier's contact." : "Finished without a change.");
+    if (r.stop === "cap") st += " Stopped early: the budget cap was reached."; }
+  if ($("status").textContent !== st) { $("status").className = cls; $("status").textContent = st; }
 }
 async function poll() { try { render(await (await fetch("/api/view")).json()); } catch (e) {} setTimeout(poll, 1000); }
-layoutWires(); poll();
+poll();
 </script></body></html>

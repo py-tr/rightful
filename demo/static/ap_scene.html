@@ -69,6 +69,19 @@ tr.new{animation:fade .5s ease-out}
 details{color:var(--muted);font-size:13px}details div{font-family:var(--mono);font-size:12px;word-break:break-all;margin-top:4px}
 footer{color:var(--muted);font-size:13px;border-top:1px solid var(--rule);padding-top:12px}
 [hidden]{display:none!important}
+/* the flow (owner 11-07: "keep the visibility how it flows"): three stages joined by thin lines; each request in the
+   log sends one flat marker along them, in its verdict's colour */
+.flow{display:grid;grid-template-columns:minmax(0,1fr) minmax(40px,.7fr) minmax(0,1fr) minmax(40px,.7fr) minmax(0,1fr);align-items:center;padding:16px}
+.stage{border:1px solid var(--rule);border-radius:8px;padding:10px 12px;background:var(--surface);transition:border-color .2s,box-shadow .2s;min-width:0}
+.stage .n{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500}
+.stage .s{font-size:15px;font-weight:600}.stage .c{font-family:var(--mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:2px}
+.stage.hit-no{border-color:var(--no);box-shadow:0 0 0 1px var(--no)}.stage.hit-yes{border-color:var(--yes);box-shadow:0 0 0 1px var(--yes)}
+.stage.hit-wait{border-color:var(--wait);box-shadow:0 0 0 1px var(--wait)}.stage.active{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.wire{position:relative;height:2px;background:var(--rule);margin:0 4px}
+.mark{position:absolute;top:-4px;left:0;width:10px;height:10px;border-radius:50%}
+.stagewrap{position:relative}.tag{position:absolute;left:50%;top:100%;transform:translate(-50%,6px);white-space:nowrap}
+@media (max-width:760px){.flow{grid-template-columns:1fr}.wire{height:16px;width:2px;margin:4px auto}.mark{display:none}}
+@media (prefers-reduced-motion:reduce){.mark{display:none}}
 @keyframes fade{from{background:var(--bg)}to{background:transparent}}
 @media (prefers-reduced-motion:reduce){tr.new{animation:none}}
 </style></head>
@@ -86,6 +99,14 @@ footer{color:var(--muted);font-size:13px;border-top:1px solid var(--rule);paddin
   <div class="label">How it works</div>
   <q>The agent writes Python that runs in a sandbox with no keys. Every request it makes goes through the gate. Only the contact the supplier registered at onboarding can approve a bank change, on their own phone.</q>
 </div>
+
+<section class="panel flow" aria-label="How a request flows">
+  <div class="stagewrap"><div class="stage" id="sAgent"><div class="n">Sandbox · no keys</div><div class="s" id="sAgentName">The agent</div><div class="c" id="cAgent">0 requests</div></div></div>
+  <div class="wire" id="w1"></div>
+  <div class="stagewrap" id="gWrap"><div class="stage" id="sGate"><div class="n">The gate</div><div class="s">Payments policy</div><div class="c" id="cGate">0 refused · 0 reads</div></div></div>
+  <div class="wire" id="w2"></div>
+  <div class="stagewrap" id="eWrap"><div class="stage" id="sErp"><div class="n">Accounting system</div><div class="s">ERPNext</div><div class="c" id="cErp">0 changes</div></div></div>
+</section>
 
 <div class="cols">
   <section class="panel">
@@ -114,6 +135,29 @@ async function post(p, b) { const r = await fetch(p, {method: "POST", headers: {
 const CHIP = {red: "no", grey: "quiet", amber: "wait", green: "yes"};
 let t0 = null, feedAll = [], feedShown = 0, rows = [], sumShown = 0, phoneKey = "", lastErr = "";
 
+// --- the flow: one flat marker per newly shown log row ---
+const COLOR = {red: "var(--no)", grey: "var(--quiet)", amber: "var(--wait)", green: "var(--yes)"};
+const still = () => window.matchMedia("(prefers-reduced-motion: reduce), (max-width: 760px)").matches;
+function hit(id, cls, ms) { const s = $(id); s.classList.remove("hit-no", "hit-yes", "hit-wait", "active"); void s.offsetWidth; s.classList.add(cls); setTimeout(() => s.classList.remove(cls), ms || 700); }
+function tag(wrap, text, cls) { const t = el("span", "chip tag " + cls, text); $(wrap).append(t); setTimeout(() => t.remove(), 1300); }
+function run(wire, color, ms) {
+  if (still()) return Promise.resolve();
+  const m = el("span", "mark"); m.style.background = color; $(wire).append(m);
+  const a = m.animate([{left: "0%"}, {left: "calc(100% - 10px)"}], {duration: ms, easing: "ease-in-out", fill: "forwards"});
+  return new Promise(res => { a.onfinish = () => { m.remove(); res(); }; });
+}
+async function flowFor(x) {
+  if (x.tone === "agent") { hit("sAgent", "active"); return; }
+  const c = COLOR[x.tone] || COLOR.grey;
+  if (x.tone === "red") { await run("w1", c, 450); hit("sGate", "hit-no"); tag("gWrap", x.verdict, "no"); return; }
+  if (x.tone === "grey") { await run("w1", c, 380); await run("w2", c, 380); return; }
+  if (x.tone === "amber") { await run("w1", c, 420); hit("sGate", "hit-wait"); tag("gWrap", x.verdict, "wait"); return; }
+  if (x.tone === "green") {
+    if (x.verdict === "done") { await run("w1", c, 420); await run("w2", c, 420); hit("sErp", "hit-yes", 1200); tag("eWrap", "1 change", "yes"); }
+    else { hit("sGate", "hit-yes"); tag("gWrap", x.verdict, "yes"); }
+  }
+}
+
 function rowKey(x) { return x.tone + "|" + x.text + "|" + x.verdict; }
 function rowEl(x) {
   const tr = el("tr", (x.tone === "agent" ? "agent " : "") + "new");
@@ -130,11 +174,12 @@ function drawLog() {
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   const vis = feedAll.slice(0, feedShown); let i = 0;
   while (i < rows.length && i < vis.length && rows[i].key === rowKey(vis[i])) {
-    if (rows[i].n !== vis[i].n) { rows[i].n = vis[i].n; rows[i].txt.textContent = vis[i].text + " ×" + vis[i].n; }
+    if (rows[i].n !== vis[i].n) { rows[i].n = vis[i].n; rows[i].txt.textContent = vis[i].text + " ×" + vis[i].n; flowFor(vis[i]); }
     i++;
   }
   for (const r of rows.slice(i)) r.el.remove(); rows = rows.slice(0, i);
-  for (const x of vis.slice(i)) { const r = rowEl(x); rows.push(r); body.append(r.el); }
+  const fresh = vis.slice(i);
+  fresh.forEach((x, k) => { const r = rowEl(x); rows.push(r); body.append(r.el); if (k >= fresh.length - 2) flowFor(x); });
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 setInterval(() => { if (feedShown < feedAll.length) { feedShown = feedAll.length - feedShown > 12 ? feedAll.length - 4 : feedShown + 1; drawLog(); } }, 900);
@@ -165,6 +210,11 @@ function render(v) {
   if (v.t0) t0 = v.t0;
   const f = v.flow || {sent: 0, reads: 0};
   $("logMeta").textContent = f.sent + " requests · " + (v.refused || 0) + " refused · " + (r.done ? "finished" : "running");
+  $("sAgentName").textContent = hostile ? "The hijacked agent" : "The payments agent";
+  $("cAgent").textContent = f.sent + (f.sent === 1 ? " request" : " requests");
+  $("cGate").textContent = (v.refused || 0) + " refused · " + (f.reads || 0) + " reads" + (f.changes_through ? " · " + f.changes_through + " approved" : "");
+  const nv = (v.versions || []).filter(x => x.changed.length).length;
+  $("cErp").textContent = nv + (nv === 1 ? " change" : " changes");
   const rec = v.record || {};
   $("rSup").textContent = rec.supplier || r.supplier || "–"; $("rBank").textContent = rec.bank || "–"; $("rAcc").textContent = rec.account || "–";
   const vs = (v.versions || []).filter(x => x.changed.length);

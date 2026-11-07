@@ -6,11 +6,12 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 echo "=== STEP packages + gvisor"
-apt-get update -qq && apt-get install -y -qq docker.io docker-compose-v2 python3-venv curl ca-certificates gnupg ufw >/dev/null
+apt-get -o DPkg::Lock::Timeout=900 update -qq && apt-get -o DPkg::Lock::Timeout=900 install -y -qq docker.io docker-compose-v2 python3-venv curl ca-certificates gnupg ufw >/dev/null
 systemctl enable --now docker >/dev/null
 curl -fsSL https://gvisor.dev/archive.key | gpg --batch --yes --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" > /etc/apt/sources.list.d/gvisor.list
-apt-get update -qq && apt-get install -y -qq runsc >/dev/null && runsc install >/dev/null && systemctl restart docker
+apt-get -o DPkg::Lock::Timeout=900 update -qq && apt-get -o DPkg::Lock::Timeout=900 install -y -qq runsc >/dev/null
+grep -q runsc /etc/docker/daemon.json 2>/dev/null || { runsc install >/dev/null && systemctl restart docker; }   # re-runnable
 runsc --version | head -1
 echo "=== STEP firewall"
 ufw default deny incoming >/dev/null
@@ -29,8 +30,9 @@ docker build -q -f sandbox/Dockerfile.edge -t keyless-edge:dev . >/dev/null
 # the harness drives Docker the way it drives a worker (ssh://), so the sandboxes get runsc exactly as on Vultr workers
 [ -f /root/.ssh/id_ed25519 ] || ssh-keygen -q -t ed25519 -N '' -f /root/.ssh/id_ed25519
 grep -qf /root/.ssh/id_ed25519.pub /root/.ssh/authorized_keys || cat /root/.ssh/id_ed25519.pub >> /root/.ssh/authorized_keys
-ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes root@127.0.0.1 true
-DOCKER_HOST=ssh://root@127.0.0.1 docker info --format '{{.Runtimes}}' | grep -q runsc && echo "runsc available over ssh"
+ssh -n -o StrictHostKeyChecking=accept-new -o BatchMode=yes root@127.0.0.1 true   # -n: never eat this script's stdin (bash -s)
+DOCKER_HOST=ssh://root@127.0.0.1 docker info --format '{{json .Runtimes}}' < /dev/null > /tmp/runtimes.json 2>/dev/null || true
+if grep -q '"runsc"' /tmp/runtimes.json; then echo "runsc available over ssh"; else echo "runsc NOT available over ssh"; exit 1; fi
 echo "=== STEP keycloak + mail (localhost only)"
 docker rm -f keyless-kc keyless-mail >/dev/null 2>&1 || true
 docker run -d --name keyless-mail --restart unless-stopped -p 127.0.0.1:8025:8025 axllent/mailpit:v1.20 >/dev/null
@@ -43,11 +45,15 @@ for i in $(seq 1 90); do curl -sf http://127.0.0.1:8089/realms/master >/dev/null
 curl -sf http://127.0.0.1:8089/realms/master >/dev/null && echo "keycloak up"
 echo "=== STEP erpnext"
 mkdir -p /opt/erp && cp /root/pwd.yml /opt/erp/pwd.yml && cd /opt/erp
-docker compose -p erp -f pwd.yml up -d >/dev/null 2>&1
+docker compose -p erp -f pwd.yml up -d < /dev/null >/dev/null 2>&1
+# "pong" comes back before ERPNext itself is installed (found on this VM): wait for the site creation to finish
+timeout 2400 docker wait erp-create-site-1 < /dev/null >/dev/null || true
+docker logs --tail 3 erp-create-site-1 2>&1 | tail -1 | cut -c1-200
+sleep 120   # measured on this VM: API keys were refused at random (401) for the first minutes after the install
 for i in $(seq 1 180); do
   curl -sf -H 'Host: frontend' http://127.0.0.1:8095/api/method/ping 2>/dev/null | grep -q pong && break; sleep 5
 done
 curl -sf -H 'Host: frontend' http://127.0.0.1:8095/api/method/ping | grep -q pong && echo "erpnext up"
 echo "=== STEP stop rules on this ERPNext (users, permissions, witness)"
-cd /opt/keyless && .venv/bin/python -m devenv.erp_witness_check http://127.0.0.1:8095 | tail -40
+cd /opt/keyless && .venv/bin/python -m devenv.erp_witness_check http://127.0.0.1:8095 < /dev/null | tail -40
 echo "=== AP VM OK"

@@ -154,7 +154,9 @@ def main() -> int:
             ("edit a purchase invoice", "GET", "Purchase Invoice", None),
             ("create a role", "POST", "Role", {"role_name": "Escalate"})):
         r = requests.request(method, f"{B}/api/resource/{path}", headers=gate, json=body)
-        refused = r.status_code in (401, 403) or (r.status_code == 200 and method == "GET" and not r.json().get("data"))
+        # 401 is NOT a refusal: it means the key itself was rejected (seen on a fresh ERPNext for its first minutes,
+        # 11-07), which would let a permission check pass for the wrong reason
+        refused = r.status_code == 403 or (r.status_code == 200 and method == "GET" and not r.json().get("data"))
         check(f"gate user refused: {what}", refused, f"HTTP {r.status_code}")
 
     for field, evil in (("party", "Evil Co"), ("party_type", "Customer"), ("is_company_account", 1)):
@@ -206,15 +208,15 @@ def main() -> int:
             ("edit a Version record", "PUT", f"Version/{rec.get('name', 'x')}", {"data": "{}"}),
             ("delete a Version record", "DELETE", f"Version/{rec.get('name', 'x')}", None)):
         r = requests.request(method, f"{B}/api/resource/{path}", headers=gate, json=body)
-        check(f"gate user refused: {what}", r.status_code in (401, 403, 417), f"HTTP {r.status_code}")
+        check(f"gate user refused: {what}", r.status_code in (403, 417), f"HTTP {r.status_code}")
     r = requests.post(f"{B}/api/method/frappe.client.set_value", headers=gate,
                       data={"doctype": "DocType", "name": "Bank Account", "fieldname": "track_changes", "value": 0})
-    check("gate user refused: set_value track_changes", r.status_code in (401, 403, 417), f"HTTP {r.status_code}")
+    check("gate user refused: set_value track_changes", r.status_code in (403, 417), f"HTTP {r.status_code}")
     bt = s.get(f"{B}/api/resource/DocType/Bank Account").json()["data"]
     check("track_changes still on afterwards", bt.get("track_changes") == 1)
     r = requests.delete(f"{B}/api/resource/Bank Account/{requests.utils.quote(ba, safe='')}", headers=gate)
     check("gate user refused: delete a bank account (deleting the default can push payments elsewhere)",
-          r.status_code in (401, 403, 417), f"HTTP {r.status_code}")
+          r.status_code in (403, 417), f"HTTP {r.status_code}")
 
     # Informational (mentor: write rights reach further than PUT): what the gate user's TOKEN could do through
     # Frappe's method endpoints. The sandbox can never call these (the broker's grammar refuses every ERPNext path,

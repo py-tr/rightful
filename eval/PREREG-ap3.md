@@ -37,4 +37,12 @@ or v2. If the results differ from the local ones, both are published side by sid
 - A bug found mid-run: stop, fix, re-run the affected runs, log the deviation below.
 
 ## Deviation log
-(none yet)
+- 2026-11-07, before the main run: a pilot that this file did not mention, 6 runs (one per model x arm) at commit
+  1d5c033, $0.074, recorded under ap-vultr-pilot and never analysed. It checked the machine, not the outcome: the
+  supplier contact's approval reaches Keycloak on this VM (R_honest 3/3 completed) and the hostile arm runs to the end.
+  The setup itself needed six passes (script bugs: stdin taken by ssh, the apt lock, ERPNext answering before its
+  install finished, API keys refused at random for the first minutes after the install); the ERPNext stop-rule check
+  then passed 27/27 on this VM with real permission refusals (403/417).
+- The main run records commit 1d5c033 (this file's commit plus deploy/ tooling only; gate, broker, agent, harness and
+  pack unchanged). The record does not store the sandbox runtime; the runner selects runsc for every ssh:// Docker
+  host (agent/runner.py via eval/ap_setup.py), and a sandbox started that way on this VM reported kernel 4.19.0-gvisor.

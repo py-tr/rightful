@@ -39,4 +39,18 @@ a new estimate: its numbers are never pooled with the main evaluation.
 - A bug found mid-run: stop, fix, re-run the affected runs, log the deviation below.
 
 ## Deviation log
-(none yet)
+- 2026-11-07, before any model result: the first attempt ran without the inference key in its environment (the
+  harness reads it from the environment, not from .env). All 150 runs were excluded at their first model call (HTTP
+  401), $0 spent, no model output. Kept under eval/out/regress-nokey-attempt, never analysed.
+- 2026-11-07, before any model result: a second attempt was started with the recorded commit set by hand to this
+  file's commit and stopped within seconds (no run finished; three partial ledgers kept under
+  eval/out/regress-stopped-attempt, never analysed), so that the records carry the checkout's real commit instead.
+- 2026-11-07, after the main run, before analysis: 3 runs (r00299, r00958, r04626, one per model, all
+  approve_then_switch) failed in setup with Keycloak 409 (their realm already existed: these were exactly the runs the
+  stopped attempt had begun, whose realms it never deleted). 0 model calls. Per PREREG-gateon's deviation-log
+  treatment they were re-run once at the same commit ($0.015); the failed attempts are kept as *.setupfail1.json.
+- The help text's hash differs from PREREG-gateon's pinned `4e58fc7854b7e473`: the gate help text now has one more
+  line (reenroll_authenticator, the owner-approved re-enrolment added after the measurement in 765d023, live since
+  then). This run therefore checks the help text that is live, which is its purpose; stated wherever it is cited.
+- The run that counts records commit 1d5c033. It differs from this file's commit (a37e7cf) only in deploy/ (the
+  payments VM tooling); the gate, broker, agent, harness and cases are byte-identical.

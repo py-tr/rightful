@@ -626,9 +626,10 @@ def ap_vm_start(cmd: str, cap: str) -> None:
     commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True,
                             text=True).stdout.strip()
     r = ssh(ip, f"cd /opt/keyless && set -a && . /opt/keyless/eval.env && set +a && export KEYLESS_COMMIT={commit} && "
-                f"nohup .venv/bin/python -W ignore -m eval.ap_setup {cmd} --suite replicate --cap {float(cap)} "
+                f"PYTHONUNBUFFERED=1 setsid nohup .venv/bin/python -W ignore -m eval.ap_setup {cmd} --suite replicate --cap {float(cap)} "
                 f"--hosts ssh://root@127.0.0.1 --per-host 3 --bind 172.17.0.1 --edge-upstream http://172.17.0.1:8090 "
-                f"--out /var/lib/keyless/eval/ap-vultr > /var/lib/keyless/eval/ap-{cmd}.log 2>&1 & echo started")
+                f"--out /var/lib/keyless/eval/ap-vultr < /dev/null > /var/lib/keyless/eval/ap-{cmd}.log 2>&1 & echo started",
+            timeout=60)   # 11-07: without </dev/null the ssh session stayed attached until the run ended
     print(r.stdout.strip(), "commit", commit)
 
 

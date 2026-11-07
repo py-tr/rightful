@@ -51,7 +51,11 @@ function column(p, left) {
     const gate = left ? (x.made ? (x.phone === "verified the caller" ? "the agent, after a verified push" : "the agent's word") : "-") : (x.made ? (x.refused ? "refused" + times + ", then allowed" : "allowed") : "refused" + times);
     r.append(el("div", "", x.action + ", " + x.account + " · ref " + x.ref), el("div", "", gate),
       el("div", "", (x.approver ? (x.approver === "owner" ? "owner: " : "manager: ") : "") + x.phone),
-      el("div", "log", x.log === "none" ? "no change recorded" : x.log)); rc.append(r); }
+      (() => { const lg = el("div", "log", x.log === "none" ? "no change recorded" : x.log);
+        if (x.event) { const d = el("details", ""); d.append(el("summary", "", "Keycloak's own record"));
+          const pre = el("pre", "", JSON.stringify({...x.event, time_utc: new Date(x.event.time).toISOString()}, null, 1));
+          pre.style.cssText = "font-size:11px;white-space:pre-wrap;margin:4px 0 0"; d.append(pre); lg.append(d); }
+        return lg; })()); rc.append(r); }
   if (!p.proof.length) { const r = el("div", "row"); r.append(el("div", "", "No change was asked for.")); rc.append(r); }
   c.append(rc);
   const chat = el("details", "card chat"); chat.append(el("summary", "", "The whole conversation (" + p.chat.length + " lines)"));

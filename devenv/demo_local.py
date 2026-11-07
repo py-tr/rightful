@@ -160,6 +160,9 @@ def main() -> int:
         r["operation"] == "reset_password" and "owner" in r["approver"] for r in pol["rules"]), pol
     recs = [json.loads(x) for x in open(os.path.join(demo.out_dir, "proofs.jsonl"), encoding="utf-8")]
     assert any(r.get("policy_sha256") == pol["sha256"] for r in recs), "no share record carries the policy hash"
+    evs = [ln.get("event") for r in recs for ln in r.get("proof", []) if ln.get("event")]
+    assert any(e.get("operationType") and "reset-password" in (e.get("resourcePath") or "") for e in evs), evs[:2]
+    ok.append("share record carries Keycloak's own event (operationType, resourcePath, time) for the approved change")
     ok.append(f"policy page from the live pack ({len(pol['rules'])} rules, sha256 {pol['sha256'][:12]}...), its hash on share links")
     pv = httpx.Client(base_url="http://127.0.0.1:8000", timeout=120)
     r = pv.post("/api/prove", json={})

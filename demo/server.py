@@ -891,6 +891,10 @@ class Demo:
                         used.add(i)
                         ln["log"] = (f"{ev['op'].replace('_', ' ')} at "
                                      f"{time.strftime('%H:%M:%S', time.gmtime(ev['time'] / 1000))} UTC")
+                        # Keycloak's own record in its own field names (council 9: "show me you didn't paraphrase
+                        # the log"), as the view-only reader returned it; fictional company, no secrets in it
+                        ln["event"] = {"operationType": ev.get("type"), "resourcePath": ev.get("path"),
+                                       "time": ev.get("time")}
                         break
         return [{k: v for k, v in ln.items() if k not in ("op", "user")} for ln in lines.values()]
 

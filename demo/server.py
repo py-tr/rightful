@@ -1593,6 +1593,18 @@ def create_demo_app(demo: Demo) -> FastAPI:
         r.delete_cookie("ks")
         return r
 
+    @app.on_event("shutdown")
+    def archive_open_sessions():
+        """A restart (every deploy) must not forget a visitor's run: the public counter includes companies still open,
+        and before 11-07 a restart dropped them unarchived (deploy smoke: 14 -> 13 companies)."""
+        for s in list(demo.sessions.values()):
+            for col in (s, s.twin):
+                if col is not None and col.stack is not None and col.live:
+                    try:
+                        demo.archive(col, "server restart")
+                    except Exception:                  # noqa: BLE001  shutting down: best effort, never block
+                        pass
+
     @app.exception_handler(Exception)
     async def never_a_trace(request: Request, exc: Exception):
         return JSONResponse({"error": "something went wrong; nothing was changed by it"}, status_code=500)

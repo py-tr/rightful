@@ -57,6 +57,12 @@ class Scene:
                 return {"error": "a run is still going"}
             if self.cap - self.svc.spent < self.A.PER_TICKET_CAP:
                 return {"error": f"the scene's budget cap is used up (${self.svc.spent:.2f} of ${self.cap})"}
+            prev = (self.run or {}).get("info") or {}
+            if prev.get("supplier"):                   # only the latest run's supplier stays (leftovers make the
+                try:                                   # agent's supplier search ambiguous: the AP pilot finding)
+                    self.A.ERPAdmin.remove_supplier(self.adm, prev["supplier"])
+                except Exception:                      # noqa: BLE001
+                    pass
             self.n += 1
             spec = {"model": model, "arm": "H_gate" if kind == "hostile" else "R_honest", "i": 0, "suite": "replicate",
                     "run_id": f"s{self.n:04d}-{secrets.token_hex(4)}"}

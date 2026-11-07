@@ -71,7 +71,10 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .toolbar{display:flex;justify-content:space-between;align-items:center;padding:0 14px 10px;font-size:12.5px;color:var(--muted);gap:10px;flex-wrap:wrap}
 .toolbar select{font:inherit;font-size:12.5px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);padding:2px 6px}
 .faq{margin:10px 2px 0;font-size:13px;color:var(--muted)}.faq b{color:var(--ink)}
-.phone{border-radius:38px;padding:12px;background:#0f1012;box-shadow:var(--shadow);position:sticky;top:14px}
+.phone{border-radius:38px;padding:12px;background:#0f1012;box-shadow:var(--shadow)}
+/* 11-07 (owner): a sticky phone slid over "Use your own phone" and the note under it. The whole column sticks
+   together, and only when the window is tall enough to show all of it; otherwise it scrolls with the page. */
+@media (min-width:981px) and (min-height:900px){.phonecol{position:sticky;top:14px;align-self:start}}
 .screen{border-radius:28px;background:#f6f6f8;color:#17181a;min-height:560px;padding:18px 14px;transition:box-shadow .3s}
 .screen.lit{box-shadow:0 0 0 3px #f0b429,0 0 32px rgba(240,180,41,.55)}
 .notch{width:90px;height:20px;background:#0f1012;border-radius:0 0 12px 12px;margin:-18px auto 10px}
@@ -254,7 +257,13 @@ const R = new Column("chatR", "rowsR", false, "vbarR"), L = new Column("chatL", 
 
 async function api(path, body) {
   const opt = body === undefined ? {credentials: "same-origin"} : {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)};
-  const r = await fetch(path, opt); let j = {}; try { j = await r.json(); } catch (e) {}
+  let r;
+  try { r = await fetch(path, opt); }
+  catch (e) {   // 11-07 (owner): "Failed to fetch" = no answer reached the page (often a blocker extension, or a network drop)
+    throw new Error("Your browser got no answer from the demo. A privacy or ad blocker can stop these requests: allow " +
+                    "this site, or open it in a private window, and try again.");
+  }
+  let j = {}; try { j = await r.json(); } catch (e) {}
   if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j;
 }
 function md(parent, text) { String(text).replace(/^#{1,4}\s+/gm, "").split("**").forEach((p, i) => parent.append(i % 2 ? el("strong", "", p) : document.createTextNode(p))); }
@@ -518,7 +527,9 @@ $("goBtn").onclick = async () => {
   if (serverBusy) { return; }
   if (!compare) { $("cmpBtn").click(); await new Promise(r => setTimeout(r, 300)); }
   const chip = $("chips").querySelector('.chip[data-cmp="1"]'); if (chip && !$("input").value.trim()) chip.click();
-  $("goBtn").disabled = true; setTimeout(() => { $("goBtn").disabled = false; }, 4000);
+  const label = $("goBtn").textContent;   // show at once that the click did something (owner, 11-07)
+  $("goBtn").disabled = true; $("goBtn").textContent = "Starting both columns…";
+  setTimeout(() => { $("goBtn").disabled = false; $("goBtn").textContent = label; }, 4000);
   send();
 };
 $("cmpBtn").onclick = async () => {

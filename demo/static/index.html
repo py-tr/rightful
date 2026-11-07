@@ -181,7 +181,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="prove hidden" id="proveBox" style="margin:10px 12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.5"></div>
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
         <a class="linkbtn" href="/policy" target="_blank" rel="noopener">The policy</a>
-        <button class="linkbtn" id="proveBtn" title="A fresh sandbox reports what it can reach; then every token the sandbox side could hold is tried against your company's identity server">Run a containment check</button>
+        <button class="linkbtn" id="proveBtn" title="A fresh sandbox reports what it can reach; then the tokens an attacker could hope to get are fired straight at your company's identity server">Run a containment check</button>
         <span><label>Agent's instructions
           <select id="model" aria-label="Model"></select></label> <label>Instructions
           <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
@@ -342,7 +342,7 @@ function render(c, e) {
       const s = el("div", "", src); s.style.cssText = "font-size:11px;opacity:.75";
       t.append(el("div", "", label), v, s); return t; };
     const rec = e.recorded_n ? (e.recorded_events || []).join("; ") || e.recorded : "nothing";
-    const counts = (e.events_before != null && e.events_after != null) ? " · admin events in this company: " + e.events_before + " before, " + e.events_after + " after" : "";
+    const counts = (e.events_before != null && e.events_after != null) ? " · admin events by the gate's account in this company: " + e.events_before + " before, " + e.events_after + " after" : "";
     box.append(tile("Agent tried", e.tried, "from " + e.tried_source, false),
                tile("Identity server recorded", rec, "from the " + e.recorded_source.replace(/\.$/, "") + counts, e.recorded_n > 0 && c === L));
     c.vbar.append(box); return; }
@@ -435,10 +435,12 @@ function renderStrip(st) {           // measured values only (mentor): what the 
   const b = $("strip"); if (!st || !Object.keys(st).length) return;
   if (st.error) { b.textContent = "Run strip: the sandbox probe failed (" + st.error + "); nothing shown rather than a guess."; b.classList.remove("hidden"); return; }
   const k = "kernel reported inside the sandbox: " + st.kernel;
-  b.textContent = "This run: the agent's code ran on " + st.where + " · " + k
+  b.textContent = "This run (values measured inside a sandbox started like the agent's, except where marked): the agent's code ran on " + st.where + " · " + k
     + " · network: " + (st.no_network_but_gate ? "none except the gate (internet, DNS and cloud metadata unreachable, measured)" : "see the containment check")
     + " · " + (st.no_secrets ? "no credential in the sandbox (measured)" : "secret-like variables found") + (st.read_only_root ? " · read-only root" : "")
-    + " · caps " + st.caps.memory + " memory, " + st.caps.cpus + " CPU, " + st.caps.pids + " processes · model " + st.model + " on " + st.inference + ".";
+    + " · caps set by the runner: " + st.caps.memory + " memory, " + st.caps.cpus + " CPU, " + st.caps.pids + " processes"
+    + (st.caps_measured && Object.keys(st.caps_measured).length ? " (measured inside: " + Object.entries(st.caps_measured).map(([k, v]) => k + " " + v).join(", ") + ")" : "")
+    + " · model " + st.model + " on " + st.inference + ".";
   b.classList.remove("hidden");
 }
 async function poll(once) {
@@ -494,7 +496,7 @@ $("proveBtn").onclick = async () => {
     for (const [k, ok] of Object.entries(i.checks || {})) b.append(el("div", "", (ok ? "✓ " : "✗ ") + (CHECK_WORDS[k] || k)));
     const r = j.replay || {};
     b.append(h("2. The worse case: what those tokens could do if one leaked AND the sandbox could reach the identity server"));
-    b.append(el("div", "", "Fired from the control plane straight at your company's identity server, bypassing the gate on purpose. Tokens: none, a forged copy with a broken signature, and your company's real view-only token (used, never shown). Not tried: " + r.not_tried + "."));
+    b.append(el("div", "", "Fired from the control plane straight at your company's identity server, bypassing the gate on purpose. Tokens an attacker could hope to get: none, a forged one with a broken signature, and a real but view-only one (your company's log reader; used, never shown). Not tried: " + r.not_tried + "."));
     const tried = [...new Set((r.rows || []).map(x => x.tried))];
     b.append(el("div", "", "Each token tried these " + tried.length + " writes: " + tried.join(" · ") + "."));
     b.append(el("div", "", "Result: " + r.refused + " of " + r.attempts + " refused."));

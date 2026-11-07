@@ -286,11 +286,13 @@ class Demo:
            copy with a broken signature, the company's real VIEW-ONLY log-reader token) is replayed directly against the
            writes an attacker wants. Pass = every one refused AND the identity server's admin-event log unchanged.
         The broker's own account is deliberately not tried: it lives outside the sandbox, which is the point."""
+        if s.busy or (s.twin is not None and s.twin.busy):
+            raise Refused("let the current conversation finish first, then run the containment check")
         key = self.limits._key(s.ip)
         now = time.time()
         with self.lock:
             last = self._prove_last.get(key, 0.0)
-            if now - last < self.PROVE_GAP_S:
+            if now - last < self.PROVE_GAP_S and not s.team:
                 raise Refused(f"one containment check per minute; try again in {int(self.PROVE_GAP_S - (now - last))} s")
             self._prove_last[key] = now
         if not self.PROVE_SLOTS.acquire(timeout=20):
@@ -308,7 +310,8 @@ class Demo:
                 runner.close()
             m, c = p.get("measured") or {}, p.get("checks") or {}
             return {"inside": {"checks": c, "kernel": m.get("kernel_release"), "gvisor": bool(m.get("gvisor")),
-                               "secret_like_env": p.get("secret_like_env", []), "error": p.get("error")},
+                               "secret_like_env": p.get("secret_like_env", []),
+                               "error": "the sandbox probe did not report" if p.get("error") else None},
                     "replay": self._replay(stack), "realm": stack.realm, "at": round(now)}
         finally:
             self.PROVE_SLOTS.release()
@@ -410,8 +413,10 @@ class Demo:
         read and change, not the model's judgement. Read from the live pack, never paraphrased from memory."""
         pack = s.stack.gate.pack if s.stack else {}
         name = pack.get("pack", "helpdesk")
-        if outcome != "denied_no_receipt" or not op:
+        if outcome in ("denied_malformed", "denied_not_allowlisted"):
             return f"Rule: {name} pack, request grammar (packs/{name}.json): anything the pack does not describe is refused."
+        if outcome != "denied_no_receipt" or not op:
+            return ""
         w = (pack.get("writes") or {}).get(op) or (pack.get("composites") or {}).get(op) or {}
         who = {"owner": "the account owner, on their own device", "manager": "the owner's manager, on their own device",
                "contact": "the owner's manager (a contact change is never approved through the contact being changed)"}
@@ -719,10 +724,12 @@ class Demo:
         s.strip = {"where": f"a Vultr Cloud Compute worker VM ({region}, private VPC)" if runner.remote else
                    "a local Docker host (development)",
                    "kernel": m.get("kernel_release") or "unknown", "gvisor": bool(m.get("gvisor")),
-                   "no_network_but_gate": bool(c.get("internet_unreachable") and c.get("metadata_unreachable")
-                                               and c.get("no_external_dns")),
+                   "no_network_but_gate": all(c.get(k) for k in ("internet_unreachable", "metadata_unreachable",
+                                                                 "no_external_dns", "broker_unreachable_directly",
+                                                                 "keycloak_unreachable")),
                    "no_secrets": bool(c.get("no_secrets_in_env")), "read_only_root": bool(c.get("root_read_only")),
-                   "caps": {"memory": runner.memory, "cpus": runner.CPUS, "pids": runner.PIDS},
+                   "caps": {"memory": runner.memory, "cpus": runner.CPUS, "pids": runner.PIDS},   # SET by the runner
+                   "caps_measured": {k: m.get(k) for k in ("memory_limit_mb", "pids_limit", "cpu_max") if m.get(k)},
                    "model": s.model or self.model, "inference": "Vultr Serverless Inference"}
 
     def summarize(self, s: Session, run_id: str) -> None:

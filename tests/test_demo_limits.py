@@ -123,7 +123,7 @@ def test_at_most_two_live_sessions_per_address(tmp_path):
     lim = make(tmp_path, live_per_ip=2)
     lim.open_session("a", "198.51.100.1")
     lim.open_session("b", "198.51.100.1")
-    with pytest.raises(Refused, match="already have 2 demo sessions open"):
+    with pytest.raises(Refused, match="2 demo sessions are already open"):
         lim.open_session("c", "198.51.100.1")
     lim.open_session("x", "198.51.100.2")                                     # another address is unaffected
     lim.close_session("a")
@@ -157,14 +157,14 @@ def test_per_ip_money_cap_is_the_abuse_limit(tmp_path):
     for _ in range(2):                                      # two tickets that really cost their full reservation
         r = lim.reserve_ticket("a")
         lim.settle_ticket("a", r, 0.05)
-    with pytest.raises(Refused, match="share of today's demo budget"):
+    with pytest.raises(Refused, match="share of the demo's model budget"):
         lim.reserve_ticket("a")
     lim.open_session("b", "203.0.113.61")                   # another address still has its own share
     lim.reserve_ticket("b")
     again = make(tmp_path, clock=clock, ip_usd_day=0.10, per_ticket_usd=0.05, per_session_usd=1.0,
                  tickets_per_session=99, daily_usd=10.0)    # a restart is not a reset
     again.open_session("c", "203.0.113.60")
-    with pytest.raises(Refused, match="share of today's demo budget"):
+    with pytest.raises(Refused, match="share of the demo's model budget"):
         again.reserve_ticket("c")
     clock.t += 86401
     again.reserve_ticket("c")                               # a rolling day later

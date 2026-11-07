@@ -120,8 +120,8 @@ class Limits:
                 if self.per_ip_day is not None and len(recent) >= self.per_ip_day:
                     raise Refused("too many sessions from your address today; please try again tomorrow")
                 if sum(1 for x in self._sessions.values() if x["ip"] == key) >= self.live_per_ip:
-                    raise Refused(f"you already have {self.live_per_ip} demo sessions open; use one of them, or "
-                                  "wait a few minutes for an idle one to close")
+                    raise Refused(f"{self.live_per_ip} demo sessions are already open from your network; use one of "
+                                  "them, or try again in a few minutes when an idle one closes")
             if len(self._sessions) >= self.max_live:
                 raise Refused("the demo is busy (all sessions in use); please try again in a few minutes")
             if not team:
@@ -164,7 +164,8 @@ class Limits:
                 ip_used = sum(x[1] for x in self._ip_spend.get(s["ip"], []) if now - x[0] < 86400)
                 ip_held = sum(x["reserved"] for x in self._sessions.values() if x["ip"] == s["ip"])
                 if ip_used + ip_held + self.per_ticket > self.ip_usd_day + eps:
-                    raise Refused("your address has used its share of today's demo budget; please try again tomorrow")
+                    raise Refused("your network has used its share of the demo's model budget for now"
+                                  + ("; please try again in a few minutes" if ip_held > 0 else "; please try again tomorrow"))
             if not s.get("team"):
                 self._ip_tickets[s["ip"]] = ipt + [now]
             s["tickets"] += 1

@@ -110,6 +110,16 @@ class DockerRunner:
 
     def start(self) -> "DockerRunner":
         self._clear_docker()                       # leftovers from a crashed run with the same id; keeps task files
+        try:
+            return self._start()
+        except Exception:                          # a half-started run must not leave its network/edge behind: the
+            try:                                   # caller never gets a runner to close (Fable review 11-07: ~30
+                self._clear_docker()               # orphaned networks would stop every new sandbox on the worker)
+            except Exception:                      # noqa: BLE001
+                pass
+            raise
+
+    def _start(self) -> "DockerRunner":
         self._docker("network", "create", "--internal", self.net).check_returncode()
         self._docker("run", "-d", "--name", self.edge, "--read-only", "--cap-drop", "ALL",
                      "--security-opt", "no-new-privileges", "--memory", "64m", "-e", f"RUN_ID={self.run_id}",
@@ -159,8 +169,11 @@ class DockerRunner:
         import json as _json
         name = f"kl-probe-{self.tag}"
         args = self._sandbox_args(name)
-        p = self._docker(*args, self.task_image, *self.CLEAN_ENV, f"PROBE_TARGETS={_json.dumps(self.probe_targets)}",
-                         self.PY, "/opt/probe.py", timeout=60)
+        try:
+            p = self._docker(*args, self.task_image, *self.CLEAN_ENV, f"PROBE_TARGETS={_json.dumps(self.probe_targets)}",
+                             self.PY, "/opt/probe.py", timeout=60)
+        finally:
+            self._docker("rm", "-f", name)            # also after a timeout (Fable review 11-07)
         try:
             out = _json.loads(p.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):

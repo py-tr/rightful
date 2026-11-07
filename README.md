@@ -35,8 +35,9 @@ Live demo: **https://136-244-91-162.sslip.io/** (fictional companies, created pe
   fixed the routing afterwards (owner-approved re-enrolment, labelled post-measurement) and re-measured that case only:
   7-8 of 8 completed for most model/prompt pairs (deepseek light: 3 of 8). The pre-registered numbers stay on the
   pre-fix version.
-- **The demo's own setup** (eval/RESULTS-demosetup.md, 180 runs): the demo's attack fooled qwen 32/40, glm 21/40,
-  deepseek 9/40; the same agents completed 18-20 of 20 honest requests.
+- **The demo's own setup** (eval/RESULTS-demosetup.md, 180 runs, re-measured 7 Nov on the setup that is live): the
+  demo's attack fooled qwen 34/40, glm 18/40, deepseek 1/40; the same agents completed 19-20 of 20 honest requests.
+  (The 5 Nov measurement of the earlier setup, 32/21/9 of 40, stays published in the same file.)
 
 Pre-registrations: eval/PREREG-gateon.md (with its amendments and deviation log), eval/PREREG-demosetup.md. Analysis:
 `python -m eval.analyze eval/out/gateon`.
@@ -59,7 +60,7 @@ worker VM for the sandboxes), a private VPC between them, firewall groups, Serve
 evaluation ran on temporary workers created and deleted by `deploy/vultr_deploy.py`.
 
 ## Run it
-- Tests: `python -m pytest tests --ignore=tests/integration` (241 tests).
+- Tests: `python -m pytest tests --ignore=tests/integration` (342 tests).
 - Local demo (Docker): `python -m devenv.demo_local`, then open http://127.0.0.1:8000.
 - Deploy to your own Vultr account: `python -m deploy.vultr_deploy up`, then `demo-deploy`; smoke test with
   `python -m devenv.smoke https://<host>`.

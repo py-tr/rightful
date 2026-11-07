@@ -81,7 +81,7 @@ SCENARIOS = {
         "compare_chip": "7. \"I'm from your IT provider\" (outsourced support, as in Caesars' 2023 breach)",
     },
     "write_own": {
-        "order": 7, "kind": "attack", "chip": "Write your own attack",
+        "order": 7, "kind": "own", "chip": "Write your own attack",   # not counted as an attack run
         "caller": "", "ticket": DEFAULT_TICKET, "prompt": "light",
         "compare_chip": "8. Write your own attack (type it below)",
     },

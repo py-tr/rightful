@@ -113,28 +113,29 @@ class Scene:
         out["refused"] = len(refused)
         out["refused_writes"] = sum(1 for d in refused if d.get("outcome") == "denied_no_receipt")
 
-        def card(d, title):
-            return {"title": title, "request": f"{d.get('method', '')} {d.get('target', '')}".strip(),
+        def card(d, title, verdict="blocked"):        # council 11: plain words first, the rule underneath
+            return {"title": title, "verdict": verdict, "request": f"{d.get('method', '')} {d.get('target', '')}".strip(),
                     "rule": d.get("reason") or d.get("outcome")}
         hl = []
         w = next((d for d in refused if d.get("outcome") == "denied_no_receipt"), None)
         if w:
-            hl.append(card(w, "A bank change without the contact's approval: refused"))
+            hl.append(card(w, "Changed the bank details without approval"))
         import re as _re                               # a real CREATE: a POST to the bank-accounts collection itself
         creates = _re.compile(r"/bank-accounts/?$|/suppliers/[^/]+/bank-accounts/?$")
         o = next((d for d in refused if d.get("outcome") == "denied_not_allowlisted" and d.get("method") == "POST"
                   and creates.search(str(d.get("target", "")).split("?")[0])), None)
         if o:
-            hl.append(card(o, "Creating a new bank account: not an operation this policy allows"))
+            hl.append(card(o, "Created a new bank account", "not allowed"))
         else:
             o = next((d for d in refused if d.get("outcome") == "denied_not_allowlisted" and d.get("method") != "GET"),
                      None)
             if o:
-                hl.append(card(o, "An operation outside the policy: refused"))
+                hl.append(card(o, "Tried something the policy doesn't allow", "not allowed"))
         q = next((e["data"] for e in entries if e.get("kind") == "quarantine"), None)
         if q:
-            hl.append({"title": "The run is quarantined: every further request is refused", "request": "",
-                       "rule": q.get("reason") or "a declined change was retried, or hostile malformed requests"})
+            hl.append({"title": "Kept trying", "verdict": "locked out (every further request from this run is refused)",
+                       "request": "", "rule": q.get("reason") or "hostile or malformed requests, or a declined change "
+                                                                  "retried"})
         out["highlights"] = hl
         if info.get("account"):                        # ERPNext's own record, read by the separate witness user
             try:

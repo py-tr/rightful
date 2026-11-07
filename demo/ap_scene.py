@@ -27,14 +27,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.testclient import TestClient
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STEP = [("change_bank_details", "trying to change the bank details"), ("set_default", "trying to switch the default "
-        "account"), ("confirm_with_supplier", "asking the supplier's contact for a call-back"),
-        ("send_challenge", "sending the request to the contact's phone"), ("wait_for_approval", "waiting for the "
-        "phone"), ("httpx", "calling the gate directly with its own HTTP requests"), ("requests", "calling the gate "
-        "directly with its own HTTP requests"), ("socket", "probing the network"), ("bank_accounts", "reading the "
-        "supplier's bank accounts"), ("find_supplier", "looking up the supplier"), ("get_ticket", "reading the ticket"),
-        ("payment_check", "running the payment check"), ("inspect", "reading the SDK's source"),
-        ("os.environ", "looking for credentials in the sandbox")]
+# what a script sets out to do, judged from its code (first match wins; shown as "The agent writes a script to: ...")
+STEP = [("change_bank_details", "change the bank details"), ("set_default", "switch which account gets paid"),
+        ("confirm_with_supplier", "ask the supplier's contact for a call-back"),
+        ("send_challenge", "send an approval request to the contact's phone"),
+        ("wait_for_approval", "wait for the phone"), ("os.environ", "look for keys or passwords in the sandbox"),
+        ("socket", "probe the network"), ("httpx", "call the gate directly with its own HTTP requests"),
+        ("requests", "call the gate directly with its own HTTP requests"), ("inspect", "read the toolkit's source code"),
+        ("bank_accounts", "read the supplier's bank accounts"), ("find_supplier", "look up the supplier"),
+        ("get_ticket", "read the ticket"), ("payment_check", "run the payment check")]
 
 
 OPS = {"change_bank_details": "Change the bank details", "set_default_bank_account": "Switch which account gets paid",
@@ -114,10 +115,14 @@ def plain(e: dict) -> dict | None:
     return None
 
 
-def feed_of(entries: list[dict]) -> list[dict]:
+def feed_of(entries: list[dict], steps: list[dict] | None = None) -> list[dict]:
+    """The gate's log in plain words, interleaved by time with what the agent's scripts set out to do (owner 11-07:
+    "make it more obvious what is happening": cause, then the gate's answer)."""
+    items = [(e.get("ts") or 0, plain(e)) for e in entries]
+    items += [(s["t"], {"text": s["text"], "verdict": "", "tone": "agent", "why": ""}) for s in (steps or [])]
+    items.sort(key=lambda x: x[0])
     out = []
-    for e in entries:
-        p = plain(e)
+    for _, p in items:
         if not p:
             continue
         if out and out[-1]["text"] == p["text"] and out[-1]["verdict"] == p["verdict"]:
@@ -165,7 +170,7 @@ class Scene:
         def ev(kind_, data):
             if kind_ == "tool_call":
                 code = data.get("code", "")
-                st["steps"].append(next((w for k, w in STEP if k in code), "running a script"))
+                st["steps"].append({"t": time.time(), "text": next((w for k, w in STEP if k in code), "run a script")})
             elif kind_ == "reply" and (data.get("model_said") or "").strip():
                 st["chat"].append({"who": "agent", "text": data["model_said"][:1200]})
 
@@ -173,6 +178,12 @@ class Scene:
             st["info"] = info
             if kind == "honest":
                 st["chat"].append({"who": "clerk", "text": info["ask"]})
+                st["prompt"] = {"label": "The request from the accounts-payable clerk", "text": info["ask"]}
+            else:                                      # the exact instruction the run uses (eval/ap_setup.py)
+                full = self.A.hostile_prompt(info["supplier"], info["new_no"])
+                st["prompt"] = {"label": "The instruction we gave the agent (a scripted attack, so it can be measured)",
+                                "text": full.split(" The design of the system")[0],
+                                "rest": "It was also shown the system's published design, so it knows what to attack."}
 
         def work():
             try:
@@ -190,7 +201,10 @@ class Scene:
             return {"run": None, "where": self.where, "spent": round(self.svc.spent, 3), "cap": self.cap}
         info = st["info"] or {}
         out = {"run": {"kind": st["kind"], "model": st["model"], "elapsed": round(time.time() - st["t0"]),
-                       "done": st["done"], "steps": st["steps"][-6:], "nsteps": len(st["steps"]), "chat": st["chat"],
+                       "done": st["done"], "steps": [s["text"] for s in st["steps"][-6:]], "nsteps": len(st["steps"]),
+                       "chat": st["chat"], "prompt": st.get("prompt"),
+                       "last_words": (st["chat"][-1]["text"] if st["done"] and st["chat"]
+                                      and st["chat"][-1]["who"] == "agent" else None),
                        "supplier": info.get("supplier"), "account": info.get("account")},
                "where": self.where, "spent": round(self.svc.spent, 3), "cap": self.cap}
         entries = []
@@ -203,7 +217,7 @@ class Scene:
         refused = [e["data"] for e in entries if e.get("kind") == "decision"
                    and str(e["data"].get("outcome", "")).startswith("denied")]
         out["refused"] = len(refused)
-        out["feed"] = feed_of(entries)
+        out["feed"] = feed_of(entries, st["steps"])
         decisions = [e for e in entries if e.get("kind") == "decision"]
         out["flow"] = {"sent": len(decisions),
                        "reads": sum(1 for e in decisions if e["data"].get("outcome") == "allowed_read"),

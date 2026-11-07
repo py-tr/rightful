@@ -47,6 +47,14 @@ details{margin-top:16px;color:var(--muted);font-size:14px}details .rq{font-famil
 .line .w{grid-column:1/3;font-size:14px;color:var(--muted)}
 .line.red .vv{color:var(--red)}.line.grey .x,.line.grey .vv{color:var(--muted);font-weight:500}.line.amber .vv{color:var(--amber)}.line.green .vv{color:var(--green)}
 .more{font-size:13px;color:var(--muted)}
+.prompt{border-left:5px solid var(--ink);background:var(--soft);border-radius:10px;padding:10px 14px;margin-bottom:10px}
+.prompt .pl{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.prompt .pt{font-size:18px;font-style:italic;margin-top:4px}.prompt .pr{font-size:13px;color:var(--muted);margin-top:4px}
+.line.agent{grid-template-columns:1fr}.line.agent .x{font-size:17px;font-weight:500;font-style:italic}
+.line.agent .x::before{content:"\270E  The agent writes a script to: ";font-style:normal;color:var(--muted);font-size:14px}
+.line.gate .x::before{content:"\2192  ";color:var(--muted)}
+.words{border-left:5px solid var(--green);background:var(--soft);border-radius:10px;padding:10px 14px;margin-top:10px;animation:in .4s ease-out}
+.words .pl{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}.words .pt{font-size:17px;font-style:italic}
 @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 </style></head>
 <body><div class="wrap">
@@ -69,7 +77,7 @@ details{margin-top:16px;color:var(--muted);font-size:14px}details .rq{font-famil
   <div class="arrow">&rarr;</div>
   <div class="box"><div class="n">ERPNext (the accounting system)</div><div class="b" id="fErp">0 changes</div></div>
 </div>
-<div class="feed" id="feedBox"><div class="fh">What the agent is trying, live, from the gate's own log</div><div id="more" class="more"></div><div id="feed"></div></div>
+<div class="feed" id="feedBox"><div id="promptBox"></div><div class="fh">What happens, live: the agent's scripts, and the gate's answer to each request (from the gate's own log)</div><div id="more" class="more"></div><div id="feed"></div><div id="wordsBox"></div></div>
 <div id="hostileView">
   <div class="tiles">
     <div class="tile agent"><div class="lbl">The gate refused</div><div class="num" id="tried">0</div><div class="cap" id="triedCap">requests from the hijacked agent</div></div>
@@ -111,9 +119,10 @@ function drawFeed() {
   if (sig === feedSig) return;                 // nothing new on screen: no redraw, no replayed animation
   feedSig = sig; const box = $("feed"); box.replaceChildren();
   $("more").textContent = from ? "+" + from + " earlier" : "";
-  for (const x of vis.slice(from).reverse()) {
-    const d = el("div", "line " + x.tone);
-    d.append(el("div", "x", (x.n > 1 ? x.text + "  ×" + x.n : x.text)), el("div", "vv", x.verdict));
+  for (const x of vis.slice(from)) {             // oldest first, like a story read top to bottom
+    const d = el("div", "line " + x.tone + (x.tone === "agent" ? "" : " gate"));
+    d.append(el("div", "x", (x.n > 1 ? x.text + "  ×" + x.n : x.text)));
+    if (x.tone !== "agent") d.append(el("div", "vv", "Gate: " + x.verdict));
     if (x.why) d.append(el("div", "w", x.why));
     box.append(d);
   }
@@ -126,7 +135,7 @@ setInterval(() => {
   }
 }, 900);
 async function start(kind) {
-  try { await post("/api/run", {kind, model: $("model").value}); mode = kind; shown = 0; phoneKey = ""; feedAll = []; feedShown = 0; drawFeed(); $("cards").replaceChildren(); $("vers").replaceChildren(); $("tells").replaceChildren(); $("phoneBox").replaceChildren(); $("status").textContent = ""; }
+  try { await post("/api/run", {kind, model: $("model").value}); mode = kind; shown = 0; phoneKey = ""; feedAll = []; feedShown = 0; drawFeed(); $("wordsBox").replaceChildren(); $("wordsBox").dataset.k = ""; $("promptBox").dataset.k = ""; $("cards").replaceChildren(); $("vers").replaceChildren(); $("tells").replaceChildren(); $("phoneBox").replaceChildren(); $("status").textContent = ""; }
   catch (e) { alert(e.message); }
 }
 $("hostile").onclick = () => start("hostile"); $("honest").onclick = () => start("honest");
@@ -147,6 +156,12 @@ function render(v) {
   $("fSent").textContent = f.sent + (f.sent === 1 ? " request" : " requests");
   $("fGate").textContent = f.reads + " reads let through · " + f.changes_through + (f.changes_through === 1 ? " approved change" : " approved changes");
   $("fErp").textContent = (v.versions ? vs.length : 0) + (vs.length === 1 ? " change" : " changes");
+  const pk = r.prompt ? r.prompt.text : "";
+  if ($("promptBox").dataset.k !== pk) { $("promptBox").dataset.k = pk; $("promptBox").replaceChildren();
+    if (r.prompt) { const p = el("div", "prompt"); p.append(el("div", "pl", r.prompt.label), el("div", "pt", "“" + r.prompt.text + "”")); if (r.prompt.rest) p.append(el("div", "pr", r.prompt.rest)); $("promptBox").append(p); } }
+  const lw = (r.last_words || "").replace(/[#*`_>]/g, "").replace(/\s+/g, " ").trim();
+  if ($("wordsBox").dataset.k !== lw && feedShown >= (v.feed || []).length) { $("wordsBox").dataset.k = lw; $("wordsBox").replaceChildren();
+    if (lw) { const w = el("div", "words"); w.append(el("div", "pl", "The agent's last words (quoted from the run)"), el("div", "pt", "“" + (lw.length > 280 ? lw.slice(0, 280) + "…" : lw) + "”")); $("wordsBox").append(w); } }
   const nf = v.feed || [];                       // same entries as before, the last one may have grown (×n)
   feedAll = nf; if (feedShown > nf.length) feedShown = nf.length;
   if (feedShown && nf[feedShown - 1]) drawFeed();

@@ -53,6 +53,8 @@ MAX_TURNS, CONVERSATION_WALL_S = 10, 240   # 8 cut the honest path short after a
 # countdown, "More time" (+2 min) and "End now" on the page). The measured runs never wait here: the scripted caller
 # answers at once. Waiting for the visitor does not count against CONVERSATION_WALL_S (the agent's own time).
 WAIT_FOR_VISITOR_S = 120
+MAX_EXTENSIONS = 3                 # "More time" presses per conversation (review 11-07: uncapped, one visitor could hold
+CONVERSATION_ABS_S = 15 * 60       # every run slot); and an absolute limit per conversation, waiting included
 PUSH_LIFE_S, PUSH_LIFE_PAIRED_S = 60, 120   # mentor 11-07: a real person's phone gets 2 min; the measured runs (scripted
                                             # owner, page phone) keep 60 s, so the measured setup is unchanged
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -138,6 +140,7 @@ class Session:
     paired: bool = False                          # a visitor's own phone answers this session (pushes last longer)
     reply_until: float = 0.0                      # waiting for the visitor's next message until then (0 = not waiting)
     end_now: bool = False                         # the visitor pressed "End now"
+    extensions: int = 0                           # "More time" presses in this conversation (capped)
     verdict: str = ""                             # the last verdict banner, for the permalink   # challenge id -> when the watcher first saw it sent
     outcomes: "queue.Queue" = field(default_factory=queue.Queue)   # (run, status) when a push is answered
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -202,8 +205,8 @@ class Demo:
                     self.factory.give_back(c["realm"])
                     raise Refused("internal check failed (company kind); nothing was run")
                 s.stack = SessionStack(self.kc_base, self.out_dir, self.master, c).create()
-                if s.paired:                               # a real phone answers this session: 2-minute pushes
-                    self.factory.push_life(s.stack.realm, PUSH_LIFE_PAIRED_S)
+                if s.paired and not self.factory.push_life(s.stack.realm, PUSH_LIFE_PAIRED_S):
+                    s.paired = False                       # never claim 2 minutes that did not take effect
                 self.push.register(s.stack.realm, s.stack.push)
                 threading.Thread(target=self._watch, args=(s,), daemon=True).start()
             return s.stack
@@ -252,6 +255,8 @@ class Demo:
             try:
                 r = json.loads(line)
             except ValueError:
+                continue
+            if r.get("team"):                          # team/smoke runs stay out of public numbers (review 11-07)
                 continue
             out["deleted"] += 1
             g = r.get("gone")
@@ -542,7 +547,8 @@ class Demo:
                           "the account still works and a human can help. Here, start over for a fresh company.",
                           restart=True)
             if st == "sent" and c is not None:
-                card = (" (the card marked LEFT)" if s.mode == "agent_decides" else
+                s.sent_at.setdefault(cid, time.time())    # at once, so a card's "nth" is right from its first frame
+                card =(" (the card marked LEFT)" if s.mode == "agent_decides" else
                         " (the card marked RIGHT)" if s.twin is not None else "")
                 self.emit(s, "phone", f"A request was sent to {whose}'s phone. Choose {c.number} on the phone{card}.",
                           number=c.number, phone_of=c.approver)
@@ -603,6 +609,7 @@ class Demo:
         sc = SCENARIOS.get(scenario or "")
         s.scenario = scenario if sc else None
         s.taken_over = False                           # per conversation
+        s.end_now, s.extensions = False, 0             # here, not in _converse: an "End now" pressed while queued counts
         if sc and sc.get("kind") == "attack":
             s.attack_runs += 1
         s.ticket = (ticket or (sc["ticket"] if sc else "") or DEFAULT_TICKET).strip()[:MAX_TICKET]
@@ -634,7 +641,8 @@ class Demo:
             self.broker.register(rid, stack.app, Timing())
             host = self.hosts[secrets.randbelow(len(self.hosts))]
             runner = DockerRunner(rid, s.ticket, upstream=self.edge_upstream, run_key=runkey.task_key(self.master, rid),
-                                  realm=stack.realm, docker_host=host, timeout_s=100,   # > a push's 60 s life:
+                                  realm=stack.realm, docker_host=host,
+                                  timeout_s=(PUSH_LIFE_PAIRED_S + 40) if s.paired else 100,   # > a push's life:
                                   # at 60 a script that waits on the phone was killed before it saw the answer (11-05)
                                   runtime="runsc" if (host or "").startswith("ssh://") else None,
                                   track_lifecycle=True).start()
@@ -647,7 +655,6 @@ class Demo:
             else:
                 llm = LLM(models=[s.model or self.model], cap_usd=reserved, max_tokens=8000)
             t_start, waited = time.time(), {"s": 0.0}   # the wall counts the agent's time, not the visitor's
-            s.end_now = False                           # "End now" applies to the conversation it was pressed in
             n = {"script": 0}
             seen = {"tool_t": 0.0}
 
@@ -717,7 +724,8 @@ class Demo:
                 w0 = time.time()
                 s.reply_until = w0 + WAIT_FOR_VISITOR_S
                 try:
-                    while not s.end_now and time.time() < s.reply_until + (life if open_push() else 0):
+                    while (not s.end_now and time.time() < s.reply_until + (life if open_push() else 0)
+                           and time.time() < min(t_start + CONVERSATION_ABS_S, s.created + MAX_S)):
                         try:
                             return s.inbox.get(timeout=0.5)
                         except queue.Empty:
@@ -796,6 +804,11 @@ class Demo:
         gone = sum(1 for r in rep if r.get("gone") is True)
         unknown = sum(1 for r in rep if r.get("gone") is None)
         n = len(rep)
+        if not ids:                                    # the id could not be read: say so, never "0 new containers"
+            parts = [f"{n} script{'s' if n != 1 else ''} ran; their container ids could not be read, so nothing below "
+                     "is claimed about them"]
+            self.emit(s, "sandbox", "; ".join(parts) + ".", scripts=n, containers=0, gone=0, unknown=n, ids=[])
+            return
         parts = [f"{n} script{'s' if n != 1 else ''} ran in {len(set(ids))} new container{'s' if len(set(ids)) != 1 else ''}"
                  + (f" ({', '.join(ids[:4])}{', …' if len(ids) > 4 else ''})" if ids else ""),
                  f"{gone} of {n} confirmed gone afterwards (Docker on the {'worker' if runner.remote else 'host'} "
@@ -1015,7 +1028,7 @@ class Demo:
         notice carries its column ("left": the agent decides, "right": Rightful), so a visitor always knows which
         request they are answering (11-05: two columns asking at once was ambiguous)."""
         view = {"owner": "cfo", "title": "Jordan Avery's phone", "subtitle": "CFO", "pending": [], "notices": [],
-                "mail": 0, "history": [], "compare": s.twin is not None}
+                "mail": 0, "history": [], "compare": s.twin is not None, "paired": s.paired}
         if s.stack is None:
             return view
         cols = [(s, "right")] + ([(s.twin, "left")] if s.twin is not None and s.twin.stack is not None else [])
@@ -1044,7 +1057,8 @@ class Demo:
                     # the nth request this column sent in this conversation, and what became of the earlier ones (owner,
                     # 11-07: a second card for a second change looked like the first one shown twice)
                     asked = sorted(((col.sent_at.get(c.id, 0), c) for c in col.stack.challenges._by_id.values()
-                                    if c.id in col.sent_at), key=lambda tc: tc[0])
+                                    if c.id in col.sent_at and c.run_id == col.run_id),   # this conversation only
+                                   key=lambda tc: tc[0])
                     nth = next((i + 1 for i, (_, c) in enumerate(asked) if c.binding == p["binding"]), len(asked) or 1)
                     before = [f"the {ORDINAL.get(i + 1, str(i + 1) + 'th')} ({ACTIONS.get(c.operation, c.operation)}) "
                               f"was {words.get(c.status, 'still open' if c.status == 'sent' else c.status)}"
@@ -1235,9 +1249,11 @@ def create_demo_app(demo: Demo) -> FastAPI:
         real = os.environ.get("DEMO_TEAM_KEY", "")
         if not real or len(real) < 16 or not secrets.compare_digest(key, real):
             return HTMLResponse("<p style='font:16px system-ui;padding:24px'>Not found.</p>", status_code=404)
-        r = HTMLResponse("<p style='font:16px system-ui;padding:24px'>Team mode is on in this browser for 12 hours: "
-                         "your runs are not counted in the public counters. <a href='/'>Open the demo</a></p>")
-        r.set_cookie("kt", key, httponly=True, secure=True, samesite="strict", max_age=12 * 3600)
+        # 303 straight to the demo: the keyed URL is not the one left in the address bar to copy (review 11-07). The
+        # cookie is Lax so it survives this top-level redirect; it is only ever read, never trusted for a write.
+        from fastapi.responses import RedirectResponse
+        r = RedirectResponse("/", status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+        r.set_cookie("kt", key, httponly=True, secure=True, samesite="lax", max_age=12 * 3600)
         return r
 
     def same_site(request: Request) -> bool:
@@ -1350,13 +1366,9 @@ def create_demo_app(demo: Demo) -> FastAPI:
                 levs = t.events[max(after_left, 0):]
             out.update({"compare": True, "left": {"events": levs, "typing": t.typing, "busy": t.busy,
                                                   "proof": demo.proof(t), "taken_over": t.taken_over}})
-            lp = demo.phone_view(t)
-            for p in out["phone"]["pending"]:
-                p["company"] = "right"
-            for p in lp["pending"]:
-                p["company"] = "left"
-            out["phone"]["pending"] = lp["pending"] + out["phone"]["pending"]
-            out["phone"]["notices"] = [{**n, "company": "left"} for n in lp["notices"]] + out["phone"]["notices"]
+            # phone_view(s) already serves BOTH columns, each card labelled with its own column. Merging phone_view(t)
+            # on top relabelled every card "right" and added the left ones a second time: a LEFT push showed twice, one
+            # copy marked RIGHT (the owner's "duplicated right card", 11-07; found by the code review).
         return out
 
     @app.post("/api/compare")
@@ -1494,14 +1506,17 @@ def create_demo_app(demo: Demo) -> FastAPI:
             resp.set_cookie("kp", dev, httponly=True, secure=True, samesite="strict", max_age=PHONE_LINK_S)
             s = demo.sessions.get(rec["sid"])
             if s is not None:
+                ok = True
                 for col in (s, s.twin):                # mentor 11-07: a real person gets 2 minutes to approve
                     if col is not None:
                         col.paired = True
                         if col.stack is not None:
-                            demo.factory.push_life(col.stack.realm, PUSH_LIFE_PAIRED_S)
-                demo.emit(s, "status", f"A phone joined: requests can now be answered on it. Its approval requests "
-                                       f"last {PUSH_LIFE_PAIRED_S // 60} minutes (the page's own phone: "
-                                       f"{PUSH_LIFE_S} seconds, as measured).")
+                            ok = demo.factory.push_life(col.stack.realm, PUSH_LIFE_PAIRED_S) and ok
+                # the lifetime is a property of the company, so it applies to every request in it, on both devices
+                # (review 11-07: "the page's phone keeps 60 s" was false); claimed only if the change took effect
+                demo.emit(s, "status", "A phone joined: requests can now be answered on it." + (
+                    f" From now on, approval requests in this session last {PUSH_LIFE_PAIRED_S // 60} minutes "
+                    f"(the measured runs used {PUSH_LIFE_S} seconds)." if ok else ""))
         return resp
 
     @app.get("/api/m/view")
@@ -1553,6 +1568,9 @@ def create_demo_app(demo: Demo) -> FastAPI:
             return err("bad request")
         if action not in ("more", "end"):
             return err("bad request")
+        if action == "more" and s.extensions >= MAX_EXTENSIONS:
+            return err(f"That's the most extra time a conversation gets ({MAX_EXTENSIONS} x 2 minutes). Send your "
+                       "reply, or start a new conversation afterwards.", 429)
         for col in (s, s.twin):                        # both columns, including one still finishing its turn
             if col is None:
                 continue
@@ -1560,7 +1578,9 @@ def create_demo_app(demo: Demo) -> FastAPI:
                 col.end_now = col.busy             # ends the running conversation; never a future one
             elif col.reply_until:
                 col.reply_until = max(col.reply_until, time.time()) + WAIT_FOR_VISITOR_S
-        return {"ok": True}
+        if action == "more":
+            s.extensions += 1
+        return {"ok": True, "extensions_left": MAX_EXTENSIONS - s.extensions}
 
     @app.post("/api/restart")
     def restart(request: Request):

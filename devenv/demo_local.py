@@ -104,6 +104,8 @@ def main() -> int:
         answered, deadline = False, time.time() + 240
         while time.time() < deadline:
             v = c.get("/api/events").json()
+            pend = v["phone"]["pending"]                # review 11-07: a LEFT push was shown twice, one copy as RIGHT
+            assert len({p["id"] for p in pend}) == len(pend), [(p["id"], p.get("company")) for p in pend]
             right = [p for p in v["phone"]["pending"] if p.get("company") == "right"]
             if right and not answered:
                 p = right[0]
@@ -148,6 +150,8 @@ def main() -> int:
     tc.post("/api/reply-timer", json={"action": "more"}).raise_for_status()
     more = tc.get("/api/events").json().get("reply_in_s")
     assert more is not None and more > 150, more
+    codes = [tc.post("/api/reply-timer", json={"action": "more"}).status_code for _ in range(3)]
+    assert codes == [200, 200, 429], codes              # review 11-07: "More time" is capped at 3 per conversation
     tok = tc.post("/api/phone-link", json={}).json()["url"].rsplit("/", 1)[-1]
     httpx.get(f"http://127.0.0.1:8000/m/{tok}", timeout=30)
     from devenv import keycloak_local as _kl

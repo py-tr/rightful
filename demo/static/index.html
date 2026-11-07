@@ -223,8 +223,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
     <div class="pair"><button class="pairbtn" id="pairBtn">Use your own phone</button>
       <div class="pairbox hidden" id="pairBox"><img id="pairQr" alt="QR code that opens this session's phone page">
         <div>Scan with your phone's camera. The page answers this session's requests; it works once, on one device,
-        for 15 minutes. On your phone, each request waits 2 minutes for you (the page's own phone: 60 seconds, as
-        measured). <span id="pairUrl" class="pairurl"></span></div></div></div>
+        for 15 minutes. Once it is paired, approval requests in this session wait 2 minutes for you (the measured
+        runs used 60 seconds). <span id="pairUrl" class="pairurl"></span></div></div></div>
     <p class="phonenote">Simulated device: in production this is the owner's authenticator app. The only way a change
       happens with Rightful is this phone saying yes to the exact request. If you approve as the owner, you've taken the
       honest path, not found a bypass.</p>
@@ -309,8 +309,10 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
   $("measL").classList.toggle("hidden", !n);
   if (n) $("measL").textContent = (sc.current ? "Measured " + sc.date + " in this exact setup (same code and inputs, run on our own machine; " + m + "): "
       : "Measured " + sc.date + " on an earlier version of this demo (" + m + "): ")
-    + "this attack fooled the agent in " + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests.";
+    + "this attack fooled the agent in " + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests."
+    + (sessionPaired ? " (Your session differs in one way: with your phone paired, requests last 2 minutes; the measurement used 60 seconds.)" : "");
 }
+let sessionPaired = false;
 function labelChips() {
   for (const b of $("chips").querySelectorAll(".chip")) {
     b.classList.toggle("hidden", compare && !b.dataset.cmpchip);
@@ -410,7 +412,7 @@ const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · 
 function renderPhone(p) {
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
   const hist = p.history || [];
-  const ids = p.pending.map(x => x.id).join(",") + "|" + hist.length + "|" + (p.left_note || ""); const cards = $("cards");
+  const ids = p.pending.map(x => x.id + ":" + (x.nth || 1) + ":" + (x.company || "")).join(",") + "|" + hist.length + "|" + (p.left_note || ""); const cards = $("cards");
   $("screen").classList.toggle("lit", p.pending.length > 0);
   if (ids !== lastPhoneIds) {
     lastPhoneIds = ids; cards.replaceChildren();
@@ -487,10 +489,15 @@ async function poll(once) {
       const split = j.compare && j.left && (!!j.busy !== !!j.left.busy);
       $("state").textContent = split ? "One column is still finishing; send when both are done." : serverBusy ? "The help desk is working..." : "The help desk is waiting for you.";
       $("sendBtn").disabled = split;
-      // 11-07 (owner): the wait for your reply, visible, with more time or an end on request
+      if (!!j.paired !== sessionPaired) { sessionPaired = !!j.paired; showMeasured(currentMeasured); }
+      // 11-07 (owner): the wait for your reply, visible, with more time or an end on request; at 0 with a push still
+      // open the conversation keeps waiting for the phone (review 11-07: "0:00, or it ends" was not true then)
       const rs = j.reply_in_s;
       $("replyBar").classList.toggle("hidden", rs == null);
-      if (rs != null) $("replyText").textContent = "Reply within " + Math.floor(rs / 60) + ":" + String(rs % 60).padStart(2, "0") + ", or the conversation ends and you get the summary.";
+      if (rs == null) $("moreBtn").disabled = false;   // a new conversation gets its own extensions
+      if (rs != null) $("replyText").textContent = rs > 0
+        ? "Reply within " + Math.floor(rs / 60) + ":" + String(rs % 60).padStart(2, "0") + ", or the conversation ends and you get the summary."
+        : "Waiting for the phone's answer (an approval request is still open).";
       $("thenBar").classList.toggle("hidden", !(nextThen && thenArmed));
       $("thenBtn").textContent = nextThen ? '"' + nextThen + '"' : "";
     }
@@ -542,7 +549,7 @@ $("proveBtn").onclick = async () => {
 };
 $("goBtn").onclick = async () => {
   if (serverBusy) { return; }
-  if (!compare) { $("cmpBtn").click(); await new Promise(r => setTimeout(r, 300)); }
+  if (!compare) { await $("cmpBtn").onclick(); }   // awaited (review 11-07: a 300 ms guess could open two sessions)
   const chip = $("chips").querySelector('.chip[data-cmp="1"]'); if (chip && !$("input").value.trim()) chip.click();
   const label = $("goBtn").textContent;   // show at once that the click did something (owner, 11-07)
   $("goBtn").disabled = true; $("goBtn").textContent = "Starting both columns…";
@@ -582,7 +589,7 @@ async function send() {
   poll(true);
 }
 $("sendBtn").onclick = send;
-$("moreBtn").onclick = () => api("/api/reply-timer", {action: "more"}).then(() => poll(true)).catch(e => alert(e.message));
+$("moreBtn").onclick = () => api("/api/reply-timer", {action: "more"}).then(j => { if (j.extensions_left === 0) $("moreBtn").disabled = true; poll(true); }).catch(e => alert(e.message));
 $("endBtn").onclick = () => api("/api/reply-timer", {action: "end"}).then(() => poll(true)).catch(e => alert(e.message));
 $("pairBtn").onclick = async () => {
   try { if (compare && !serverCompare) { await api("/api/compare", {on: true}); serverCompare = true; }   // keep the landing's two columns

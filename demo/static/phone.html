@@ -68,8 +68,8 @@ async function act(id, action, body) {
 }
 function render(v) {
   $("title").textContent = v.title || "Your phone";
-  $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min · each request waits 2 minutes for you";
-  const key = JSON.stringify([v.pending.map(x => x.id), (v.history || []).length, v.notices.length]);
+  $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min" + (v.paired ? " · each request waits 2 minutes for you" : "");
+  const key = JSON.stringify([v.pending.map(x => [x.id, x.nth || 1, x.company || ""]), (v.history || []).length, v.notices.length]);
   if (key === last) return; last = key;
   const cards = $("cards"); cards.replaceChildren();
   if (!v.pending.length && !(v.history || []).length) cards.append(el("div", "idle", "No requests yet. Keep this page open; requests appear here."));

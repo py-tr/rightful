@@ -22,7 +22,8 @@ h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin
 .tag{font-size:12px;font-weight:700;letter-spacing:.04em}.tag.left{color:var(--red)}.tag.right{color:var(--green)}
 .to{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
 .app{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:6px}
-.what{font-size:19px;font-weight:700;margin:6px 0 2px}.acct{font-size:15px}
+.what{font-size:21px;font-weight:700;margin:6px 0 2px;line-height:1.25}.acct{font-size:15px}
+.nth{font-size:13px;font-weight:600;color:#7a4b00;background:#fff3d6;border-radius:8px;padding:5px 9px;margin-top:8px}
 .warn{font-size:14px;color:var(--amber);background:var(--amber-bg);border-radius:10px;padding:8px 10px;margin-top:10px}
 .q{font-size:14px;color:var(--muted);margin:14px 0 8px}
 .nums{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
@@ -76,7 +77,10 @@ function render(v) {
     const c = el("div", "card" + (x.company ? " side-" + x.company : ""));
     if (x.company) c.append(el("div", "tag " + x.company, SIDE[x.company]));
     if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
-    c.append(el("div", "app", "Corp sign-in · ref " + x.ref), el("div", "what", "Help desk requests: " + x.action), el("div", "acct", "Account: " + x.account));
+    // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
+    c.append(el("div", "what", x.title || ("Help desk requests: " + x.action)), el("div", "acct", "for " + x.account));
+    if (x.nth > 1) c.append(el("div", "nth", (x.nth === 2 ? "2nd" : x.nth === 3 ? "3rd" : x.nth + "th") + " request in this conversation" + (x.before ? " · " + x.before : "")));
+    c.append(el("div", "app", "ref " + x.ref));
     if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
     c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
     const nums = el("div", "nums");
@@ -88,7 +92,8 @@ function render(v) {
   if (!v.pending.length) for (const h of (v.history || []).slice().reverse())
     cards.append(el("div", "past", (h.company ? (h.company === "left" ? "LEFT · " : "RIGHT · ") : "") + h.at + " · to " + h.who + "'s phone: " + h.action + " · " + h.outcome));
   const no = $("notices"); no.replaceChildren();
-  for (const n of v.notices.slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
+  // 11-07 (owner): too much at once; while a request waits for an answer, only notices you can act on are shown
+  for (const n of v.notices.filter(n => !v.pending.length || n.cancel_id).slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
     if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => post("/api/m/cancel/" + encodeURIComponent(n.cancel_id)).then(() => toast("Cancelled.")).catch(e => toast(e.message)); d.append(el("br"), b); }
     no.append(d); }
 }

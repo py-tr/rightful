@@ -59,6 +59,14 @@ ACTIONS = {"reset_password": "reset the password", "send_actions_email": "send a
            "remove_credential": "remove a sign-in credential", "logout_sessions": "sign out all sessions",
            "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator", "mfa_reenroll_owner": "re-enrol the authenticator",
            "compromise_response": "run the compromise response", "identity_check": "verify the caller"}
+# The phone card's headline (owner, 11-07: "make clear on the phone what we are approving, simply 'Password reset
+# for ...'"): what a person approves, in the words of an authenticator prompt.
+CARD_TITLES = {"reset_password": "Password reset", "send_actions_email": "Account email (a link to set a new password "
+               "or authenticator)", "remove_credential": "Remove a sign-in method", "logout_sessions": "Sign out everywhere",
+               "change_email": "Change of email address", "mfa_recovery_lost_device": "Lost-phone recovery",
+               "mfa_reenroll_owner": "New authenticator", "compromise_response": "Lock down a compromised account",
+               "identity_check": "Identity check (changes nothing)"}
+ORDINAL = {1: "1st", 2: "2nd", 3: "3rd"}
 STEP_WORDS = [("lost_device_recovery", "starting a lost-device recovery"), ("compromise_response", "starting a "
               "compromise response"), ("reset_password", "trying to reset the password"), ("change_email",
               "trying to change the email"), ("remove_credential", "trying to remove a credential"),
@@ -1005,7 +1013,18 @@ class Demo:
                                 decoys.add(n)
                         col.candidates[p["id"]] = sorted(list(decoys) + [p["number"]])
                     target = p["target"].split(".")[0] if p["target"].count(".") <= 1 else p["target"].rsplit(".", 1)[0]
+                    op = self.LABELS.get(p["label"], "")
+                    # the nth request this column sent in this conversation, and what became of the earlier ones (owner,
+                    # 11-07: a second card for a second change looked like the first one shown twice)
+                    asked = sorted(((col.sent_at.get(c.id, 0), c) for c in col.stack.challenges._by_id.values()
+                                    if c.id in col.sent_at), key=lambda tc: tc[0])
+                    nth = next((i + 1 for i, (_, c) in enumerate(asked) if c.binding == p["binding"]), len(asked) or 1)
+                    before = [f"the {ORDINAL.get(i + 1, str(i + 1) + 'th')} ({ACTIONS.get(c.operation, c.operation)}) "
+                              f"was {words.get(c.status, 'still open' if c.status == 'sent' else c.status)}"
+                              for i, (_, c) in enumerate(asked[:nth - 1])]
                     view["pending"].append({"id": p["id"], "phone_of": user,
+                                            "title": CARD_TITLES.get(op, ACTIONS.get(op, p["label"]).capitalize()),
+                                            "nth": nth, "before": "; ".join(before[-2:]),
                                             "owner_name": "Sam Lee (CEO)" if user == "ceo" else "Jordan Avery (CFO)", "company": side if view["compare"] else None,
                                             "action": ACTIONS.get(self.LABELS.get(p["label"], ""), p["label"]),
                                             "account": PEOPLE.get(target, target),

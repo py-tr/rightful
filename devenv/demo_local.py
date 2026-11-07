@@ -108,6 +108,7 @@ def main() -> int:
             if right and not answered:
                 p = right[0]
                 assert len(p["numbers"]) == 3
+                assert p.get("title") == "Password reset" and p.get("nth") == 1, p   # plain words on the card (11-07)
                 true = sess.stack.push.state.pending[p["id"]]["number"]
                 pick = true if choose_right else next(n for n in p["numbers"] if n != true)
                 res = c.post(f"/api/phone/{p['id']}/approve", json={"number": pick}).json()

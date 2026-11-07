@@ -85,7 +85,9 @@ pre.code{font:12px/1.4 "JetBrains Mono",monospace;background:var(--soft);border-
 .card{background:#fff;border-radius:16px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.1);animation:slide .35s ease-out;margin-bottom:12px}
 @keyframes slide{from{transform:translateY(-18px);opacity:0}to{transform:none;opacity:1}}
 .card .app{font-size:11.5px;color:#6b6d72;text-transform:uppercase;letter-spacing:.05em}.card .what{font-weight:700;font-size:16px;margin:4px 0}
-.card .acct{font-size:13.5px}.card .warn{font-size:12.5px;color:#9a6a00;background:#fff5db;border-radius:8px;padding:6px 8px;margin-top:8px}
+.card .acct{font-size:13.5px}.card .what{font-size:19px;line-height:1.25}
+.card .nth{font-size:12px;font-weight:600;color:#7a4b00;background:#fff3d6;border-radius:8px;padding:4px 8px;margin-top:8px}
+.card .ref{font-size:10.5px;color:#9a9ca3;margin-top:6px}.card .warn{font-size:12.5px;color:#9a6a00;background:#fff5db;border-radius:8px;padding:6px 8px;margin-top:8px}
 .card .co{display:inline-block;font-size:11px;border-radius:6px;padding:1px 6px;margin-left:6px;background:#efeff2;color:#3b3d42}
 .card .q{font-size:12.5px;color:#6b6d72;margin-top:10px}.nums{display:flex;gap:8px;margin-top:6px}
 .nums button{flex:1;font:inherit;font-size:22px;font-weight:700;border:1px solid #dcdce2;background:#fff;border-radius:12px;padding:10px 0;cursor:pointer;color:#17181a}
@@ -414,7 +416,10 @@ function renderPhone(p) {
       const c = el("div", "card" + (x.company ? " side-" + x.company : "")); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
       if (x.company) c.append(el("div", "sidetag " + x.company, SIDE[x.company]));
       if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
-      c.append(app, el("div", "what", "Help desk requests: " + x.action), el("div", "acct", "Account: " + x.account));
+      // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
+      c.append(el("div", "what", x.title || ("Help desk requests: " + x.action)), el("div", "acct", "for " + x.account));
+      if (x.nth > 1) c.append(el("div", "nth", (x.nth === 2 ? "2nd" : x.nth === 3 ? "3rd" : x.nth + "th") + " request in this conversation" + (x.before ? " · " + x.before : "")));
+      app.textContent = "ref " + x.ref; app.className = "ref"; c.append(app);
       if (x.someone_else) c.append(el("div", "warn", "This is not your own account. Confirm with them through a channel you already trust before you approve."));
       c.append(el("div", "q", x.company ? "Choose the number shown in the " + x.company.toUpperCase() + " column:" : "Choose the number the help desk gave the caller:"));
       const nums = el("div", "nums");
@@ -425,7 +430,8 @@ function renderPhone(p) {
     }
   }
   const no = $("notices"); no.replaceChildren();
-  for (const n of p.notices.slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
+  // 11-07 (owner): too much at once; while a request waits for an answer, only notices you can act on are shown
+  for (const n of p.notices.filter(n => !p.pending.length || n.cancel_id).slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
     if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}).catch(e => alert(e.message)); d.append(el("br"), b); }
     no.append(d); }
   $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";

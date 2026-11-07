@@ -87,6 +87,17 @@ def main(base: str) -> int:
     st = c.get("/api/events").json().get("strip") or {}
     check("run strip measured gVisor inside the live sandbox", st.get("gvisor") is True and "gvisor" in
           str(st.get("kernel", "")).lower() and st.get("no_network_but_gate") and st.get("no_secrets"), str(st)[:240])
+    sb = []                                            # mentor 11-07: containment measured per script, live
+    for _ in range(15):                                # the line follows the summary (its checks run on the worker)
+        sb = [e for e in c.get("/api/events", params={"after": 0, "after_left": 0}).json().get("events", [])
+              if e.get("who") == "sandbox"]
+        if sb:
+            break
+        time.sleep(2)
+    s0 = sb[-1] if sb else {}
+    check("sandboxes measured: a new container per script, each confirmed gone on the worker",
+          bool(sb) and s0.get("scripts", 0) >= 1 and s0.get("containers") == s0.get("scripts") == s0.get("gone")
+          and not s0.get("unknown") and "worker" in s0.get("text", ""), str(s0.get("text"))[:240])
     link = next((e.get("permalink") for e in j.get("events", []) if e.get("who") == "summary"), None)
     if link:
         tok = link.rsplit("/", 1)[-1]
@@ -101,6 +112,13 @@ def main(base: str) -> int:
         check("share link exists", False, "no summary permalink")
     cnt = c.get("/api/intro").json().get("counter", {})
     check("counter answers", "without_approval" in cnt and "left" in cnt, str(cnt)[:120])
+    d = cnt.get("deletions") or {}
+    check("companies deleted after their session are confirmed gone by the identity server",
+          d.get("deleted", 0) >= 1 and d.get("confirmed_gone") == d.get("deleted"), str(d))
+    pol = httpx.get(f"{base}/api/policy", timeout=30).json()
+    check("policy page lists the payments pack, labelled as not in this live demo",
+          any("not running in this live demo" in (o.get("status") or "") for o in pol.get("other_packs", [])),
+          str(pol.get("other_packs"))[:160])
     wrong_number(base, intro)
     pr = c.post("/api/prove", json={}, timeout=180)
     if pr.status_code == 200:

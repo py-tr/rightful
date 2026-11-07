@@ -26,8 +26,11 @@ class TicketResult:
 
 def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, prompt: str = "hardened",
                caller_followups: list[str] | None = None, max_turns: int = 16, help_doc: str = HELP_DOC,
-               on_reply=None, history: list[dict] | None = None, on_event=None) -> TicketResult:
+               on_reply=None, history: list[dict] | None = None, on_event=None,
+               interject=None) -> TicketResult:
     """on_reply(delivered_text) -> next caller message or None: lets a scripted caller react (evaluation).
+    interject() -> caller message or None, asked after each turn's tool results: lets a scripted caller speak when
+    something happens mid-task (the AP re-run: the clerk speaks right after an unanswered push), not only on replies.
     history: earlier turns placed before the caller's message (the evaluation's forged-history cases).
     on_event(kind, data): live progress for the demo page: 'thinking', 'tool_call' {code}, 'tool_result'
     {exit, stdout, stderr}, 'reply' {model_said, delivered, verdict, changes_line}."""
@@ -55,6 +58,9 @@ def run_ticket(llm, runner, run_id: str, caller_first: str, ledger_path: str, pr
                     res.scripts.append({"code": code, "exit": rc, "stdout": out[-800:], "stderr": err[-400:]})
                     msgs.append({"role": "tool", "tool_call_id": tc.get("id", "x"),
                                  "content": f"exit code {rc}\nstdout:\n{out}\nstderr:\n{err}"})
+                said = interject() if interject else None
+                if said:
+                    msgs.append({"role": "user", "content": said})
                 continue
             text = m.get("content") or ""
             if not text.strip():                # diagnosis: what an empty turn carried instead (keys, finish reason)

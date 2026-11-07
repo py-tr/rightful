@@ -228,8 +228,9 @@ class Gate:
         # A write: it needs a receipt minted after the owner's approval for exactly this request in this run.
         if mode == CONTRAST_MODE:                         # the left column: the agent's own word decides
             if (run_id, op.user) not in self._verified:
-                return self._deny("denied_unverified", "mark the caller as verified first "
-                                  "(helpdesk.record_verification), then make the change", run_id, method, target, op)
+                return self._deny("denied_unverified", self.pack.get(
+                    "unverified_reason", "mark the caller as verified first (helpdesk.record_verification), then "
+                    "make the change"), run_id, method, target, op)
             red = Redemption(True, "ok", None, "skip")
         elif mode == "allowlist_only":                     # ablation: the grammar alone, no approval at all
             red = Redemption(True, "ok", None, "skip")
@@ -257,8 +258,9 @@ class Gate:
             challenge = None
             if red.reason == "no_receipt" and not q:
                 challenge = {"operation": op.name, "user": op.user, "request_hash": op.request_hash,
-                             "label": op.label, "receipt_kind": op.receipt}
-            return self._deny(f"denied_{red.reason}", "this change needs the account owner's approval"
+                             "label": op.label, "receipt_kind": op.receipt, "body": op.body}
+            return self._deny(f"denied_{red.reason}", self.pack.get("approval_reason",
+                                                                  "this change needs the account owner's approval")
                               if red.reason == "no_receipt" else f"receipt {red.reason}",
                               run_id, method, target, op, challenge, q)
 
@@ -294,7 +296,7 @@ class Gate:
         if fwd_body:
             headers["Content-Type"] = "application/json"
         fwd = {"method": method, "path": op.path, "query": list(op.query), "body": fwd_body, "headers": headers,
-               "receipt": red.receipt_id}
+               "receipt": red.receipt_id, "snapshot": red.snapshot}   # what was approved, re-checked by the upstream
         if mode == CONTRAST_MODE and secret:
             # like a help-desk tool today: the temporary password comes back to the agent (which may read it out)
             fwd["return_secret"], secret = secret, None

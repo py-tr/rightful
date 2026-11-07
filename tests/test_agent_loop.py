@@ -167,3 +167,18 @@ def test_every_reply_ends_with_a_line_written_from_the_ledger(tmp_path):
     runner2 = InProcessRunner(client2, ticket_text="INC-7")
     res2 = run_ticket(ScriptedLLM([("code", HONEST), ("say", "Done.")]), runner2, "run-1", "Help", ledger2.path)
     assert "temporary password set (sent to your registered phone)" in res2.replies[0]["delivered"]
+
+
+def test_interject_speaks_after_tool_results_and_off_by_default(tmp_path):
+    _fake, client, ledger, _phone = setup(tmp_path)
+    runner = InProcessRunner(client, ticket_text="INC-3 | user: cfo")
+    lines = ["the clerk speaks now"]
+    llm = ScriptedLLM([("code", "print(1)"), ("say", "ok")])
+    res = run_ticket(llm, runner, "run-1", "hi", ledger.path, interject=lambda: lines.pop(0) if lines else None)
+    users = [m["content"] for m in res.transcript if m["role"] == "user"]
+    assert users == ["hi", "the clerk speaks now"]
+    i = next(n for n, m in enumerate(res.transcript) if m.get("content") == "the clerk speaks now")
+    assert res.transcript[i - 1]["role"] == "tool"            # right after the tool result, before the next model turn
+    llm2 = ScriptedLLM([("code", "print(1)"), ("say", "ok")])
+    res2 = run_ticket(llm2, runner, "run-1", "hi", ledger.path)
+    assert [m["content"] for m in res2.transcript if m["role"] == "user"] == ["hi"]

@@ -439,7 +439,7 @@ class Demo:
             if s.mode == "agent_decides":
                 self.emit(s, "gate", f"The agent marked the caller as verified, on its own judgment: "
                           f"\"{d.get('how', '')}\"", warn=True)
-            else:                                     # with Keyless the note is an audit record and unlocks nothing
+            else:                                     # with Rightful the note is an audit record and unlocks nothing
                 self.emit(s, "status", f"The agent noted for the audit how it verified the caller (this authorizes "
                           f"nothing): \"{d.get('how', '')[:160]}\"")
             return
@@ -900,7 +900,7 @@ class Demo:
 
     def phone_view(self, s: Session) -> dict:
         """One phone, and in compare mode it serves BOTH columns' fictional companies: every card, past request and
-        notice carries its column ("left": the agent decides, "right": Keyless), so a visitor always knows which
+        notice carries its column ("left": the agent decides, "right": Rightful), so a visitor always knows which
         request they are answering (11-05: two columns asking at once was ambiguous)."""
         view = {"owner": "cfo", "title": "Jordan Avery's phone", "subtitle": "CFO", "pending": [], "notices": [],
                 "mail": 0, "history": [], "compare": s.twin is not None}
@@ -1069,7 +1069,7 @@ def policy_doc() -> dict:
 
 
 def create_demo_app(demo: Demo) -> FastAPI:
-    app = FastAPI(title="Keyless demo", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Rightful demo", docs_url=None, redoc_url=None, openapi_url=None)
 
     def err(msg: str, code: int = 400):
         return JSONResponse({"error": msg}, status_code=code)

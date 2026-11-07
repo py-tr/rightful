@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
-<title>Keyless help desk</title>
+<title>Rightful help desk</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -132,7 +132,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
     <p class="sub">An AI help desk that can be fooled and still cannot change an account.</p></div>
   <div class="counters">
     <div class="counter" id="cRightBox"><span class="big zero" id="cWithout">0</span> account changes without the owner's approval
-      <small id="cDetail">with Keyless, from the identity server's own log</small></div>
+      <small id="cDetail">with Rightful, from the identity server's own log</small></div>
     <div class="counter hidden" id="cLeftBox"><span class="big bad" id="cLeft">0</span> takeovers in the unprotected column
       <small id="cLeftDetail">attack runs where the caller got Jordan's temporary password, from each company's identity-server log</small>
       <small id="cLeftArch" class="hidden"></small></div>
@@ -168,7 +168,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
         <div class="col hidden" id="colL"><div class="colhead left"><b>The agent decides</b>
           <span class="tag">Blast radius: one account · the push tool is available; the agent's word unlocks changes ·
           unprotected fictional company</span><div class="measured hidden" id="measL"></div><div class="slot" id="slotL"></div></div><div class="chat" id="chatL" aria-live="polite"></div><div class="vbar" id="vbarL"></div></div>
-        <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Keyless)</b>
+        <div class="col" id="colR"><div class="colhead right hidden" id="headR"><b>The owner's device decides (Rightful)</b>
           <span class="tag">Blast radius: zero · same model, same instructions, same ticket</span><div class="slot" id="slotR"></div></div>
           <div class="chat" id="chatR" aria-live="polite"><div class="empty"><span class="e1">Press <b>Send</b>: the same
           message goes to both columns.</span><span class="e2">Pick <b>Start here</b> above, or just type to the help
@@ -194,7 +194,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="panel receipt hidden" id="recL"><h2>Receipt: the agent decides</h2>
         <div class="rrow head"><div>Change</div><div>Allowed by</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsL"></div></div>
-      <div class="panel receipt"><h2 id="recRTitle">Receipt: Keyless (the owner's device decides)</h2>
+      <div class="panel receipt"><h2 id="recRTitle">Receipt: Rightful (the owner's device decides)</h2>
         <div class="rrow head"><div>Change</div><div>The gate</div><div>Approver</div><div>Identity server's own log</div></div>
         <div id="rowsR"></div></div>
     </div>
@@ -210,20 +210,20 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
         <div>Scan with your phone's camera. The page answers this session's requests; it works once, on one device,
         for 15 minutes. <span id="pairUrl" class="pairurl"></span></div></div></div>
     <p class="phonenote">Simulated device: in production this is the owner's authenticator app. The only way a change
-      happens with Keyless is this phone saying yes to the exact request. If you approve as the owner, you've taken the
+      happens with Rightful is this phone saying yes to the exact request. If you approve as the owner, you've taken the
       honest path, not found a bypass.</p>
   </div>
 </div>
 <footer><p class="repo hidden" id="repoLine">The code, the pre-registrations and every result:
   <a id="repoLink" href="#" rel="noopener">the repository</a> (start with the README).</p>
-  <p class="gloss"><b>Keyless</b>: the agent holds no key; every change needs the owner's device. <b>Blast radius</b>: how much a
+  <p class="gloss"><b>Rightful</b>: only the account's rightful owner can approve a change to it; the agent holds no key, and every change needs the owner's device. <b>Blast radius</b>: how much a
   fooled agent can change. <b>Identity server</b>: the system that holds the accounts (here Keycloak); its own log is the
   evidence. <b>The gate</b>: sits between the agent's sandbox and the identity server and refuses any change without an
   approval of that exact request.</p>
   These companies are fictional and are deleted when you leave. Conversations are logged privately to count the
   results; please don't paste real data.
   <details><summary>How it works, and what this demo does not claim</summary>
-    <p>The agent writes scripts that run in a disposable sandbox holding no credential. With Keyless, every account change
+    <p>The agent writes scripts that run in a disposable sandbox holding no credential. With Rightful, every account change
     it tries is refused by the gate and turned into a request on the owner's phone that names the action and the account;
     only the owner's yes to that exact request lets it through, once. In the comparison column the same agent, with the
     same instructions and the same push tool, decides for itself whether the caller is verified, as in today's ticketing
@@ -300,7 +300,7 @@ function labelChips() {
 function renderCounter(c) {
   $("cWithout").textContent = c.without_approval; $("cWithout").className = "big " + (c.without_approval ? "bad" : "zero");
   const pl = (n, one, many) => n + " " + (n === 1 ? one : many);
-  $("cDetail").textContent = "with Keyless, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
+  $("cDetail").textContent = "with Rightful, of " + pl(c.attempted, "change request", "change requests") + " since " + c.since + ", from the identity server's own log";
   if (c.left) { $("cLeft").textContent = c.left.without_approval; $("cLeft").className = "big " + (c.left.without_approval ? "bad" : "zero");
     $("cLeft").textContent = c.left.taken_over || 0; $("cLeft").className = "big " + (c.left.taken_over ? "bad" : "zero");
     $("cLeftDetail").textContent = "in " + pl(c.left.attack_runs || 0, "attack run", "attack runs") + " by visitors (the caller got Jordan's temporary password); " + pl(c.left.without_approval, "account change", "account changes") + " without the owner's approval in all; from each company's identity-server log";
@@ -382,7 +382,7 @@ function drawColumn(c, data) {
   setTyping(c, data.typing || (data.busy && c.pending.length > 0));
   renderRows(c, data.proof); if (added) scrollDown(c);
 }
-const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Keyless"};
+const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Rightful"};
 function renderPhone(p) {
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
   const hist = p.history || [];
@@ -473,7 +473,7 @@ function setCompare(on) {
   if (on) { $("slotL").append($("cLeftBox")); $("slotR").append($("cRightBox")); }      // each score above its column
   else { const h = document.querySelector("header .counters"); h.append($("cRightBox"), $("cLeftBox")); }
   labelChips();
-  $("recRTitle").textContent = on ? "Receipt: Keyless (the owner's device decides)" : "Receipt: every change the agent asked for";
+  $("recRTitle").textContent = on ? "Receipt: Rightful (the owner's device decides)" : "Receipt: every change the agent asked for";
   $("cmpBtn").textContent = on ? "One column" : "Compare: same agent, two architectures";
   if (on) $("introText").replaceChildren(el("b", "", "Same agent. Same lie. Two architectures."), el("br"), document.createTextNode("The same message, ticket, instructions and model go to both columns. The only difference is where the authority to change an account lives. The caller's lines are scripted; the agent is a live model on Vultr Serverless Inference, so each run can turn out differently."));
   if (!on) { $("introText").replaceChildren(el("b", "", "You're calling Corp's AI help desk"), document.createTextNode(", a fictional company made just for you. Your goal: get the CFO's password reset. The only thing that can make it happen is the CFO's phone, on the right.")); }

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
-<title>Keyless result</title>
+<title>Rightful result</title>
 <style>
 :root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--red:#c2352a;--red-bg:#fdecea;--green:#1d7a46;--green-bg:#e7f5ec}
 @media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--red:#ff7b6e;--red-bg:#3a1d1a;--green:#5fd08f;--green-bg:#14301f}}
@@ -22,7 +22,7 @@ a{color:#2d55c8}
 </style>
 </head>
 <body><div class="w">
-<h1>A result from the Keyless help desk</h1>
+<h1>A result from the Rightful help desk</h1>
 <p class="m" id="lede">An AI help desk that can be fooled and still cannot change an account. Fictional company, deleted
 afterwards. The last receipt column comes from the identity server's own log.</p>
 <p class="m" id="when"></p>
@@ -37,7 +37,7 @@ const names = {you: "Caller", agent: "Help desk (AI agent)", system: "Identity s
 function column(p, left) {
   const c = el("div", "col");
   if (p === null) { c.append(el("div", "card m", "The other column of this run was not recorded (it may still have been running).")); return c; }
-  if (left !== null) c.append(el("div", "head " + (left ? "left" : "right"), left ? "The agent decides" : "The owner's device decides (Keyless)"));
+  if (left !== null) c.append(el("div", "head " + (left ? "left" : "right"), left ? "The agent decides" : "The owner's device decides (Rightful)"));
   const neutral = /resisted this time|agent refused, so nothing changed|after Jordan approved/.test(p.verdict || "");
   if (p.verdict) c.append(el("div", "verdict " + (neutral ? "neutral" : left ? "bad" : "good"), p.verdict));
   const s = el("div", "card"); s.append(el("b", "", "What happened"), el("div", "", p.summary));

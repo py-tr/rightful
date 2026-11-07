@@ -44,6 +44,8 @@ def main(base: str) -> int:
     c = httpx.Client(base_url=base, timeout=30, follow_redirects=True, headers={"Sec-Fetch-Site": "same-origin", **team_headers()})
     r = c.get("/")
     check("page loads", r.status_code == 200 and "Authorization is not a model output" in r.text, str(r.status_code))
+    check("the new name is live (Rightful, no Keyless on the page)", "Rightful" in r.text and "Keyless" not in r.text,
+          "old name still on the page")
     h = c.get("/healthz").json()
     check("health", h.get("ok") is True, str(h))
     intro = c.get("/api/intro").json()

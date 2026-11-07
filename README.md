@@ -1,4 +1,4 @@
-# Keyless
+# Rightful (formerly Keyless)
 
 **Authorization is not a model output.** An AI help desk that can be fooled and still cannot change an account.
 
@@ -10,7 +10,7 @@ Live demo: **https://136-244-91-162.sslip.io/** (fictional companies, created pe
 2. **Left, "the agent decides":** the agent has the same push tool, and a change goes through once the agent itself
    says the caller is verified, as in today's ticketing systems and agent frameworks. Above it, the measured rate for
    exactly this setup: the attack fooled qwen3.8-27b in 32 of 40 runs.
-3. **Right, Keyless:** the agent's sandbox holds no credential. Every account change is refused by a gate and turned
+3. **Right, Rightful:** the agent's sandbox holds no credential. Every account change is refused by a gate and turned
    into a request on the owner's phone that names the exact action and account. Watch it refuse, ask the phone, and
    end with "Nothing changed."
 4. Try **2. the honest path**: press the number the help desk shows, on the phone at the right, or scan the QR code

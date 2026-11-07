@@ -41,7 +41,7 @@ h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin
 </head>
 <body>
 <h1 id="title">Your phone</h1>
-<div class="sub" id="sub">Connected to the Keyless demo</div>
+<div class="sub" id="sub">Connected to the Rightful demo</div>
 <div id="cards"><div class="idle">No requests yet. Keep this page open; requests appear here.</div></div>
 <div id="notices"></div>
 <div class="foot" id="foot">This page answers the help desk's requests for the demo session you scanned it from. It cannot
@@ -51,7 +51,7 @@ h1{font-size:20px;margin:4px 0 2px}.sub{color:var(--muted);font-size:13px;margin
 "use strict";
 const $ = (id) => document.getElementById(id);
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x !== undefined) e.textContent = String(x); return e; };
-const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Keyless"};
+const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Rightful"};
 let last = "", dead = false;
 function toast(t) { const d = $("toast"); d.textContent = t; d.style.display = "block"; setTimeout(() => d.style.display = "none", 2600); }
 async function post(path, body) {

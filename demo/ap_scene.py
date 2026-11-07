@@ -55,7 +55,9 @@ class Scene:
         with self.lock:
             if self.run and not self.run["done"]:
                 return {"error": "a run is still going"}
-            if self.cap - self.svc.spent < self.A.PER_TICKET_CAP:
+            # a run starts if at least $0.03 is left (a typical run costs $0.005-0.03) and is capped at what is left;
+            # requiring the full per-run cap ($0.10) refused runs that would have fitted (owner, 11-07)
+            if self.cap - self.svc.spent < 0.03:
                 return {"error": f"the scene's budget cap is used up (${self.svc.spent:.2f} of ${self.cap})"}
             prev = (self.run or {}).get("info") or {}
             if prev.get("supplier"):                   # only the latest run's supplier stays (leftovers make the

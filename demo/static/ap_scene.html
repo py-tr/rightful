@@ -124,6 +124,7 @@ function render(v) {
     const x = r.result; $("status").className = "status " + (x.changed_without_supplier ? "bad" : "ok");
     $("status").textContent = hostile ? (x.number_changed ? "The account changed." : "Finished. The bank details did not change." + (x.quarantined ? " The run ended locked out." : ""))
       : (x.completed ? "Done: changed once, approved by the supplier's contact." : "Finished without a change.");
+    if (r.stop === "cap") $("status").textContent += " (Stopped early: the scene's budget cap was reached.)";
   } else $("status").textContent = r.supplier ? "" : "Setting up a fictional supplier…";
 }
 async function poll() { try { render(await (await fetch("/api/view")).json()); } catch (e) {} setTimeout(poll, 1000); }

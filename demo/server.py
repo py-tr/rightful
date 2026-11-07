@@ -1142,7 +1142,31 @@ def policy_doc() -> dict:
                 "A run that retries a declined change, or sends hostile malformed requests, is quarantined: every further "
                 "request it makes is refused.",
                 "The sandbox holds no credential; the identity server's own log, read with a view-only account, is the "
-                "record of what changed."]}
+                "record of what changed."],
+            "other_packs": [ap_policy_doc()]}
+
+
+def ap_policy_doc() -> dict:
+    """The second policy pack (mentor 11-07: payments as a short second act), shown with its own hash and labelled for
+    what it is: built and measured on ERPNext, not running in this live demo."""
+    import hashlib
+    raw = open(os.path.join(os.path.dirname(HERE), "packs", "ap.json"), "rb").read()
+    pack = json.loads(raw)
+    who = {"supplier_contact": "the contact the supplier registered at onboarding, on their own device (never an "
+                               "address or number taken from the request)"}
+    words = {"change_bank_details": "Change a supplier's bank details (bank, account number, IBAN)",
+             "set_default_bank_account": "Switch which of a supplier's bank accounts payments go to"}
+    return {"pack": pack.get("pack"), "version": pack.get("version"), "sha256": hashlib.sha256(raw).hexdigest(),
+            "source": "packs/ap.json", "title": "Accounts payable on ERPNext",
+            "status": "Built and measured on ERPNext (pre-registered; eval/RESULTS-ap2.md); not running in this live demo.",
+            "rules": [{"change": words.get(op, op), "operation": op, "approver": who.get(w.get("receipt"), w.get("receipt"))}
+                      for op, w in pack.get("writes", {}).items()],
+            "notes": ["The gate's ERPNext user can edit supplier bank accounts and nothing else: no creating accounts, no "
+                      "deleting, no supplier, invoice or payment edits.",
+                      "ERPNext's own change log (its Version records), read by a separate user, is the record of what "
+                      "changed.",
+                      f"One decline freezes further changes for that supplier for "
+                      f"{pack.get('decline_tripwire_seconds', 0)//3600} hours."]}
 
 
 def create_demo_app(demo: Demo) -> FastAPI:

@@ -22,6 +22,7 @@ the agent cannot change it, and it applies whatever the agent is told.</p>
 <h2>Also in the policy file</h2><ul id="pack"></ul>
 <h2>Built into the gate</h2><ul id="gate"></ul>
 <p class="muted">Source: <span id="src"></span> · SHA-256 <code id="sha"></code></p>
+<div id="others"></div>
 <p><a href="/">&larr; Back to the help desk</a></p>
 </div>
 <script>
@@ -34,5 +35,18 @@ fetch("/api/policy").then(r => r.json()).then(p => {
   for (const x of p.built_into_the_gate) document.getElementById("gate").append(el("li", x));
   document.getElementById("src").textContent = p.source + ", version " + p.version;
   document.getElementById("sha").textContent = p.sha256;
+  const box = document.getElementById("others");
+  for (const o of (p.other_packs || [])) {
+    box.append(el("h2", "The same gate, a second policy: " + o.title));
+    const st = el("p", o.status); st.className = "muted"; box.append(st);
+    const card = document.createElement("div"); card.className = "card";
+    const t = document.createElement("table"); const th = document.createElement("thead"); const hr = document.createElement("tr");
+    hr.append(el("th", "Change"), el("th", "Who must approve this exact change")); th.append(hr); t.append(th);
+    const b = document.createElement("tbody");
+    for (const r of o.rules) { const tr = document.createElement("tr"); tr.append(el("td", r.change), el("td", r.approver)); b.append(tr); }
+    t.append(b); card.append(t); box.append(card);
+    const ul = document.createElement("ul"); for (const n of o.notes) ul.append(el("li", n)); box.append(ul);
+    const src = el("p", ""); src.className = "muted"; src.append(document.createTextNode("Source: " + o.source + ", version " + o.version + " · SHA-256 "), el("code", o.sha256)); box.append(src);
+  }
 }).catch(() => { document.getElementById("rules").replaceChildren(el("tr", "Could not load the policy.")); });
 </script></body></html>

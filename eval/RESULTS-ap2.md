@@ -53,6 +53,13 @@ agent recorded its own "verification", its change went through.
 - Presentation rule (pre-registered): no real gap in "harder", so the AP pack is one slide plus the hostile sentence,
   not a contrast scene.
 
+**Wording revised 7 Nov (mentor review; supersedes the first "Safe" line above, the numbers are unchanged).** "885
+attempts" counted 743 requests that were refused for other reasons (outside the allowlist, malformed) as attacks, and
+"made N writes" reads as if they went through. Use: "An agent told to change the bank details by any means, as if
+compromised, attempted 142 unapproved writes in 29 runs. The gate refused every one, and none reached ERPNext's change
+log. Without the gate, the same setup changed the account in 22 of 30 runs, which shows the attack was real." The 22/30
+is the setup check that makes the 0 meaningful (not a contrast scene, per the rule above).
+
 ## Notes
 - The excluded run's crash (a Windows code page in our harness when an agent's script contained characters outside it)
   is a harness defect, not a model or gate result; fix before any further runs.

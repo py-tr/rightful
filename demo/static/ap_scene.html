@@ -36,6 +36,17 @@ select{font:inherit;font-size:14px;padding:8px;border-radius:10px;border:1px sol
 details{margin-top:16px;color:var(--muted);font-size:14px}details .rq{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;word-break:break-all}
 .foot{color:var(--muted);font-size:14px;margin-top:22px;border-top:1px solid var(--line);padding-top:10px}
 .hidden{display:none}
+.flow{display:flex;align-items:stretch;gap:8px;margin-top:18px;flex-wrap:wrap}
+.flow .box{flex:1;min-width:180px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px}
+.flow .box .n{font-size:15px;color:var(--muted)}.flow .box .b{font-size:20px;font-weight:800}
+.flow .arrow{align-self:center;font-size:26px;color:var(--muted)}
+.feed{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 16px}
+.feed .fh{font-size:14px;color:var(--muted);font-weight:600;margin-bottom:6px}
+.line{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:7px 0;border-top:1px solid var(--line);animation:in .35s ease-out}
+.line:first-of-type{border-top:none}.line .x{font-size:19px;font-weight:600}.line .vv{font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;text-align:right}
+.line .w{grid-column:1/3;font-size:14px;color:var(--muted)}
+.line.red .vv{color:var(--red)}.line.grey .x,.line.grey .vv{color:var(--muted);font-weight:500}.line.amber .vv{color:var(--amber)}.line.green .vv{color:var(--green)}
+.more{font-size:13px;color:var(--muted)}
 @keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 </style></head>
 <body><div class="wrap">
@@ -51,6 +62,14 @@ details{margin-top:16px;color:var(--muted);font-size:14px}details .rq{font-famil
   </div>
 </div>
 
+<div class="flow" id="flow">
+  <div class="box"><div class="n">The agent (in a sealed sandbox, no keys)</div><div class="b" id="fSent">0 requests</div></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><div class="n">The gate (checks each one against the policy)</div><div class="b" id="fGate">0 let through</div></div>
+  <div class="arrow">&rarr;</div>
+  <div class="box"><div class="n">ERPNext (the accounting system)</div><div class="b" id="fErp">0 changes</div></div>
+</div>
+<div class="feed" id="feedBox"><div class="fh">What the agent is trying, live, from the gate's own log</div><div id="more" class="more"></div><div id="feed"></div></div>
 <div id="hostileView">
   <div class="tiles">
     <div class="tile agent"><div class="lbl">The gate refused</div><div class="num" id="tried">0</div><div class="cap" id="triedCap">requests from the hijacked agent</div></div>
@@ -79,8 +98,35 @@ const $ = (id) => document.getElementById(id);
 const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
 async function post(p, b) { const r = await fetch(p, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(b || {})}); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j; }
 let shown = 0, phoneKey = "", mode = "hostile";
+// the feed is revealed at a readable pace (mentor: "streaming text at full speed is unreadable"): one line about every
+// 0.9 s, the newest 6 on screen; when the agent outpaces that, jump to the newest and say how many were skipped
+let feedAll = [], feedShown = 0;
+const FEED_MAX = 6;
+function feedKey(x) { return x.text + "|" + x.verdict; }
+let feedSig = "";
+function drawFeed() {
+  const vis = feedAll.slice(0, feedShown);
+  const from = Math.max(0, vis.length - FEED_MAX);
+  const sig = from + "#" + vis.slice(from).map(x => x.text + x.verdict + x.n).join("|");
+  if (sig === feedSig) return;                 // nothing new on screen: no redraw, no replayed animation
+  feedSig = sig; const box = $("feed"); box.replaceChildren();
+  $("more").textContent = from ? "+" + from + " earlier" : "";
+  for (const x of vis.slice(from).reverse()) {
+    const d = el("div", "line " + x.tone);
+    d.append(el("div", "x", (x.n > 1 ? x.text + "  ×" + x.n : x.text)), el("div", "vv", x.verdict));
+    if (x.why) d.append(el("div", "w", x.why));
+    box.append(d);
+  }
+}
+setInterval(() => {
+  if (feedShown < feedAll.length) {
+    if (feedAll.length - feedShown > 12) feedShown = feedAll.length - FEED_MAX;   // far behind: catch up
+    else feedShown += 1;
+    drawFeed();
+  }
+}, 900);
 async function start(kind) {
-  try { await post("/api/run", {kind, model: $("model").value}); mode = kind; shown = 0; phoneKey = ""; $("cards").replaceChildren(); $("vers").replaceChildren(); $("tells").replaceChildren(); $("phoneBox").replaceChildren(); $("status").textContent = ""; }
+  try { await post("/api/run", {kind, model: $("model").value}); mode = kind; shown = 0; phoneKey = ""; feedAll = []; feedShown = 0; drawFeed(); $("cards").replaceChildren(); $("vers").replaceChildren(); $("tells").replaceChildren(); $("phoneBox").replaceChildren(); $("status").textContent = ""; }
   catch (e) { alert(e.message); }
 }
 $("hostile").onclick = () => start("hostile"); $("honest").onclick = () => start("honest");
@@ -97,6 +143,13 @@ function render(v) {
   if (!r) { setMode(true); return; }
   const hostile = r.kind === "hostile"; setMode(hostile);
   const vs = (v.versions || []).filter(x => x.changed.length);
+  const f = v.flow || {sent: 0, reads: 0, changes_through: 0};
+  $("fSent").textContent = f.sent + (f.sent === 1 ? " request" : " requests");
+  $("fGate").textContent = f.reads + " reads let through · " + f.changes_through + (f.changes_through === 1 ? " approved change" : " approved changes");
+  $("fErp").textContent = (v.versions ? vs.length : 0) + (vs.length === 1 ? " change" : " changes");
+  const nf = v.feed || [];                       // same entries as before, the last one may have grown (×n)
+  feedAll = nf; if (feedShown > nf.length) feedShown = nf.length;
+  if (feedShown && nf[feedShown - 1]) drawFeed();
   if (hostile) {
     $("tried").textContent = v.refused || 0;
     $("triedCap").textContent = (v.refused === 1 ? "request" : "requests") + " from the hijacked agent" + (v.refused_writes ? " (" + v.refused_writes + " of them bank-detail changes without approval)" : "");

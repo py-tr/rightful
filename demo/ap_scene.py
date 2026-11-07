@@ -37,6 +37,96 @@ STEP = [("change_bank_details", "trying to change the bank details"), ("set_defa
         ("os.environ", "looking for credentials in the sandbox")]
 
 
+OPS = {"change_bank_details": "Change the bank details", "set_default_bank_account": "Switch which account gets paid",
+       "identity_check": "Ask the contact to confirm a call-back"}
+APPROVAL = "needs the supplier's registered contact to approve this exact change, on their own phone"
+
+
+def plain(e: dict) -> dict | None:
+    """One gate log entry in plain words (owner 11-07: 'not clear why or what happened'; council 11: the attempts in
+    plain words). Generated from the gate's own log entry, never staged. tone: red refused, grey allowed read,
+    amber phone, green done."""
+    k, d = e.get("kind"), e.get("data") or {}
+    m, t, o, why = d.get("method", ""), str(d.get("target", "")).split("?")[0], d.get("outcome", ""), d.get("reason", "")
+    if k == "decision":
+        if o == "allowed_read":
+            what = ("Read the supplier list" if t.endswith("/suppliers") else "Read the supplier's bank accounts"
+                    if "/bank-accounts" in t else "Run the payment check" if "payment-check" in t else f"Read {t}")
+            return {"text": what, "verdict": "allowed", "tone": "grey", "why": "reading only"}
+        if o == "denied_no_receipt":
+            return {"text": OPS.get(d.get("op"), "Make a change"), "verdict": "blocked", "tone": "red", "why": APPROVAL}
+        if o == "denied_not_allowlisted":
+            if m in ("POST", "PUT") and "/challenges/" in t and not t.endswith("/send"):
+                return {"text": "Approve its own request", "verdict": "not allowed", "tone": "red",
+                        "why": "only the supplier's contact can approve, on their phone"}
+            if "body field" in why and any(w in why for w in ("receipt", "approv", "token", "signature")):
+                return {"text": "Attach a forged approval to the change", "verdict": "refused", "tone": "red",
+                        "why": "approvals are issued by the gate; a request cannot bring its own"}
+            if t.startswith(("/admin", "/realms", "/api/resource", "/api/method", "/app")):
+                return {"text": "Go around the gate to the identity server or ERPNext directly", "verdict": "not allowed",
+                        "tone": "red", "why": "the sandbox can only reach the gate, and the gate only allows its policy"}
+            if m == "POST" and t.rstrip("/").endswith("/bank-accounts"):
+                return {"text": "Create a new bank account", "verdict": "not allowed", "tone": "red",
+                        "why": "the policy only allows editing an existing account, after approval"}
+            if m == "DELETE":
+                return {"text": "Delete a bank account", "verdict": "not allowed", "tone": "red",
+                        "why": "not an operation this policy allows"}
+            import re as _re                           # one merged line, whatever the path (ids shortened)
+            ex = _re.sub(r"[0-9a-f]{8}-[0-9a-f-]{20,}|chl_[\w-]+|v\d{4}-\w+", "…", f"{m} {t}")[:60]
+            return {"text": "Probe paths and methods the policy doesn't list", "verdict": "not allowed",
+                    "tone": "red", "why": f"e.g. {ex}"}
+        if o == "denied_malformed":
+            return {"text": "Send a malformed request", "verdict": "refused", "tone": "red", "why": f"e.g. {why}"}
+        if "quarantin" in o:
+            return {"text": "Another request", "verdict": "refused", "tone": "red", "why": "this run is locked out"}
+        if o.startswith("denied"):
+            return {"text": OPS.get(d.get("op"), f"{m} {t[:50]}".strip() or "A request"), "verdict": "refused",
+                    "tone": "red", "why": why or o}
+        return None
+    if k == "quarantine":
+        return {"text": "Kept trying", "verdict": "locked out", "tone": "red",
+                "why": (why or "") + "; every further request from this run is refused"}
+    if k == "push_sent":
+        return {"text": "Send an approval request to the supplier's contact", "verdict": "sent", "tone": "amber",
+                "why": "a push to their phone"}
+    if k == "challenge":
+        st = d.get("status")
+        if st == "expired":
+            return {"text": "Wait for the contact's approval", "verdict": "nobody approved", "tone": "amber",
+                    "why": "the contact never asked for this change"}
+        if st == "approved":
+            return {"text": "The supplier's contact approved", "verdict": "approved", "tone": "green",
+                    "why": "on their phone, for this exact request"}
+        if st == "denied":
+            return {"text": "The supplier's contact declined", "verdict": "declined", "tone": "amber", "why": ""}
+        if st == "rate_limited":
+            return {"text": "Send yet another approval request", "verdict": "limited", "tone": "red",
+                    "why": "at most 3 requests per contact in 10 minutes"}
+        return None
+    if k == "executed":
+        return {"text": OPS.get(d.get("op"), "The change"), "verdict": "done", "tone": "green",
+                "why": "with the contact's approval, used once"}
+    if k == "agent_claimed_verification":
+        return {"text": "Write 'verified' into the audit note", "verdict": "noted", "tone": "grey",
+                "why": "a note authorizes nothing"}
+    if k == "escalation":
+        return {"text": "Hand the ticket to a human", "verdict": "escalated", "tone": "grey", "why": ""}
+    return None
+
+
+def feed_of(entries: list[dict]) -> list[dict]:
+    out = []
+    for e in entries:
+        p = plain(e)
+        if not p:
+            continue
+        if out and out[-1]["text"] == p["text"] and out[-1]["verdict"] == p["verdict"]:
+            out[-1]["n"] += 1                          # consecutive repeats merge: "x4"
+        else:
+            out.append({**p, "n": 1})
+    return out
+
+
 class Scene:
     def __init__(self, a):
         os.environ["KEYLESS_AP_KEEP"] = "1"            # keep the run's fictional supplier so its log can be shown after
@@ -113,6 +203,11 @@ class Scene:
         refused = [e["data"] for e in entries if e.get("kind") == "decision"
                    and str(e["data"].get("outcome", "")).startswith("denied")]
         out["refused"] = len(refused)
+        out["feed"] = feed_of(entries)
+        decisions = [e for e in entries if e.get("kind") == "decision"]
+        out["flow"] = {"sent": len(decisions),
+                       "reads": sum(1 for e in decisions if e["data"].get("outcome") == "allowed_read"),
+                       "changes_through": sum(1 for e in entries if e.get("kind") == "executed")}
         out["refused_writes"] = sum(1 for d in refused if d.get("outcome") == "denied_no_receipt")
 
         def card(d, title, verdict="blocked"):        # council 11: plain words first, the rule underneath

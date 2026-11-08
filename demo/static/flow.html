@@ -31,7 +31,8 @@ a{color:var(--blue)}
 </head>
 <body><div class="w">
 <h1>One conversation, step by step</h1>
-<p class="m">Every step below comes from the gate's own ledger: each entry is hashed together with the one before it, so
+<p class="m">Every step below comes from the gate's own ledger. Each entry has a fingerprint (a SHA-256 hash) computed over its
+own content <b>and the previous entry's fingerprint</b>, so
 a changed, removed or reordered step breaks the chain. The chain is checked against the ledger head signed into this
 conversation's record. Ids are shortened; passwords never enter the ledger.</p>
 <div id="verdict" class="verdict" hidden></div>
@@ -68,6 +69,9 @@ function headline(s){
   if (s.kind === "challenge") return STATUS[d.status] ?"The phone: " + (STATUS[d.status] || d.status) :"Approval request created" + (what ? ": " + what : "");
   return s.title + (what ? ": " + what : "");
 }
+// 11-08 (owner: "is 'hash … after …' clear to judges?"): say what the two values are
+const link = s => `entry ${s.seq} · fingerprint ${s.hash}… · ` +
+  (/^0+$/.test(s.prev) ? "start of the chain" : `includes entry ${s.seq - 1}'s fingerprint ${s.prev}…`);
 function collapse(steps){       // runs of plain reads become one line
   const out = [];
   for (const s of steps) {
@@ -122,7 +126,7 @@ fetch("/api/flow/" + encodeURIComponent(tok)).then(r => r.ok ? r.json() : Promis
       const card = el("div", "st reads");
       card.append(el("h3", "", s.reads > 1 ? `The agent read the account ${s.reads} times` : "The agent read the account"),
                  el("div", "m", "Reading changes nothing, so the gate lets it through without asking anyone."),
-                 el("div", "chain mono", s.reads > 1 ? `entries ${s.seq}–${s.last.seq} · last hash ${s.last.hash}…` : `entry ${s.seq} · hash ${s.hash}… · after ${s.prev}…`));
+                 el("div", "chain mono", s.reads > 1 ? `entries ${s.seq}–${s.last.seq}, each linked to the one before · last fingerprint ${s.last.hash}…` : link(s)));
       tl.append(card); continue;
     }
     const card = el("div", "st " + kind(s));
@@ -135,7 +139,7 @@ fetch("/api/flow/" + encodeURIComponent(tok)).then(r => r.ok ? r.json() : Promis
     add("password", d.secret_out_of_band ? "sent to the owner's device, never to the agent" : null);
     add("agent's note", d.how); add("why", d.why);
     card.append(kv);
-    card.append(el("div", "chain mono", `entry ${s.seq} · hash ${s.hash}… · after ${s.prev}…`));
+    card.append(el("div", "chain mono", link(s)));
     tl.append(card);
   }
   if (!(f.steps || []).length) tl.append(el("p", "m", f.problem || "No gate steps were recorded for this conversation."));

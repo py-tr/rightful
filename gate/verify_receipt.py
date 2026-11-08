@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--url", help="the demo site; its /api/receipt-key is fetched and must match")
     ap.add_argument("--key", help="a public key (base64) you already trust, instead of --url")
     a = ap.parse_args(argv)
-    with open(a.file, encoding="utf-8") as f:
+    with open(a.file, encoding="utf-8-sig") as f:      # a file saved on Windows may start with a BOM
         rec = json.load(f)
     trusted = a.key
     if a.url:

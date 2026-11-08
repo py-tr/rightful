@@ -917,6 +917,10 @@ class Demo:
             s.verdict = (f"Changed only with approval: the identity server's log shows {len(done)} change(s), each "
                          "approved on the phone for that exact request.")
             self.emit(s, "gate", s.verdict, verdict="good", source=LOG_SOURCE)
+        elif made and all(p.get("upstream_failed") for p in made):   # forwarded once; the identity server refused
+            s.verdict = (f"The identity server returned an error for {len(made)} approved change(s), so nothing "
+                         "changed. Each approval is used once, so ask again to get a new one.")
+            self.emit(s, "gate", s.verdict, verdict="neutral")
         elif made:                                     # forwarded, but the identity server's log doesn't show it yet
             s.verdict = (f"{len(made)} approved change(s) sent; the identity server's log has not shown them yet "
                          "(see the proof strip).")
@@ -961,10 +965,14 @@ class Demo:
             events = []
         lines: dict[str, dict] = {}
         chal_status: dict[str, str] = {}
+        failed: set[str] = set()                       # forwarded, but the identity server answered with an error
         for e in ents:
             d = e["data"]
             if e["kind"] == "challenge" and d.get("challenge"):
                 chal_status[d["challenge"]] = d.get("status") or chal_status.get(d["challenge"], "")
+            if e["kind"] == "upstream_failed":         # trial 11-08: a Keycloak 500 after an approval read as "not shown yet"
+                failed.add((d.get("request_hash") or "")[:8])
+                continue
             is_write = d.get("method") in ("PUT", "POST", "DELETE") or (e["kind"] == "forwarding" and d.get("steps"))
             if e["kind"] not in ("decision", "forwarding") or not is_write:   # composites' entries carry no method
                 continue
@@ -979,6 +987,9 @@ class Demo:
                 ln["refusals"] += 1
             if e["kind"] == "forwarding":
                 ln["made"] = True
+        for h in failed:
+            if h in lines:
+                lines[h]["upstream_failed"] = True
         for cid, st in chal_status.items():
             c = s.stack.challenges._by_id.get(cid)
             if c is None or (run_id and c.run_id != run_id):

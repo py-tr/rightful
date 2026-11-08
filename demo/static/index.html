@@ -485,7 +485,13 @@ function drawColumn(c, data) {
   renderRows(c, data.proof); if (added) scrollDown(c);
 }
 const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Rightful"};
+// 11-08 (owner: "a card reappears for a few seconds after I tap"): a poll that left before the tap comes back with the
+// old state. Cards and cancel notices already answered on this page are never drawn again (20 s is far longer than
+// any poll in flight; after that the server's state has long caught up).
+const answered = new Map();
+const recent = id => answered.has(id) && Date.now() - answered.get(id) < 20000;
 function renderPhone(p) {
+  p = {...p, pending: p.pending.filter(x => !recent(x.id)), notices: p.notices.filter(n => !n.cancel_id || !recent(n.cancel_id))};
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
   const hist = p.history || [];
   const ids = p.pending.map(x => x.id + ":" + (x.nth || 1) + ":" + (x.company || "")).join(",") + "|" + hist.length + "|" + (p.left_note || ""); const cards = $("cards");
@@ -497,7 +503,7 @@ function renderPhone(p) {
       cards.append(el("div", "past", (h.company ? (h.company === "left" ? "LEFT · " : "RIGHT · ") : "") + h.at + "  ·  to " + h.who + "'s phone: " + h.action + "  ·  " + h.outcome));
     if (p.left_note) cards.append(el("div", "leftnote", p.left_note));
     for (const x of p.pending) {
-      const c = el("div", "card" + (x.company ? " side-" + x.company : "")); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
+      const c = el("div", "card" + (x.company ? " side-" + x.company : "")); c.dataset.pid = x.id; const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
       if (x.company) c.append(el("div", "sidetag " + x.company, SIDE[x.company]));
       if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
       // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
@@ -517,13 +523,19 @@ function renderPhone(p) {
   const no = $("notices"); no.replaceChildren();
   // 11-07 (owner): too much at once; while a request waits for an answer, only notices you can act on are shown
   for (const n of p.notices.filter(n => !p.pending.length || n.cancel_id).slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
-    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}).catch(e => alert(e.message)); d.append(el("br"), b); }
+    if (n.cancel_id) { const b = el("button", "", "Cancel this change");
+      b.onclick = () => { answered.set(n.cancel_id, Date.now()); d.remove();
+        api("/api/phone/cancel/" + n.cancel_id, {}).then(() => poll(true)).catch(e => { answered.delete(n.cancel_id); alert(e.message); }); };
+      d.append(el("br"), b); }
     no.append(d); }
   $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";
 }
 async function act(id, action, body) {
+  answered.set(id, Date.now());                          // hide it now; a poll already in flight must not redraw it
+  document.querySelector('#cards .card[data-pid="' + CSS.escape(id) + '"]')?.remove();
   try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); }
   catch (e) {
+    if (!/no such request/.test(e.message)) answered.delete(id);   // e.g. a bad number: the card is still open
     // 11-08 (owner saw "no such request on this phone"): the request expired or was already answered between the
     // last refresh and the tap (scenario 1's dead phone expires its request after 10 s). Say that on the phone itself.
     const gone = /no such request/.test(e.message);

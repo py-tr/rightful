@@ -60,13 +60,20 @@ async function post(path, body) {
   let j = {}; try { j = await r.json(); } catch (e) {}
   if (!r.ok) throw new Error(j.error || ("error " + r.status)); return j;
 }
+// 11-08: an answered card must not come back from a poll that left before the tap (same fix as the page's phone)
+const answered = new Map();
+const recent = id => answered.has(id) && Date.now() - answered.get(id) < 20000;
 async function act(id, action, body) {
+  answered.set(id, Date.now()); last = ""; render(lastView || {pending: [], notices: []});
   try { const j = await post("/api/m/answer/" + encodeURIComponent(id) + "/" + action, body);
     if (navigator.vibrate) navigator.vibrate(30);
     toast(action === "deny" ? "Declined." : j.ok ? "Approved." : "Wrong number: request declined. It cannot be approved now.");
-    last = ""; poll(); } catch (e) { toast(e.message); }
+    last = ""; poll(); } catch (e) { if (!/no such request/.test(e.message)) answered.delete(id); last = ""; toast(e.message); poll(); }
 }
+let lastView = null;
 function render(v) {
+  lastView = v;
+  v = {...v, pending: v.pending.filter(x => !recent(x.id)), notices: v.notices.filter(n => !n.cancel_id || !recent(n.cancel_id))};
   $("title").textContent = v.title || "Your phone";
   $("sub").textContent = (v.subtitle ? v.subtitle + " · " : "") + "link valid " + Math.max(0, Math.round((v.left_s || 0) / 60)) + " more min" + (v.paired ? " · each request waits 2 minutes for you" : "");
   const key = JSON.stringify([v.pending.map(x => [x.id, x.nth || 1, x.company || ""]), (v.history || []).length, v.notices.length]);
@@ -96,7 +103,8 @@ function render(v) {
   const no = $("notices"); no.replaceChildren();
   // 11-07 (owner): too much at once; while a request waits for an answer, only notices you can act on are shown
   for (const n of v.notices.filter(n => !v.pending.length || n.cancel_id).slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
-    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => post("/api/m/cancel/" + encodeURIComponent(n.cancel_id)).then(() => toast("Cancelled.")).catch(e => toast(e.message)); d.append(el("br"), b); }
+    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => { answered.set(n.cancel_id, Date.now()); last = ""; render(lastView);
+        post("/api/m/cancel/" + encodeURIComponent(n.cancel_id)).then(() => toast("Cancelled.")).catch(e => { answered.delete(n.cancel_id); last = ""; toast(e.message); }); }; d.append(el("br"), b); }
     no.append(d); }
 }
 async function poll() {

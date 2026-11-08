@@ -69,7 +69,7 @@ class LLM:
                 pin, pout = PRICES.get(model, (1.0, 4.0))
                 self.spent += (u.get("prompt_tokens", 0) * pin + u.get("completion_tokens", 0) * pout) / 1e6
                 self.calls += 1
-                # the model the RESPONSE says answered, not the one we asked for (11-07: another entry reports that
+                # the model the RESPONSE says answered, not the one we asked for (11-07: reported that
                 # Vultr Serverless Inference can answer an unknown id with a different model; the harnesses exclude a
                 # run whose used_model differs from the requested one, which only works if this is the served model)
                 self.used_model = j.get("model") or model

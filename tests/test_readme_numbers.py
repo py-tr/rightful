@@ -1,4 +1,4 @@
-"""The README's numbers must match their sources (council 9 / another entry's idea, 11-07): a README that drifts from
+"""The README's numbers must match their sources (11-07): a README that drifts from
 the results files is the first thing a careful judge catches. Checks README.md and, while it exists, README.draft.md."""
 import pathlib
 import re

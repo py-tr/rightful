@@ -168,6 +168,15 @@ class Demo:
         self.counter_path = os.path.join(out_dir, "counter.jsonl")
         self.proofs_path = os.path.join(out_dir, "proofs.jsonl")
         os.makedirs(out_dir, exist_ok=True)
+        from gate.receipt_sign import Signer          # signed run receipts (brainstorm P1, 11-08); the key stays here
+        self.signer = Signer(os.path.join(out_dir, "receipt-signing.pem"))
+        from gate.evidence_store import EvidenceStore  # Vultr Object Storage copy of every signed receipt; off unless set
+        self.evidence = EvidenceStore.from_env()
+        self.uploaded_path = os.path.join(out_dir, "uploads.jsonl")   # tokens whose upload SUCCEEDED (review 11-08 M2)
+        self.uploaded: set[str] = set()
+        if os.path.exists(self.uploaded_path):
+            with open(self.uploaded_path, encoding="utf-8") as f:
+                self.uploaded = {line.strip() for line in f if line.strip()}
         since_path = os.path.join(out_dir, "counter_since.txt")   # the day this counter started, written once
         if counter_since is None:
             if not os.path.exists(since_path):
@@ -419,7 +428,31 @@ class Demo:
         after = events()
         return {"attempts": len(rows), "refused": sum(x["refused"] for x in rows), "rows": rows,
                 "admin_events_before": before, "admin_events_after": after,
-                "not_tried": "the broker's own account: it lives outside the sandbox, which is the point"}
+                "not_tried": "the broker's own account: it lives outside the sandbox, which is the point",
+                "scorecard": self._scorecard(stack, view_only)}
+
+    def _scorecard(self, stack: SessionStack, view_only: str) -> dict:
+        """The writer cannot read its own scorecard (brainstorm P3, 11-08): the gate's own account asks Keycloak for the
+        admin-event log it is graded by (expected 403), next to the view-only reader that keeps the score (expected 200).
+        A read only, of this visitor's own fictional company; nothing is written."""
+        base, realm, h = self.kc_base, stack.realm, {"Host": stack.host}
+        out = {"gate_status": None, "reader_status": None, "error": None}
+        try:
+            b_id, b_secret = stack.company["broker"]
+            tb = httpx.post(f"{base}/realms/{realm}/protocol/openid-connect/token",
+                            data={"grant_type": "client_credentials"}, auth=(b_id, b_secret), headers=h, timeout=8)
+            tb.raise_for_status()
+            gate_tok = tb.json()["access_token"]
+            path = f"{base}/admin/realms/{realm}/admin-events"
+            out["gate_status"] = httpx.get(path, params={"max": 1}, timeout=8,
+                                           headers={**h, "Authorization": f"Bearer {gate_tok}"}).status_code
+            out["reader_status"] = httpx.get(path, params={"max": 1}, timeout=8,
+                                             headers={**h, "Authorization": f"Bearer {view_only}"}).status_code
+        except Exception as e:                         # noqa: BLE001 - shown as "not measured", never as a pass
+            out["error"] = type(e).__name__
+        # only 403 proves the point (an authenticated account that is refused); a 401 means the token itself failed
+        out["holds"] = out["gate_status"] == 403 and out["reader_status"] == 200
+        return out
 
     def counts_of(self, s: Session) -> dict:
         # ONE read of the identity server's log for both the matching and the count: two reads let a change that
@@ -938,16 +971,33 @@ class Demo:
                   tried_source="the gate's own records", recorded_source=LOG_SOURCE)
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
+        rec = {"token": token, "t": time.time(), "summary": text, "proof": proof,
+               "pair": s.pair, "mode": s.mode,
+               "policy_sha256": policy_doc()["sha256"] if s.mode != "agent_decides" else None,
+               "verdict": ("Account taken over: the caller was given Jordan's temporary password."
+                           if s.taken_over else s.verdict),
+               "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
+                        if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
+                                        "explain") and (e.get("text") or "").strip()]}
+        try:                                          # the conversation ledger's head (seq + hash), signed with the
+            rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # record: a later copy of that ledger can
+                                                                              # be checked against it (gate/ledger.py)
+        except Exception:                             # noqa: BLE001
+            rec["ledger_head"] = None
+        rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
+        rec["signature"] = self.signer.sign(rec)
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"token": token, "t": time.time(), "summary": text, "proof": proof,
-                                "pair": s.pair, "mode": s.mode,
-                                "policy_sha256": policy_doc()["sha256"] if s.mode != "agent_decides" else None,
-                                "verdict": ("Account taken over: the caller was given Jordan's temporary password."
-                                            if s.taken_over else s.verdict),
-                                "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
-                                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
-                                                         "explain") and (e.get("text") or "").strip()]})
-                    + "\n")
+            f.write(json.dumps(rec) + "\n")
+        if self.evidence is not None:                # a copy the demo server alone cannot quietly rewrite
+            self.evidence.put_async(f"receipts/{token}.json", json.dumps(rec).encode("utf-8"),
+                                    on_done=lambda _url, t=token: self._mark_uploaded(t))
+
+    def _mark_uploaded(self, token: str) -> None:
+        """Only a confirmed upload earns the public link on the share page (review 11-08 M2)."""
+        with self.lock:
+            self.uploaded.add(token)
+            with open(self.uploaded_path, "a", encoding="utf-8") as f:
+                f.write(token + "\n")
 
     # --- the proof strip -----------------------------------------------------------------------------------
     def proof(self, s: Session, run_id: str | None = None, events: list[dict] | None = None) -> list[dict]:
@@ -1312,7 +1362,14 @@ def create_demo_app(demo: Demo) -> FastAPI:
         if r.get("pair"):                              # compare mode: the other column of the same message
             other = [x for x in recs if x.get("pair") == r["pair"] and x["token"] != token]
             r = {**r, "other": other[-1] if other else None}
+        if demo.evidence is not None and r.get("signature") and token in demo.uploaded:
+            r = {**r, "published": demo.evidence.public_url(f"receipts/{token}.json")}
         return r
+
+    @app.get("/api/receipt-key")
+    def receipt_key():
+        """The public half of the key that signs every shared run (verify offline: python -m gate.verify_receipt)."""
+        return demo.signer.public()
 
     @app.get("/healthz")
     def health():

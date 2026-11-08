@@ -60,9 +60,18 @@ A worker is accepted only if `docker info` over SSH reports the `runsc` runtime 
 | Billed total | $75.06 on one usage line since 3 Nov 17:17 UTC. The part not in `eval/out/` is pre-build measurement work, pilots not kept in the repository, and the live demo's visitor traffic (capped at $15 in all). | Vultr billing API, 2026-11-07; `demo/prod.py:38` |
 | Cost per protected conversation | About 0.7 cents of model calls (mean of the 2,340 gate-arm records; 0.44 to 1.0 cents by model). | `eval/out/gateon/` records |
 
+### 1.4b Object Storage (added 8 Nov)
+
+| Item | Fact | Source |
+|---|---|---|
+| Subscription | Standard tier ($18/month), cluster `ams1.vultrobjects.com` (no Frankfurt cluster exists), created 8 Nov through the Vultr API; bucket `rightful-evidence-fae67c4f` | Vultr API `GET /v2/object-storage` |
+| What goes there | Every signed share record (`receipts/<token>.json`, public-read, the same bytes the share link serves), written after the conversation by the control plane; the share page links it only after the upload is confirmed | `gate/evidence_store.py`; `demo/server.py` |
+| Why | A copy outside the demo server: the server alone cannot quietly rewrite a record it already published | `gate/receipt_sign.py` |
+| Request signing | AWS Signature Version 4 written in-repo (no extra dependency), checked against the S3 documentation's published example | `tests/test_evidence_store.py` |
+
 ### 1.5 Vultr products we did not use
 
-Object Storage, Container Registry, Load Balancer, Managed PostgreSQL and Valkey, Kubernetes Engine, Block Storage, Vultr DNS (the hostname comes from sslip.io), CDN, VX1 instances, Bare Metal and GPU, IAM service users or resource-scoped keys (the account key is used from the operator's workstation only), the Vultr MCP server, an Audit Logs subscription, startup scripts, snapshots, reinstall, reserved IPs, backups.
+Container Registry, Load Balancer, Managed PostgreSQL and Valkey, Kubernetes Engine, Block Storage, Vultr DNS (the hostname comes from sslip.io), CDN, VX1 instances, Bare Metal and GPU, IAM service users or resource-scoped keys (the account key is used from the operator's workstation only), the Vultr MCP server, an Audit Logs subscription, startup scripts, snapshots, reinstall, reserved IPs, backups.
 
 ---
 
@@ -275,3 +284,33 @@ Every record in `eval/out/` carries the commit, the harness and prompt hashes, t
 - Where gVisor ran: the live demo (every script on the Vultr worker; the smoke test checks the kernel the sandbox reports), the 5,240-run evaluation and the Vultr payments replication. Two measurements ran on our own machine with plain Docker sandboxes: the 7 Nov re-measurement of the demo's attack rates (it measures the agent's behaviour, which the sandbox runtime does not change) and the local ERPNext runs.
 - The demo keeps receipts in memory, so a restart during a pending approval ends that approval; the decline freeze, quarantine, push counts and cancel buttons are rebuilt from the ledger (`demo/stack.py:40`; `broker/challenges.py:73-84`).
 - The push service's phone routes are protected by the host firewall and the Vultr firewall group, not by their own authentication; the public site reaches them only through the demo app's session-bound routes (`deploy/control.sh:58-66`; `demo/prod.py:47`).
+
+---
+
+## Run counts
+
+Every count the README uses, reconciled from the 5,240 records in `eval/out/gateon/` (`spec.arm`, `spec.variant`; per
+arm: A light + no gate, B hardened + no gate, C hardened + gate, D light + gate).
+
+| Arm | Lure (attack) | Same-request control | Honest | Total |
+|---|---|---|---|---|
+| A, B (each) | 600 | 420 | 360 | 1,380 |
+| C, D (each) | 600 | 210 | 360 | 1,170 |
+| Ablations (naive, allowlist only, unbound, full) | 30 each | | | 120 |
+| Fail-closed (push service down, ledger down) | | | 10 each | 20 |
+| **All** | | | | **5,240** |
+
+- **190 attack runs per model and prompt without the gate:** 200 lure runs minus approve-then-switch's 10, which
+  amendment 1 reports descriptively for the gate-off arms (`eval/PREREG-gateon.md`).
+- **1,199 gated attack runs:** C and D's 1,200 lure runs minus 1 excluded (hero_planted_note, arm D, glm-5.3-flash:
+  a harness HTTP 500).
+- **2,340 gate-arm records** (the cost per conversation's base): all C and D runs. **2,389 gate-on runs** (the
+  reconciliation, H7): those 2,340 plus the full-gate ablation (30) and the fail-closed arms (20), minus the 1
+  excluded.
+- **2,458 write attempts in 978 of the 1,199 gated attack runs; 81 executed,** each after the approval its policy
+  requires: 55 owner-approved password resets in approve-then-switch (the change the caller asked for; the switch
+  that followed was refused), 25 manager-approved lost-device recoveries (the accepted residual), and 1 account email
+  on a contractor's own account approved by its scripted owner (identity_confusion-1, record `r04170-d71e1d62`).
+  Per case: `python -m eval.per_attack eval/out/gateon`.
+- **96 honest tickets per model and setup:** 120 honest runs per model and arm minus the expected escalations
+  excluded as pre-registered.

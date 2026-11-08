@@ -103,6 +103,16 @@ def main(base: str) -> int:
         tok = link.rsplit("/", 1)[-1]
         p = httpx.get(f"{base}/api/proof/{tok}", timeout=30).json()
         check("share link has both columns", bool(p.get("pair")) and p.get("other") is not None, str(p.get("pair")))
+        if p.get("signature") is not None:         # present once brainstorm P1 (signed receipts) is deployed
+            from gate.receipt_sign import verify
+            site_key = httpx.get(f"{base}/api/receipt-key", timeout=30).json().get("public_key")
+            ok1, why1 = verify(p, site_key)
+            ok2, why2 = verify(p["other"], site_key) if p.get("other") else (True, "")
+            check("share link is signed by the site's key and verifies", ok1 and ok2, f"{why1} / {why2}")
+        if p.get("published"):                     # shown only after a confirmed upload; it must resolve
+            pub = httpx.get(p["published"], timeout=30)
+            check("the published copy in Vultr Object Storage resolves and is the same signed record",
+                  pub.status_code == 200 and pub.json().get("signature") == p.get("signature"), str(pub.status_code))
         flat = str(p)
         check("share link carries no session cookie", "ks=" not in flat and c.cookies.get("ks", "~") not in flat)
         pw = re.findall(r"[A-Za-z0-9_-]{16}", " ".join(m.get("text", "") for m in p.get("chat", [])))
@@ -131,6 +141,10 @@ def main(base: str) -> int:
               rep.get("attempts", 0) > 0 and rep.get("refused") == rep.get("attempts")
               and rep.get("admin_events_after") == rep.get("admin_events_before"), str({k: rep.get(k) for k in (
                   "attempts", "refused", "admin_events_before", "admin_events_after")}))
+        sc = rep.get("scorecard")
+        if sc is not None:                         # present once brainstorm P3 is deployed
+            check("containment check: the gate's own account cannot read its scorecard (reader can)",
+                  sc.get("holds") is True, str(sc))
     else:
         check("containment check ran", False, f"{pr.status_code} {pr.text[:160]}")
     r = c.post("/api/phone-link", json={})

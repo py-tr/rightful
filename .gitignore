@@ -34,3 +34,6 @@ devenv/out/
 # deployment state and temporary SSH keys
 deploy/.state/
 eval/out/
+
+# signing keys (receipt-signing.pem lives in the demo's data directory, never in the repo)
+*.pem

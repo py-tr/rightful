@@ -543,6 +543,10 @@ $("proveBtn").onclick = async () => {
     b.append(el("div", "", "Each token tried these " + tried.length + " writes: " + tried.join(" · ") + "."));
     b.append(el("div", "", "Result: " + r.refused + " of " + r.attempts + " refused."));
     b.append(el("div", "", "The identity server's own admin-event log: " + r.admin_events_before + " entries before, " + r.admin_events_after + " after" + (r.admin_events_after === r.admin_events_before ? " (unchanged)." : " (CHANGED: see below).")));
+    const sc = r.scorecard;
+    if (sc) b.append(el("div", "", sc.error ? "The gate reading its own scorecard: not measured this time (" + sc.error + ")."
+      : "The gate can't read its own scorecard: the gate's own account asked for that admin-event log and got " + sc.gate_status
+        + "; the view-only reader that keeps the score got " + sc.reader_status + (sc.holds ? "." : " (NOT as expected).")));
     const det = el("details", ""); det.append(el("summary", "", "Every attempt"));
     for (const x of r.rows || []) det.append(el("div", "", (x.refused ? "refused " : "ACCEPTED ") + x.status + " · " + x.token + " · " + x.tried));
     b.append(det);

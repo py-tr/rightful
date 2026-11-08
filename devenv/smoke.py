@@ -103,6 +103,12 @@ def main(base: str) -> int:
         tok = link.rsplit("/", 1)[-1]
         p = httpx.get(f"{base}/api/proof/{tok}", timeout=30).json()
         check("share link has both columns", bool(p.get("pair")) and p.get("other") is not None, str(p.get("pair")))
+        if p.get("signature") is not None:         # present once brainstorm P1 (signed receipts) is deployed
+            from gate.receipt_sign import verify
+            site_key = httpx.get(f"{base}/api/receipt-key", timeout=30).json().get("public_key")
+            ok1, why1 = verify(p, site_key)
+            ok2, why2 = verify(p["other"], site_key) if p.get("other") else (True, "")
+            check("share link is signed by the site's key and verifies", ok1 and ok2, f"{why1} / {why2}")
         flat = str(p)
         check("share link carries no session cookie", "ks=" not in flat and c.cookies.get("ks", "~") not in flat)
         pw = re.findall(r"[A-Za-z0-9_-]{16}", " ".join(m.get("text", "") for m in p.get("chat", [])))

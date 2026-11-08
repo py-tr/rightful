@@ -168,6 +168,8 @@ class Demo:
         self.counter_path = os.path.join(out_dir, "counter.jsonl")
         self.proofs_path = os.path.join(out_dir, "proofs.jsonl")
         os.makedirs(out_dir, exist_ok=True)
+        from gate.receipt_sign import Signer          # signed run receipts (brainstorm P1, 11-08); the key stays here
+        self.signer = Signer(os.path.join(out_dir, "receipt-signing.pem"))
         since_path = os.path.join(out_dir, "counter_since.txt")   # the day this counter started, written once
         if counter_since is None:
             if not os.path.exists(since_path):
@@ -961,16 +963,18 @@ class Demo:
                   tried_source="the gate's own records", recorded_source=LOG_SOURCE)
         token = secrets.token_urlsafe(10)
         self.emit(s, "summary", text, permalink=f"/p/{token}")
+        rec = {"token": token, "t": time.time(), "summary": text, "proof": proof,
+               "pair": s.pair, "mode": s.mode,
+               "policy_sha256": policy_doc()["sha256"] if s.mode != "agent_decides" else None,
+               "verdict": ("Account taken over: the caller was given Jordan's temporary password."
+                           if s.taken_over else s.verdict),
+               "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
+                        if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
+                                        "explain") and (e.get("text") or "").strip()]}
+        rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
+        rec["signature"] = self.signer.sign(rec)
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"token": token, "t": time.time(), "summary": text, "proof": proof,
-                                "pair": s.pair, "mode": s.mode,
-                                "policy_sha256": policy_doc()["sha256"] if s.mode != "agent_decides" else None,
-                                "verdict": ("Account taken over: the caller was given Jordan's temporary password."
-                                            if s.taken_over else s.verdict),
-                                "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
-                                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
-                                                         "explain") and (e.get("text") or "").strip()]})
-                    + "\n")
+            f.write(json.dumps(rec) + "\n")
 
     # --- the proof strip -----------------------------------------------------------------------------------
     def proof(self, s: Session, run_id: str | None = None, events: list[dict] | None = None) -> list[dict]:
@@ -1336,6 +1340,11 @@ def create_demo_app(demo: Demo) -> FastAPI:
             other = [x for x in recs if x.get("pair") == r["pair"] and x["token"] != token]
             r = {**r, "other": other[-1] if other else None}
         return r
+
+    @app.get("/api/receipt-key")
+    def receipt_key():
+        """The public half of the key that signs every shared run (verify offline: python -m gate.verify_receipt)."""
+        return demo.signer.public()
 
     @app.get("/healthz")
     def health():

@@ -13,6 +13,7 @@ traces ever reach the page.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -982,8 +983,11 @@ class Demo:
         try:                                          # the conversation ledger's head (seq + hash), signed with the
             rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # record: a later copy of that ledger can
                                                                               # be checked against it (gate/ledger.py)
+            # for the flow page: which ledger, and which run in it (hashed, so no internal id is published)
+            rec["ledger_file"] = os.path.basename(s.stack.ledger.path) if s.stack else None
+            rec["run_ref"] = hashlib.sha256(run_id.encode()).hexdigest()[:16] if run_id else None
         except Exception:                             # noqa: BLE001
-            rec["ledger_head"] = None
+            rec["ledger_head"] = rec.get("ledger_head")
         rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
         rec["signature"] = self.signer.sign(rec)
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
@@ -1365,6 +1369,28 @@ def create_demo_app(demo: Demo) -> FastAPI:
         if demo.evidence is not None and r.get("signature") and token in demo.uploaded:
             r = {**r, "published": demo.evidence.public_url(f"receipts/{token}.json")}
         return r
+
+    @app.get("/flow/{token}")
+    def flow_page(token: str):
+        return FileResponse(os.path.join(HERE, "static", "flow.html"), headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/flow/{token}")
+    def flow_api(token: str):
+        """One conversation's steps from the gate's hash-chained ledger, checked against the signed record's head."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,30}", token) or not os.path.exists(demo.proofs_path):
+            return err("not found", 404)
+        r = next((json.loads(x) for x in open(demo.proofs_path, encoding="utf-8")
+                  if json.loads(x).get("token") == token), None)
+        if r is None:
+            return err("not found", 404)
+        from demo import flow as flowmod
+        out = flowmod.build(r, demo.out_dir)
+        out.update({"verdict": r.get("verdict"), "mode": r.get("mode"), "policy_sha256": r.get("policy_sha256"),
+                    "proof": r.get("proof"), "signature_key": (r.get("signature") or {}).get("key_id"),
+                    "published": (demo.evidence.public_url(f"receipts/{token}.json")
+                                  if demo.evidence is not None and token in demo.uploaded else None),
+                    "chat": r.get("chat", [])[:40]})
+        return out
 
     @app.get("/api/receipt-key")
     def receipt_key():

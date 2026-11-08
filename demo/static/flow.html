@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'">
+<title>Rightful flow</title>
+<style>
+:root{--bg:#f4f3ef;--surface:#fff;--ink:#17181a;--muted:#6b6d72;--line:#e3e1da;--red:#c2352a;--red-bg:#fdecea;--green:#1d7a46;--green-bg:#e7f5ec;--blue:#2d55c8;--blue-bg:#e9eefb;--amber:#9a6200;--amber-bg:#fff4dc}
+@media (prefers-color-scheme: dark){:root{--bg:#111214;--surface:#1a1b1e;--ink:#ececec;--muted:#9a9ca3;--line:#2c2e33;--red:#ff7b6e;--red-bg:#3a1d1a;--green:#5fd08f;--green-bg:#14301f;--blue:#8fb0ff;--blue-bg:#1b2440;--amber:#ffc46b;--amber-bg:#3a2c12}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+.w{max-width:1100px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-left,0px))}
+h1{font-size:22px;margin:0 0 4px}.m{color:var(--muted)}.mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+.top{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.box b{display:block;font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:4px}
+.ok{color:var(--green);font-weight:700}.bad{color:var(--red);font-weight:700}
+.tl{position:relative;margin:18px 0 0 10px;padding-left:22px;border-left:2px solid var(--line)}
+.st{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:0 0 12px}
+.st:before{content:"";position:absolute;left:-31px;top:14px;width:14px;height:14px;border-radius:50%;background:var(--surface);border:2px solid var(--line)}
+.st.refused:before{border-color:var(--red);background:var(--red-bg)}.st.approved:before{border-color:var(--green);background:var(--green-bg)}
+.st.push:before{border-color:var(--amber);background:var(--amber-bg)}.st.applied:before{border-color:var(--blue);background:var(--blue-bg)}
+.st h3{margin:0 0 4px;font-size:15px}.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:13.5px}
+.kv span:nth-child(odd){color:var(--muted)}.chain{margin-top:6px;color:var(--muted)}
+.verdict{border-radius:10px;padding:12px 14px;font-weight:700;margin:12px 0;border:1px solid var(--line);background:var(--surface)}
+a{color:var(--blue)}
+</style>
+</head>
+<body><div class="w">
+<h1>One conversation, step by step</h1>
+<p class="m">Every step below comes from the gate's own ledger: each entry is hashed together with the one before it, so
+a changed, removed or reordered step breaks the chain. The chain is checked against the ledger head signed into this
+conversation's record. Ids are shortened; passwords never enter the ledger.</p>
+<div id="verdict" class="verdict" hidden></div>
+<div class="top" id="top"></div>
+<div class="tl" id="tl"></div>
+<p><a id="back" href="/">Back to the result</a> · <a href="/">Try it yourself</a></p>
+</div>
+<script>
+const tok = location.pathname.split("/").pop();
+document.getElementById("back").href = "/p/" + tok;
+function el(t, c, txt){ const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; }
+function box(label, value, cls){ const b = el("div", "box"); b.append(el("b", "", label)); const v = el("div", cls || "", value); b.append(v); return b; }
+const NAMES = {reset_password: "Reset the password", send_actions_email: "Send an account email", change_email: "Change the email address",
+  mfa_reenroll_owner: "Re-enrol the authenticator (owner approves)", mfa_recovery_lost_device: "Recover a lost authenticator (manager approves)",
+  remove_credential: "Remove a sign-in method", logout_sessions: "Sign out everywhere", compromise_response: "Compromise response"};
+function kind(s){
+  const d = s.data || {};
+  if (s.kind === "decision" && String(d.outcome || "").startsWith("denied")) return "refused";
+  if (s.kind === "decision" && d.outcome === "allowed") return "approved";
+  if (s.kind === "challenge" && d.status === "approved") return "approved";
+  if (s.kind === "challenge" && (d.status === "denied" || d.status === "expired")) return "refused";
+  if (s.kind === "push_sent" || s.kind === "challenge") return "push";
+  if (s.kind === "forwarding" || s.kind === "executed" || s.kind === "composite_step") return "applied";
+  if (s.kind === "upstream_failed") return "refused";
+  return "";
+}
+fetch("/api/flow/" + encodeURIComponent(tok)).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(f => {
+  const top = document.getElementById("top");
+  if (f.verdict){ const v = document.getElementById("verdict"); v.textContent = f.verdict; v.hidden = false; }
+  const c = f.chain || {};
+  top.append(box("Ledger chain", f.ok ? `verified: ${c.entries_checked} entries, each linked to the one before` : (f.problem || "not verified"), f.ok ? "ok" : "bad"));
+  top.append(box("Signed head", c.head_hash ? `entry ${c.head_seq} · ${c.head_hash}…` : "none", "mono"));
+  if (f.signature_key) top.append(box("Record signed by this server", "Ed25519 key " + f.signature_key, "mono"));
+  if (f.policy_sha256) top.append(box("Policy in force", "SHA-256 " + f.policy_sha256.slice(0, 16) + "…", "mono"));
+  if (f.published){ const b = box("Public copy on Vultr Object Storage", ""); const a = el("a", "mono", "open the signed record"); a.href = f.published; a.target = "_blank"; a.rel = "noopener"; b.lastChild.append(a); top.append(b); }
+  const tl = document.getElementById("tl");
+  for (const s of f.steps || []){
+    const d = s.data || {}, card = el("div", "st " + kind(s));
+    card.append(el("h3", "", s.title + (d.op ? ": " + (NAMES[d.op] || d.op) : "")));
+    const kv = el("div", "kv");
+    const add = (k, v) => { if (v == null || v === "") return; kv.append(el("span", "", k), el("span", "", String(v))); };
+    add("outcome", d.outcome); add("rule", d.reason); add("status", d.status); add("approver", d.approver);
+    add("request hash", d.request_hash); add("receipt", d.receipt); add("challenge", d.challenge);
+    add("method", d.method && d.path ? d.method + " " + d.path : d.method); add("step", d.step);
+    add("password", d.secret_out_of_band ? "sent to the owner's device, never to the agent" : null);
+    add("agent's note", d.how); add("why", d.why);
+    card.append(kv);
+    card.append(el("div", "chain mono", `entry ${s.seq} · hash ${s.hash}… · after ${s.prev}…`));
+    tl.append(card);
+  }
+  if (!(f.steps || []).length) tl.append(el("p", "m", f.problem || "No gate steps were recorded for this conversation."));
+}).catch(() => { document.getElementById("tl").append(el("p", "m", "This conversation's flow is not available.")); });
+</script>
+</body></html>

@@ -1517,6 +1517,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, e = need(request)
         if e:
             return e
+        if push_id == "cancel":      # 11-08 bug: this route is declared first, so it also matched
+            return cancel_on(s, action)   # /api/phone/cancel/<id> and the page's Cancel answered "nothing to answer"
         return await answer(s, push_id, action, request)
 
     async def answer(s: Session, push_id: str, action: str, request: Request):

@@ -19,6 +19,7 @@ ufw default allow outgoing >/dev/null
 ufw allow 22/tcp >/dev/null
 ufw allow in on docker0 to 172.17.0.1 port 8090 proto tcp comment 'edge proxies -> broker' >/dev/null
 ufw allow in on docker0 to 172.17.0.1 port 8099 proto tcp comment 'Keycloak CIBA channel' >/dev/null
+ufw allow in on docker0 to 172.17.0.1 port 1025 proto tcp comment 'Keycloak -> mail catcher SMTP' >/dev/null
 ufw --force enable >/dev/null
 echo "=== STEP app + sandbox images"
 mkdir -p /opt/keyless /var/lib/keyless/eval /var/lib/keyless/tasks
@@ -35,7 +36,12 @@ DOCKER_HOST=ssh://root@127.0.0.1 docker info --format '{{json .Runtimes}}' < /de
 if grep -q '"runsc"' /tmp/runtimes.json; then echo "runsc available over ssh"; else echo "runsc NOT available over ssh"; exit 1; fi
 echo "=== STEP keycloak + mail (localhost only)"
 docker rm -f keyless-kc keyless-mail >/dev/null 2>&1 || true
-docker run -d --name keyless-mail --restart unless-stopped -p 127.0.0.1:8025:8025 axllent/mailpit:v1.20 >/dev/null
+# SMTP 1025 too: Keycloak's realms send account emails to host.docker.internal:1025 (devenv/keycloak_local.py), which
+# resolves to the docker bridge gateway, so publish it there (still not on a public address). Without it every
+# account email failed (8 Nov, PREREG-vultr-reruns deviation log).
+GW=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+docker run -d --name keyless-mail --restart unless-stopped -p 127.0.0.1:8025:8025 -p "$GW:1025:1025" \
+  axllent/mailpit:v1.20 >/dev/null
 docker run -d --name keyless-kc --restart unless-stopped -p 127.0.0.1:8089:8080 \
   --add-host host.docker.internal:host-gateway \
   -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KC_ADMIN_PW" \

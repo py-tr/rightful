@@ -40,9 +40,9 @@ flowchart LR
 ## Results
 
 
-**Without the gate, the agents were fooled into an unsafe account change in 0.5% to 44.7% of attack runs, depending on model and prompt; with it, 0 of 1,199 attack runs changed an account without the approval its policy requires.**
+**Without the gate, the agents were fooled into an unsafe account change in 0.5% to 44.7% of attack runs (1,140 runs), depending on model and prompt; with it, 0 of 1,199 attack runs changed an account without the approval its policy requires.**
 
-Three current models on Vultr Serverless Inference were all fooled, with a normal prompt and with every verification rule spelled out. Even the best case, deepseek with the hardened prompt, was fooled in 1 of 190 attack runs. A low rate is not safety: an attacker can call a thousand times, and at 0.5% that is about 5 accounts taken over. With Rightful, the rate does not matter, because the agent's judgment never authorizes the change.
+Three current models on Vultr Serverless Inference (`qwen3.8-27b`, `glm-5.3-flash`, `deepseek-v4.1-flash-1017`) were all fooled, with a normal prompt and with every verification rule spelled out. Even the best case, deepseek with the hardened prompt, was fooled in 1 of 190 attack runs. A low rate is not safety: an attacker can call a thousand times, and at 0.5% that is about 5 accounts taken over. With Rightful, the rate does not matter, because the agent's judgment never authorizes the change.
 
 5,240 pre-registered runs (written down before the evaluation's first run, pilots included, `a6de962`, 5 Nov; models on Vultr Serverless Inference, sandboxes on Vultr workers): 16 attacks, 5 honest tickets, 3 models, 2 prompts ("light": a normal help-desk prompt; "hardened": every verification rule spelled out), gate off and on. Every cell is published.
 

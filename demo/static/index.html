@@ -134,14 +134,50 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 /* 11-08 (owner): use the whole screen, and let the conversation start above the fold */
 body.cmp .wrap{max-width:min(2200px,100%);padding:0 clamp(16px,2vw,32px)}
 @media (min-width:981px){body.cmp .grid{grid-template-columns:minmax(0,1fr) 320px}}
-body.cmp .chat{height:clamp(360px,calc(100vh - 500px),1100px)}
-@media (min-width:1700px){body.cmp .chat{height:clamp(360px,calc(100vh - 400px),1100px)}}
+body.cmp .chat{height:clamp(340px,calc(100vh - 510px),1100px)}
+@media (min-width:1700px){body.cmp .chat{height:clamp(340px,calc(100vh - 445px),1100px)}}
 @media (min-width:1100px){body.cmp .colhead.left{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px;align-items:start}
   body.cmp .colhead.left>b,body.cmp .colhead.left>.tag{grid-column:1/-1}
   body.cmp .colhead.left .measured.hidden+.slot{grid-column:1/-1}}
 body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
-.chips:not(.showall) .chip.extra{display:none}
-.chip.moreatt{background:transparent;border-style:dashed;color:var(--muted)}
+/* 11-08 (owner): "more professional, cleaner, like a real help desk" - a support-console look. Light tokens only:
+   the dark-mode block above has higher specificity and keeps its own values. */
+:root{--bg:#f4f5f7;--line:#e3e6eb;--soft:#f1f3f6;--ink:#111827;--muted:#5f6b7a;--blue:#2563eb;--you:#2563eb;
+ --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.05)}
+.panel{border-radius:12px;overflow:hidden}
+.deskbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:#1f2937;color:#e5e7eb;font-size:13px}
+.deskbar .brand{display:flex;align-items:center;gap:8px;font-weight:600;color:#fff;font-size:14px;white-space:nowrap}
+.deskbar .live{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+.deskbar .meta{color:#9ca3af;white-space:nowrap}
+.deskbar .chips{padding:0;flex:1;min-width:240px;justify-content:flex-end}
+.deskbar .attackpick{color:#d1d5db;font-weight:500;font-size:13px;justify-content:flex-end}
+.deskbar .attackpick select{background:#111827;color:#f9fafb;border-color:#374151;font-size:14px;padding:7px 10px;border-radius:8px}
+.ticket{margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:9px 16px;background:#fffbeb;font-size:13px}
+.ticket summary{color:#78350f}
+.colhead{background:var(--surface)!important;border-top:3px solid transparent;padding:12px 16px}
+.colhead.left{border-top-color:var(--red)}.colhead.right{border-top-color:var(--green)}
+.colhead>b{display:flex!important;align-items:center;gap:8px;font-size:14.5px}
+.colhead.left>b::after,.colhead.right>b::after{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 8px}
+.colhead.left>b::after{content:"Unprotected";background:var(--red-bg);color:var(--red)}
+.colhead.right>b::after{content:"Protected";background:var(--green-bg);color:var(--green)}
+.slot .counter,.measured{border-radius:8px;background:var(--soft);border:1px solid var(--line)}
+.chat{background:var(--soft);padding:18px 16px}
+.b{border-radius:10px;font-size:14.5px;line-height:1.5;box-shadow:0 1px 1px rgba(16,24,40,.04)}
+.agent{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:3px}
+.you{border-bottom-right-radius:3px}
+.who{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.typing{background:var(--surface);border:1px solid var(--line)}
+.composer{background:var(--surface);padding:12px 16px}
+.composer textarea{background:var(--surface);border-color:#d0d5dd;border-radius:8px}
+.composer textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
+.send{border-radius:8px;padding:0 22px}
+.gate,.sys,.ph,.summary,.retry{border-radius:8px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ticket{background:#2a2412}:root:not([data-theme="light"]) .ticket summary{color:#f0c24b}}
+#chips .chip{display:none}
+.attackpick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;font-weight:600;font-size:14px}
+.attackpick select{flex:1;min-width:0;width:100%;max-width:760px;text-overflow:ellipsis;font:inherit;font-weight:500;font-size:15px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);cursor:pointer}
+.composer textarea{min-height:88px;max-height:220px;font-size:15px}
+.composer .send{align-self:stretch}
 </style>
 </head>
 <body>
@@ -183,7 +219,8 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
 <div class="grid">
   <div>
     <div class="panel">
-      <div class="chips" id="chips"></div>
+      <div class="deskbar"><span class="brand"><span class="live"></span>IT Service Desk</span>
+        <span class="meta">Live chat · AI agent on duty</span><div class="chips" id="chips"></div></div>
       <details class="ticket hidden" id="ticketBox"><summary id="ticketTitle">Ticket</summary>
         <textarea id="ticket" rows="4" maxlength="2500" aria-label="Ticket text (what the agent reads)"></textarea>
         <div style="font-size:12px;color:var(--muted)">This is the ticketing system the agent reads. An attacker who can
@@ -200,7 +237,7 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
       </div>
       <div class="strip hidden" id="strip" style="margin:8px 12px 0;font-size:12px;color:var(--muted);line-height:1.5"></div>
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
-      <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
+      <div class="composer"><textarea id="input" rows="3"maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
       <div class="replybar hidden" id="replyBar"><span id="replyText"></span>
         <button id="moreBtn">More time</button><button id="endBtn">End now</button></div>
@@ -296,7 +333,7 @@ async function intro() {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
     b.dataset.normal = s.chip; b.dataset.id = s.id; b.dataset.kind = s.kind; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
-    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; currentMeasured = s.measured; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
+    b.onclick = () => { if ($("attackSel")) $("attackSel").value = s.id; scenario = s.id; nextThen = s.then || null; thenArmed = false; currentMeasured = s.measured; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
     box.append(b);
@@ -327,17 +364,20 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
 }
 let sessionPaired = false;
 function labelChips() {
-  // 11-08 (owner): one compact row in compare mode; chips after the third sit behind "More attacks"
-  const box = $("chips"), all = [...box.querySelectorAll(".chip:not(.moreatt)")];
-  const extras = all.filter(b => compare && b.dataset.cmpchip && parseInt(b.dataset.cmpchip, 10) > 3);
-  for (const b of all) b.classList.toggle("extra", extras.includes(b));
-  let more = box.querySelector(".chip.moreatt");     // not ".more": an older rule styles that as a small text link
-  if (compare && extras.length) {
-    if (!more) { more = el("button", "chip moreatt", ""); more.type = "button";
-      more.onclick = () => { box.classList.toggle("showall"); labelChips(); }; box.append(more); }
-    more.style.order = 99; more.classList.remove("hidden");
-    more.textContent = box.classList.contains("showall") ? "Fewer attacks ▴" : "More attacks (" + extras.length + ") ▾";
-  } else if (more) more.classList.add("hidden");
+  // 11-08 (owner): one dropdown instead of a row of chips; the chips stay (hidden) as the click targets that
+  // "Run the attack live" and "Run again" use, and the dropdown drives them
+  const box = $("chips"), all = [...box.querySelectorAll(".chip")];
+  let sel = $("attackSel");
+  if (!sel) { const w = el("label", "attackpick"); w.append(el("span", "", "Scenario"));
+    sel = el("select", ""); sel.id = "attackSel"; sel.onchange = () => all.find(b => b.dataset.id === sel.value)?.click();
+    w.append(sel); box.prepend(w); }
+  const shown = all.filter(b => !compare || b.dataset.cmpchip)
+    .sort((a, b) => compare ? parseInt(a.dataset.cmpchip, 10) - parseInt(b.dataset.cmpchip, 10) : 0);
+  const keep = sel.value; sel.replaceChildren();
+  for (const b of shown) { const t = compare ? b.dataset.cmpchip : b.dataset.normal;
+    const o = el("option", "", (b.dataset.kind && b.dataset.kind !== "honest" && b.dataset.kind !== "start here" && !/honest|own attack/i.test(t) ? "⚠ " : "") + t);
+    o.value = b.dataset.id; sel.append(o); }
+  if (shown.some(b => b.dataset.id === keep)) sel.value = keep;
   for (const b of all) {
     b.classList.toggle("hidden", compare && !b.dataset.cmpchip);
     b.textContent = compare && b.dataset.cmpchip ? b.dataset.cmpchip : b.dataset.normal;

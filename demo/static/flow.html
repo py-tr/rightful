@@ -24,6 +24,9 @@ h1{font-size:22px;margin:0 0 4px}.m{color:var(--muted)}.mono{font-family:ui-mono
 .kv span:nth-child(odd){color:var(--muted)}.chain{margin-top:6px;color:var(--muted)}
 .verdict{border-radius:10px;padding:12px 14px;font-weight:700;margin:12px 0;border:1px solid var(--line);background:var(--surface)}
 a{color:var(--blue)}
+.short{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:12px;padding:12px 16px;margin:4px 0 6px;font-size:16px}
+.short b{display:block;font-size:12px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.st.reads{padding:8px 14px;background:transparent}.st.reads h3{font-size:14px;font-weight:600;color:var(--muted)}
 </style>
 </head>
 <body><div class="w">
@@ -44,6 +47,51 @@ function box(label, value, cls){ const b = el("div", "box"); b.append(el("b", ""
 const NAMES = {reset_password: "Reset the password", send_actions_email: "Send an account email", change_email: "Change the email address",
   mfa_reenroll_owner: "Re-enrol the authenticator (owner approves)", mfa_recovery_lost_device: "Recover a lost authenticator (manager approves)",
   remove_credential: "Remove a sign-in method", logout_sessions: "Sign out everywhere", compromise_response: "Compromise response"};
+// 11-08 (owner: "is it clear enough?"): plain words for the gate's outcomes, reads collapsed, a one-line summary on top
+const OUT = {allowed_read: "Allowed: reading changes nothing",
+  allowed: "Allowed: the owner approved this exact request", allowed_write: "Allowed: the owner approved this exact request",
+  allowed_composite: "Allowed: approved, as one set of steps",
+  denied_no_receipt: "Refused: this change needs the owner's approval on their own device",
+  denied_unverified: "Refused: the agent has to mark the caller as verified first",
+  denied_cooling_off: "Approved; waiting out the cooling-off, the owner can still cancel",
+  denied_tripwire: "Refused: a decline froze changes to this account",
+  denied_ledger_down: "Refused: the ledger could not record it, so nothing was forwarded"};
+const outWords = o => OUT[o] || (o ? String(o).replace(/_/g, " ") : "");
+const STATUS = {approved: "approved on the phone", denied: "declined on the phone", expired: "no answer; the request expired"};
+function headline(s){
+  const d = s.data || {}, what = d.op ? (NAMES[d.op] || d.op) : "";
+  if (s.kind === "decision") {
+    if (String(d.outcome || "").startsWith("denied") && d.outcome !== "denied_cooling_off") return "The gate refused" + (what ? ": " + what : "");
+    if (d.outcome === "denied_cooling_off") return "Approved, cooling-off running" + (what ? ": " + what : "");
+    return "The gate allowed" + (what ? ": " + what : "");
+  }
+  if (s.kind === "challenge") return STATUS[d.status] ?"The phone: " + (STATUS[d.status] || d.status) :"Approval request created" + (what ? ": " + what : "");
+  return s.title + (what ? ": " + what : "");
+}
+function collapse(steps){       // runs of plain reads become one line
+  const out = [];
+  for (const s of steps) {
+    const read = s.kind === "decision" && (s.data || {}).outcome === "allowed_read";
+    const prev = out[out.length - 1];
+    if (read && prev && prev.reads) { prev.reads += 1; prev.last = s; continue; }
+    out.push(read ? {...s, reads: 1, last: s} : s);
+  }
+  return out;
+}
+function summary(steps){
+  const parts = [];
+  for (const s of steps) {
+    const d = s.data || {};
+    if (s.kind === "decision" && String(d.outcome || "").startsWith("denied") && d.outcome !== "denied_cooling_off") parts.push("refused");
+    else if (s.kind === "push_sent") parts.push("request sent to the phone");
+    else if (s.kind === "challenge" && STATUS[d.status]) parts.push(STATUS[d.status]);
+    else if (s.kind === "tripwire") parts.push("account frozen for 24 h");
+    else if (s.kind === "forwarding") parts.push("forwarded once");
+    else if (s.kind === "executed" || s.kind === "composite_step") parts.push("applied by the identity server");
+    else if (s.kind === "escalation") parts.push("handed to a human");
+  }
+  return parts.filter((p, i) => p !== parts[i - 1]).join(" → ");
+}
 function kind(s){
   const d = s.data || {};
   if (s.kind === "decision" && String(d.outcome || "").startsWith("denied")) return "refused";
@@ -66,12 +114,22 @@ fetch("/api/flow/" + encodeURIComponent(tok)).then(r => r.ok ? r.json() : Promis
   if (f.policy_sha256) top.append(box("Policy in force", "SHA-256 " + f.policy_sha256.slice(0, 16) + "…", "mono"));
   if (f.published){ const b = box("Public copy on Vultr Object Storage", ""); const a = el("a", "mono", "open the signed record"); a.href = f.published; a.target = "_blank"; a.rel = "noopener"; b.lastChild.append(a); top.append(b); }
   const tl = document.getElementById("tl");
-  for (const s of f.steps || []){
-    const d = s.data || {}, card = el("div", "st " + kind(s));
-    card.append(el("h3", "", s.title + (d.op ? ": " + (NAMES[d.op] || d.op) : "")));
+  const sum = summary(f.steps || []);
+  if (sum) { const b = el("div", "short"); b.append(el("b", "", "In short"), el("div", "", sum.charAt(0).toUpperCase() + sum.slice(1) + ".")); tl.before(b); }
+  for (const s of collapse(f.steps || [])){
+    const d = s.data || {};
+    if (s.reads) {
+      const card = el("div", "st reads");
+      card.append(el("h3", "", s.reads > 1 ? `The agent read the account ${s.reads} times` : "The agent read the account"),
+                 el("div", "m", "Reading changes nothing, so the gate lets it through without asking anyone."),
+                 el("div", "chain mono", s.reads > 1 ? `entries ${s.seq}–${s.last.seq} · last hash ${s.last.hash}…` : `entry ${s.seq} · hash ${s.hash}… · after ${s.prev}…`));
+      tl.append(card); continue;
+    }
+    const card = el("div", "st " + kind(s));
+    card.append(el("h3", "", headline(s)));
     const kv = el("div", "kv");
     const add = (k, v) => { if (v == null || v === "") return; kv.append(el("span", "", k), el("span", "", String(v))); };
-    add("outcome", d.outcome); add("rule", d.reason); add("status", d.status); add("approver", d.approver);
+    add("result", outWords(d.outcome)); if (!OUT[d.outcome]) add("why", d.reason); add("approver", {cfo: "Jordan, the account owner", owner: "the account owner", ceo: "Sam, Jordan's manager", manager: "the owner's manager"}[d.approver] || d.approver);
     add("request hash", d.request_hash); add("receipt", d.receipt); add("challenge", d.challenge);
     add("method", d.method && d.path ? d.method + " " + d.path : d.method); add("step", d.step);
     add("password", d.secret_out_of_band ? "sent to the owner's device, never to the agent" : null);

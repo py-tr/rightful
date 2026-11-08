@@ -49,6 +49,12 @@ def test_the_paired_column_attached_at_serve_time_is_not_part_of_the_signature(t
     assert verify(r)[0] and verify(r["other"])[0]
 
 
+def test_a_lone_surrogate_from_a_visitor_cannot_break_signing(tmp_path):
+    """Review 11-08 m3: the canonical form is ASCII-escaped, so odd input signs and verifies instead of raising."""
+    s, r = signed(tmp_path, {**REC, "chat": [{"who": "you", "text": "\ud800 broken"}]})
+    assert verify(r, s.public_b64)[0] is True
+
+
 def test_the_command_line_says_valid_or_invalid(tmp_path, capsys):
     s, r = signed(tmp_path)
     p = tmp_path / "run.json"

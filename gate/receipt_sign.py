@@ -23,7 +23,9 @@ UNSIGNED_FIELDS = ("signature", "other", "published")   # attached at serve time
 def canonical(record: dict) -> bytes:
     """The exact bytes that are signed: the record without its signature, keys sorted, no whitespace, UTF-8."""
     body = {k: v for k, v in record.items() if k not in UNSIGNED_FIELDS}
-    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    # ensure_ascii=True (review 11-08 m3): every character escaped to ASCII, so a lone surrogate a visitor sends cannot
+    # make signing raise; fixed before the first production signature, since changing it later voids every receipt
+    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
 
 
 def _b64(b: bytes) -> str:

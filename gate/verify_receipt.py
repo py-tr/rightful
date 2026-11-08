@@ -34,6 +34,8 @@ def main(argv: list[str] | None = None) -> int:
         ok, why = verify(r, trusted)
         print(f"{'VALID  ' if ok else 'INVALID'} {name}: {why}")
         bad += not ok
+    if not trusted:   # review 11-08 m9: without the site's key, anyone could re-sign an edited record with their own
+        print("NOTE: the key was not checked against the site; use --url <site> (or --key) to check who signed it")
     return 1 if bad else 0
 
 

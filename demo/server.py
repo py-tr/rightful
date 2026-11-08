@@ -172,6 +172,11 @@ class Demo:
         self.signer = Signer(os.path.join(out_dir, "receipt-signing.pem"))
         from gate.evidence_store import EvidenceStore  # Vultr Object Storage copy of every signed receipt; off unless set
         self.evidence = EvidenceStore.from_env()
+        self.uploaded_path = os.path.join(out_dir, "uploads.jsonl")   # tokens whose upload SUCCEEDED (review 11-08 M2)
+        self.uploaded: set[str] = set()
+        if os.path.exists(self.uploaded_path):
+            with open(self.uploaded_path, encoding="utf-8") as f:
+                self.uploaded = {line.strip() for line in f if line.strip()}
         since_path = os.path.join(out_dir, "counter_since.txt")   # the day this counter started, written once
         if counter_since is None:
             if not os.path.exists(since_path):
@@ -435,17 +440,18 @@ class Demo:
         try:
             b_id, b_secret = stack.company["broker"]
             tb = httpx.post(f"{base}/realms/{realm}/protocol/openid-connect/token",
-                            data={"grant_type": "client_credentials"}, auth=(b_id, b_secret), headers=h, timeout=15)
+                            data={"grant_type": "client_credentials"}, auth=(b_id, b_secret), headers=h, timeout=8)
             tb.raise_for_status()
             gate_tok = tb.json()["access_token"]
             path = f"{base}/admin/realms/{realm}/admin-events"
-            out["gate_status"] = httpx.get(path, params={"max": 1}, timeout=15,
+            out["gate_status"] = httpx.get(path, params={"max": 1}, timeout=8,
                                            headers={**h, "Authorization": f"Bearer {gate_tok}"}).status_code
-            out["reader_status"] = httpx.get(path, params={"max": 1}, timeout=15,
+            out["reader_status"] = httpx.get(path, params={"max": 1}, timeout=8,
                                              headers={**h, "Authorization": f"Bearer {view_only}"}).status_code
         except Exception as e:                         # noqa: BLE001 - shown as "not measured", never as a pass
             out["error"] = type(e).__name__
-        out["holds"] = out["gate_status"] in (401, 403) and out["reader_status"] == 200
+        # only 403 proves the point (an authenticated account that is refused); a 401 means the token itself failed
+        out["holds"] = out["gate_status"] == 403 and out["reader_status"] == 200
         return out
 
     def counts_of(self, s: Session) -> dict:
@@ -973,8 +979,9 @@ class Demo:
                "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
                                         "explain") and (e.get("text") or "").strip()]}
-        try:                                          # the conversation ledger's head, signed with the record: published
-            rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # below, it anchors the ledger off-box
+        try:                                          # the conversation ledger's head (seq + hash), signed with the
+            rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # record: a later copy of that ledger can
+                                                                              # be checked against it (gate/ledger.py)
         except Exception:                             # noqa: BLE001
             rec["ledger_head"] = None
         rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
@@ -982,7 +989,15 @@ class Demo:
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
         if self.evidence is not None:                # a copy the demo server alone cannot quietly rewrite
-            self.evidence.put_async(f"receipts/{token}.json", json.dumps(rec).encode("utf-8"))
+            self.evidence.put_async(f"receipts/{token}.json", json.dumps(rec).encode("utf-8"),
+                                    on_done=lambda _url, t=token: self._mark_uploaded(t))
+
+    def _mark_uploaded(self, token: str) -> None:
+        """Only a confirmed upload earns the public link on the share page (review 11-08 M2)."""
+        with self.lock:
+            self.uploaded.add(token)
+            with open(self.uploaded_path, "a", encoding="utf-8") as f:
+                f.write(token + "\n")
 
     # --- the proof strip -----------------------------------------------------------------------------------
     def proof(self, s: Session, run_id: str | None = None, events: list[dict] | None = None) -> list[dict]:
@@ -1347,7 +1362,7 @@ def create_demo_app(demo: Demo) -> FastAPI:
         if r.get("pair"):                              # compare mode: the other column of the same message
             other = [x for x in recs if x.get("pair") == r["pair"] and x["token"] != token]
             r = {**r, "other": other[-1] if other else None}
-        if demo.evidence is not None and r.get("signature"):
+        if demo.evidence is not None and r.get("signature") and token in demo.uploaded:
             r = {**r, "published": demo.evidence.public_url(f"receipts/{token}.json")}
         return r
 

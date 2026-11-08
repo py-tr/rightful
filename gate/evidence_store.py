@@ -87,6 +87,7 @@ class EvidenceStore:
                 url = self.put(key, body)
                 if on_done:
                     on_done(url)
-            except Exception:                         # noqa: BLE001
+            except Exception as e:                    # noqa: BLE001 - counted and logged, never raised (no secrets logged)
                 self.failures += 1
+                print(f"evidence upload failed for {key}: {type(e).__name__}", flush=True)
         threading.Thread(target=run, daemon=True).start()

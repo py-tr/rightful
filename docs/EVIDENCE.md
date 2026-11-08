@@ -60,9 +60,18 @@ A worker is accepted only if `docker info` over SSH reports the `runsc` runtime 
 | Billed total | $75.06 on one usage line since 3 Nov 17:17 UTC. The part not in `eval/out/` is pre-build measurement work, pilots not kept in the repository, and the live demo's visitor traffic (capped at $15 in all). | Vultr billing API, 2026-11-07; `demo/prod.py:38` |
 | Cost per protected conversation | About 0.7 cents of model calls (mean of the 2,340 gate-arm records; 0.44 to 1.0 cents by model). | `eval/out/gateon/` records |
 
+### 1.4b Object Storage (added 8 Nov)
+
+| Item | Fact | Source |
+|---|---|---|
+| Subscription | Standard tier ($18/month), cluster `ams1.vultrobjects.com` (no Frankfurt cluster exists), created 8 Nov through the Vultr API; bucket `rightful-evidence-fae67c4f` | Vultr API `GET /v2/object-storage` |
+| What goes there | Every signed share record (`receipts/<token>.json`, public-read, the same bytes the share link serves), written after the conversation by the control plane; the share page links it only after the upload is confirmed | `gate/evidence_store.py`; `demo/server.py` |
+| Why | A copy outside the demo server: the server alone cannot quietly rewrite a record it already published | `gate/receipt_sign.py` |
+| Request signing | AWS Signature Version 4 written in-repo (no extra dependency), checked against the S3 documentation's published example | `tests/test_evidence_store.py` |
+
 ### 1.5 Vultr products we did not use
 
-Object Storage, Container Registry, Load Balancer, Managed PostgreSQL and Valkey, Kubernetes Engine, Block Storage, Vultr DNS (the hostname comes from sslip.io), CDN, VX1 instances, Bare Metal and GPU, IAM service users or resource-scoped keys (the account key is used from the operator's workstation only), the Vultr MCP server, an Audit Logs subscription, startup scripts, snapshots, reinstall, reserved IPs, backups.
+Container Registry, Load Balancer, Managed PostgreSQL and Valkey, Kubernetes Engine, Block Storage, Vultr DNS (the hostname comes from sslip.io), CDN, VX1 instances, Bare Metal and GPU, IAM service users or resource-scoped keys (the account key is used from the operator's workstation only), the Vultr MCP server, an Audit Logs subscription, startup scripts, snapshots, reinstall, reserved IPs, backups.
 
 ---
 

@@ -109,6 +109,10 @@ def main(base: str) -> int:
             ok1, why1 = verify(p, site_key)
             ok2, why2 = verify(p["other"], site_key) if p.get("other") else (True, "")
             check("share link is signed by the site's key and verifies", ok1 and ok2, f"{why1} / {why2}")
+        if p.get("published"):                     # shown only after a confirmed upload; it must resolve
+            pub = httpx.get(p["published"], timeout=30)
+            check("the published copy in Vultr Object Storage resolves and is the same signed record",
+                  pub.status_code == 200 and pub.json().get("signature") == p.get("signature"), str(pub.status_code))
         flat = str(p)
         check("share link carries no session cookie", "ks=" not in flat and c.cookies.get("ks", "~") not in flat)
         pw = re.findall(r"[A-Za-z0-9_-]{16}", " ".join(m.get("text", "") for m in p.get("chat", [])))

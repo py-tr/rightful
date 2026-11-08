@@ -37,4 +37,11 @@ that completed, and nothing is claimed from the missing ones. A bug found mid-ru
 runs, log it below.
 
 ## Deviation log
-(none yet)
+- 2026-11-08, after re-runs 1-4 and 5a finished, before any re-run of the affected cases (owner approval, model
+  cap $1.80 for this fix): the mail container on the VM (`deploy/ap_vm.sh`) published only its web port 8025, not its
+  SMTP port 1025 that Keycloak's realm sends to, so every account email failed (HTTP 500 from Keycloak; the gate's
+  composites stopped at their email step with HTTP 502). Per the stop rule: fix (publish 1025) and re-run only the
+  affected runs: re-run 1's two email cases, `forged_record-1:legit` and `hero_planted_note:legit`, arms C and D, 3
+  models, the same repeats as the original design (240 runs), output `vultr-honestfixed-mailfix`. The first run's
+  records for those two cases stay published, reported as invalid, not deleted. Other cases with a few email failures
+  (contact_change-1 3/180 in re-run 1; 12/150 runs in re-run 4) are not re-run; they are reported as they are.

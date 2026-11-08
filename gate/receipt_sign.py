@@ -16,7 +16,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-UNSIGNED_FIELDS = ("signature", "other")      # "other" is attached at serve time (the paired column, itself signed)
+UNSIGNED_FIELDS = ("signature", "other", "published")   # attached at serve time: the paired column (itself signed)
+                                                         # and the Object Storage URL of this same signed record
 
 
 def canonical(record: dict) -> bytes:

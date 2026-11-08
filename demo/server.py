@@ -170,6 +170,8 @@ class Demo:
         os.makedirs(out_dir, exist_ok=True)
         from gate.receipt_sign import Signer          # signed run receipts (brainstorm P1, 11-08); the key stays here
         self.signer = Signer(os.path.join(out_dir, "receipt-signing.pem"))
+        from gate.evidence_store import EvidenceStore  # Vultr Object Storage copy of every signed receipt; off unless set
+        self.evidence = EvidenceStore.from_env()
         since_path = os.path.join(out_dir, "counter_since.txt")   # the day this counter started, written once
         if counter_since is None:
             if not os.path.exists(since_path):
@@ -971,10 +973,16 @@ class Demo:
                "chat": [{k: self._mask(s, e[k]) for k in ("who", "text") if k in e} for e in s.events
                         if e["who"] in ("you", "agent", "system", "gate", "phone", "summary",
                                         "explain") and (e.get("text") or "").strip()]}
+        try:                                          # the conversation ledger's head, signed with the record: published
+            rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # below, it anchors the ledger off-box
+        except Exception:                             # noqa: BLE001
+            rec["ledger_head"] = None
         rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
         rec["signature"] = self.signer.sign(rec)
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec) + "\n")
+        if self.evidence is not None:                # a copy the demo server alone cannot quietly rewrite
+            self.evidence.put_async(f"receipts/{token}.json", json.dumps(rec).encode("utf-8"))
 
     # --- the proof strip -----------------------------------------------------------------------------------
     def proof(self, s: Session, run_id: str | None = None, events: list[dict] | None = None) -> list[dict]:
@@ -1339,6 +1347,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
         if r.get("pair"):                              # compare mode: the other column of the same message
             other = [x for x in recs if x.get("pair") == r["pair"] and x["token"] != token]
             r = {**r, "other": other[-1] if other else None}
+        if demo.evidence is not None and r.get("signature"):
+            r = {**r, "published": demo.evidence.public_url(f"receipts/{token}.json")}
         return r
 
     @app.get("/api/receipt-key")

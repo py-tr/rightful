@@ -145,13 +145,14 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
 :root{--bg:#f4f5f7;--line:#e3e6eb;--soft:#f1f3f6;--ink:#111827;--muted:#5f6b7a;--blue:#2563eb;--you:#2563eb;
  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.05)}
 .panel{border-radius:12px;overflow:hidden}
-.deskbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:#1f2937;color:#e5e7eb;font-size:13px}
+.deskbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:linear-gradient(90deg,#1d4ed8,#2563eb);color:#dbeafe;font-size:13px}
 .deskbar .brand{display:flex;align-items:center;gap:8px;font-weight:600;color:#fff;font-size:14px;white-space:nowrap}
 .deskbar .live{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
-.deskbar .meta{color:#9ca3af;white-space:nowrap}
+.deskbar .meta{color:#bfdbfe;white-space:nowrap}
 .deskbar .chips{padding:0;flex:1;min-width:240px;justify-content:flex-end}
-.deskbar .attackpick{color:#d1d5db;font-weight:500;font-size:13px;justify-content:flex-end}
-.deskbar .attackpick select{background:#111827;color:#f9fafb;border-color:#374151;font-size:14px;padding:7px 10px;border-radius:8px}
+.deskbar .attackpick{color:#dbeafe;font-weight:500;font-size:13px;justify-content:flex-end}
+.deskbar .attackpick select{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.35);font-size:14px;padding:7px 10px;border-radius:8px}
+.deskbar .attackpick select option{color:#111827;background:#fff}
 .ticket{margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:9px 16px;background:#fffbeb;font-size:13px}
 .ticket summary{color:#78350f}
 .colhead{background:var(--surface)!important;border-top:3px solid transparent;padding:12px 16px}
@@ -621,6 +622,8 @@ $("goBtn").onclick = async () => {
   const chip = $("chips").querySelector('.chip[data-cmp="1"]'); if (chip && !$("input").value.trim()) chip.click();
   const label = $("goBtn").textContent;   // show at once that the click did something (owner, 11-07)
   $("goBtn").disabled = true; $("goBtn").textContent = "Starting both columns…";
+  // 11-08 (owner: "it does nothing"): the conversation starts below the fold, so take the visitor to it
+  document.querySelector(".grid .panel").scrollIntoView({behavior: "smooth", block: "start"});
   setTimeout(() => { $("goBtn").disabled = false; $("goBtn").textContent = label; }, 4000);
   send();
 };

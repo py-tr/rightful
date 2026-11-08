@@ -7,6 +7,9 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 RESULTS = (ROOT / "eval" / "RESULTS-gateon.md").read_text(encoding="utf-8")
+# 11-08: the README also quotes the pre-registered re-runs (honest completion, Vultr re-runs); every percentage must be
+# found in SOME published results file, so a typo or an invented figure still fails
+ALL_RESULTS = "\n".join(p.read_text(encoding="utf-8") for p in sorted((ROOT / "eval").glob("RESULTS*.md")))
 READMES = [p for p in (ROOT / "README.md", ROOT / "README.draft.md") if p.exists()]
 
 
@@ -50,4 +53,4 @@ def test_headline_evaluation_numbers_come_from_the_results_file(path):
         if n in text:
             assert n.replace(",", "") in RESULTS.replace(",", ""), f"{path.name} quotes {n}, not found in RESULTS-gateon.md"
     for pct in re.findall(r"(\d+\.\d)%", text):
-        assert pct + "%" in RESULTS or pct in RESULTS, f"{path.name} quotes {pct}%, not found in RESULTS-gateon.md"
+        assert pct + "%" in ALL_RESULTS or pct in ALL_RESULTS, f"{path.name} quotes {pct}%, not found in any eval/RESULTS*.md"

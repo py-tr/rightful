@@ -1,8 +1,9 @@
 """Hash-chained, append-only ledger of every gate decision.
 
 Each entry carries the previous entry's hash, so any edit, reorder or deletion inside the file breaks the chain.
-Truncation at the end cannot be seen from the file alone, so `head()` is exported to an anchor kept elsewhere
-(Object Storage in deployment) and `verify(expected_head=...)` checks against it.
+Truncation at the end cannot be seen from the file alone, so `head()` can be exported to an anchor kept elsewhere
+and `verify(expected_head=...)` checks against it. The current deployment exports no anchor (no Object Storage is
+used; docs/EVIDENCE.md section 1.5), so truncation at the end is not detected there.
 If an append fails, the caller must treat the action as denied (fail closed).
 """
 from __future__ import annotations

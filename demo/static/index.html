@@ -131,6 +131,13 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .gloss{font-size:12.5px;color:var(--muted);margin:0 0 8px}.repo{margin:0 0 6px}
 .counter small + small{margin-top:4px;font-style:italic}
 .hidden{display:none!important}
+/* 11-08 (owner): use the whole screen, and let the conversation start above the fold */
+body.cmp .wrap{max-width:min(2200px,100%);padding:0 clamp(16px,2vw,32px)}
+body.cmp .grid{grid-template-columns:minmax(0,1fr) 320px}
+body.cmp .chat{height:clamp(460px,calc(100vh - 300px),1200px)}
+body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
+.chips:not(.showall) .chip.extra{display:none}
+.chip.more{background:transparent;border-style:dashed;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -316,7 +323,18 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
 }
 let sessionPaired = false;
 function labelChips() {
-  for (const b of $("chips").querySelectorAll(".chip")) {
+  // 11-08 (owner): one compact row in compare mode; chips after the third sit behind "More attacks"
+  const box = $("chips"), all = [...box.querySelectorAll(".chip:not(.more)")];
+  const extras = all.filter(b => compare && b.dataset.cmpchip && parseInt(b.dataset.cmpchip, 10) > 3);
+  for (const b of all) b.classList.toggle("extra", extras.includes(b));
+  let more = box.querySelector(".chip.more");
+  if (compare && extras.length) {
+    if (!more) { more = el("button", "chip more", ""); more.type = "button";
+      more.onclick = () => { box.classList.toggle("showall"); labelChips(); }; box.append(more); }
+    more.style.order = 99; more.classList.remove("hidden");
+    more.textContent = box.classList.contains("showall") ? "Fewer attacks ▴" : "More attacks (" + extras.length + ") ▾";
+  } else if (more) more.classList.add("hidden");
+  for (const b of all) {
     b.classList.toggle("hidden", compare && !b.dataset.cmpchip);
     b.textContent = compare && b.dataset.cmpchip ? b.dataset.cmpchip : b.dataset.normal;
     b.style.order = compare && b.dataset.cmpchip ? parseInt(b.dataset.cmpchip, 10) : "";

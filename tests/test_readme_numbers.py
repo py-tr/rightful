@@ -21,6 +21,28 @@ def test_demo_rates_match_the_measured_values_the_page_shows(path):
             assert int(hit.group(1)) == m[model][0], f"{path.name}: {short} {hit.group(1)} of 40 but measured {m[model][0]}/40"
 
 
+def _found_fixed_rows() -> int:
+    """Rows of EVIDENCE.md section 7 ("Found, fixed, tested"): one row is one counted problem (mentor 11-08)."""
+    text = (ROOT / "docs" / "EVIDENCE.md").read_text(encoding="utf-8")
+    section = text.split("## 7. Found, fixed, tested", 1)[1].split("\n## ", 1)[0]
+    return sum(1 for line in section.splitlines()
+               if line.startswith("|") and not line.startswith("|---") and not line.startswith("| Found |"))
+
+
+@pytest.mark.parametrize("path", READMES, ids=lambda p: p.name)
+def test_problem_count_matches_the_found_fixed_table(path):
+    text = path.read_text(encoding="utf-8")
+    for hit in re.finditer(r"(\d+) problems found", text):
+        assert int(hit.group(1)) == _found_fixed_rows(), \
+            f"{path.name} says {hit.group(1)} problems found; EVIDENCE.md section 7 has {_found_fixed_rows()} rows"
+
+
+def test_no_placeholder_survives_in_the_readme():
+    """A TODO (the video link, the hero image) must never reach the submitted README (mentor 11-08)."""
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "TODO" not in text, "README.md still contains a TODO placeholder"
+
+
 @pytest.mark.parametrize("path", READMES, ids=lambda p: p.name)
 def test_headline_evaluation_numbers_come_from_the_results_file(path):
     text = path.read_text(encoding="utf-8")

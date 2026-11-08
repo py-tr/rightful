@@ -87,7 +87,7 @@ Accounts payable on ERPNext: a supplier's bank details change only after the con
 - **The writer cannot read its scorecard:** the broker's account gets 403 on the admin-event log it is graded by; the view-only reader can read it and cannot write (tested live, `tests/integration/test_scorer_and_player.py`).
 - **Weak modes stay in the lab:** the gate-off and ablation modes work only with `KEYLESS_EVAL=1` in a scratch realm named `eval-*`, and the demo's unprotected column only in a factory-issued `demo-u…` company; anything else is refused and logged (`gate/gate.py`, `tests/test_eval_modes.py`).
 - **Fail closed:** a ledger that cannot be written denies the request with the receipt already burned; an unreachable approval service is a 503 and an escalation; a failing claim check holds the reply. The evaluation's fail-closed arms: 0 completions, 0 unsafe in 20 runs.
-- **Found, fixed, tested:** 27 problems found in our system, by us and by outside reviewers (among them an identity-server path trick, a lost-phone hole and the console-route bypass above), each fixed with a test that keeps it fixed.
+- **Found, fixed, tested:** 26 problems found in our system, by us and by outside reviewers (among them an identity-server path trick, a lost-phone hole and the console-route bypass above), each fixed with a test that keeps it fixed.
 - **Before publishing:** the whole git history was searched for every real key we hold: 0 matches.
 - **Kept up for judging:** spending caps per conversation, per day and per address; a 17-check smoke test after every deploy.
 

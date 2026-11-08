@@ -517,7 +517,18 @@ function renderPhone(p) {
     no.append(d); }
   $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";
 }
-async function act(id, action, body) { try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); } catch (e) { alert(e.message); } }
+async function act(id, action, body) {
+  try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); }
+  catch (e) {
+    // 11-08 (owner saw "no such request on this phone"): the request expired or was already answered between the
+    // last refresh and the tap (scenario 1's dead phone expires its request after 10 s). Say that on the phone itself.
+    const gone = /no such request/.test(e.message);
+    const n = el("div", "notice", gone ? "This request is no longer open: it expired or was already answered. Nothing was approved."
+                                        : e.message);
+    $("screen").querySelector(".notch").after(n); setTimeout(() => n.remove(), 6000);
+    lastPhoneIds = ""; poll(true);
+  }
+}
 function renderRows(c, rows) {
   const box = c.rows; box.replaceChildren();
   if (!rows.length) { const r = el("div", "rrow"); r.append(el("div", "", "Nothing asked yet.")); box.append(r); return; }

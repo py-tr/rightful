@@ -176,6 +176,19 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
 .composer textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
 .send{border-radius:8px;padding:0 22px}
 .gate,.sys,.ph,.summary,.retry{border-radius:8px}
+/* 11-08 (owner): the controls under the chat were too faint; make them read as buttons and fields */
+.toolbar{background:var(--soft);border-top:1px solid var(--line);padding:10px 16px;font-size:13.5px;color:var(--ink);gap:12px}
+.toolbar #state{color:var(--muted)}
+.toolbar .linkbtn{display:inline-flex;align-items:center;border:1px solid #c7d2fe;background:var(--surface);color:var(--blue);
+  border-radius:8px;padding:6px 12px;font-weight:600;font-size:13.5px;text-decoration:none;cursor:pointer}
+.toolbar .linkbtn:hover{background:#eef2ff}
+.toolbar #restart{border-color:#fecaca;color:var(--red)}.toolbar #restart:hover{background:var(--red-bg)}
+.toolbar .tbctl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.toolbar label{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink)}
+.toolbar select{font-size:13.5px;font-weight:500;padding:6px 8px;border:1px solid #d0d5dd;border-radius:8px;background:var(--surface)}
+.replybar{margin:8px 16px 0;font-size:13.5px;color:var(--ink)}
+.replybar button{font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid #d0d5dd}
+.replybar #endBtn{border-color:#fecaca;color:var(--red)}
 /* 11-08 (owner): text on the left, the two buttons on the right */
 @media (min-width:1100px){.intro{flex-wrap:nowrap;gap:28px;padding:16px 20px}
   #introText{flex:1 1 auto;min-width:0;max-width:1100px}
@@ -245,7 +258,7 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
       </div>
       <div class="strip hidden" id="strip" style="margin:8px 12px 0;font-size:12px;color:var(--muted);line-height:1.5"></div>
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
-      <div class="composer"><textarea id="input" rows="3"maxlength="1200" placeholder="Message the help desk"></textarea>
+      <div class="composer"><textarea id="input" rows="3" maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
       <div class="replybar hidden" id="replyBar"><span id="replyText"></span>
         <button id="moreBtn">More time</button><button id="endBtn">End now</button></div>
@@ -253,7 +266,7 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
         <a class="linkbtn" href="/policy" target="_blank" rel="noopener">The policy</a>
         <button class="linkbtn" id="proveBtn" title="A fresh sandbox reports what it can reach; then the tokens an attacker could hope to get are fired straight at your company's identity server">Run a containment check</button>
-        <span><label>Agent's instructions
+        <span class="tbctl"><label>Model
           <select id="model" aria-label="Model"></select></label> <label>Instructions
           <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
           &nbsp;<button class="linkbtn" id="restart">Start over</button></span></div>

@@ -452,7 +452,10 @@ function render(c, e) {
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
   if (e.who === "sandbox") { const d = el("div", "sys"); d.append(el("div", "h", "Sandboxes (measured)"), el("div", "", e.text)); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
-    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d);
+    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a);
+    if (!c.left && e.permalink) {   // 11-08 (owner): the step-by-step ledger view, for the protected column only
+      const f = el("a", "", "See every step (the gate's ledger) →"); f.href = "/flow/" + e.permalink.split("/").pop(); f.target = "_blank"; f.rel = "noopener"; acts.append(f); }
+    d.append(acts); chat.append(d);
     return; }
   if (e.who === "step") {
     if (!c.group) { const g = el("div", "stepgroup"); const h = el("div", "line"); const ht = el("span", ""); const tog = el("a", "tog", "");

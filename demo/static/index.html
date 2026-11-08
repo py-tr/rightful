@@ -173,6 +173,10 @@ body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
 .composer textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
 .send{border-radius:8px;padding:0 22px}
 .gate,.sys,.ph,.summary,.retry{border-radius:8px}
+/* 11-08 (owner): text on the left, the two buttons on the right */
+@media (min-width:1100px){.intro{flex-wrap:nowrap;gap:28px;padding:16px 20px}
+  #introText{flex:1 1 auto;min-width:0;max-width:1100px}
+  .intro>span{flex:none;flex-wrap:nowrap!important}}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ticket{background:#2a2412}:root:not([data-theme="light"]) .ticket summary{color:#f0c24b}}
 #chips .chip{display:none}
 .attackpick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;font-weight:600;font-size:14px}

@@ -29,4 +29,8 @@ Every run is reported (eval/RESULTS-people.md) with the people anonymised (Teste
 claimed, and the sentence "a small trial with N people, not a measurement of how people behave in general".
 
 ## Deviation log
-(none yet)
+- 2026-11-08, Tester 1, round A: the guide named preset 1 (the planted-note attack), whose story is "my phone is
+  dead", so the page expires every push after 10 s; the person had no real chance to decide. Not scored (recorded: all
+  pushes expired; the identity server recorded nothing in either column). From then on round A uses preset 6 ("Move
+  my authenticator to my new phone"), whose pushes last the paired 2 minutes; Tester 1 re-ran round A with it on a
+  fresh company.

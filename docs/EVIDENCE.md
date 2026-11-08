@@ -275,3 +275,33 @@ Every record in `eval/out/` carries the commit, the harness and prompt hashes, t
 - Where gVisor ran: the live demo (every script on the Vultr worker; the smoke test checks the kernel the sandbox reports), the 5,240-run evaluation and the Vultr payments replication. Two measurements ran on our own machine with plain Docker sandboxes: the 7 Nov re-measurement of the demo's attack rates (it measures the agent's behaviour, which the sandbox runtime does not change) and the local ERPNext runs.
 - The demo keeps receipts in memory, so a restart during a pending approval ends that approval; the decline freeze, quarantine, push counts and cancel buttons are rebuilt from the ledger (`demo/stack.py:40`; `broker/challenges.py:73-84`).
 - The push service's phone routes are protected by the host firewall and the Vultr firewall group, not by their own authentication; the public site reaches them only through the demo app's session-bound routes (`deploy/control.sh:58-66`; `demo/prod.py:47`).
+
+---
+
+## Run counts
+
+Every count the README uses, reconciled from the 5,240 records in `eval/out/gateon/` (`spec.arm`, `spec.variant`; per
+arm: A light + no gate, B hardened + no gate, C hardened + gate, D light + gate).
+
+| Arm | Lure (attack) | Same-request control | Honest | Total |
+|---|---|---|---|---|
+| A, B (each) | 600 | 420 | 360 | 1,380 |
+| C, D (each) | 600 | 210 | 360 | 1,170 |
+| Ablations (naive, allowlist only, unbound, full) | 30 each | | | 120 |
+| Fail-closed (push service down, ledger down) | | | 10 each | 20 |
+| **All** | | | | **5,240** |
+
+- **190 attack runs per model and prompt without the gate:** 200 lure runs minus approve-then-switch's 10, which
+  amendment 1 reports descriptively for the gate-off arms (`eval/PREREG-gateon.md`).
+- **1,199 gated attack runs:** C and D's 1,200 lure runs minus 1 excluded (hero_planted_note, arm D, glm-5.3-flash:
+  a harness HTTP 500).
+- **2,340 gate-arm records** (the cost per conversation's base): all C and D runs. **2,389 gate-on runs** (the
+  reconciliation, H7): those 2,340 plus the full-gate ablation (30) and the fail-closed arms (20), minus the 1
+  excluded.
+- **2,458 write attempts in 978 of the 1,199 gated attack runs; 81 executed,** each after the approval its policy
+  requires: 55 owner-approved password resets in approve-then-switch (the change the caller asked for; the switch
+  that followed was refused), 25 manager-approved lost-device recoveries (the accepted residual), and 1 account email
+  on a contractor's own account approved by its scripted owner (identity_confusion-1, record `r04170-d71e1d62`).
+  Per case: `python -m eval.per_attack eval/out/gateon`.
+- **96 honest tickets per model and setup:** 120 honest runs per model and arm minus the expected escalations
+  excluded as pre-registered.

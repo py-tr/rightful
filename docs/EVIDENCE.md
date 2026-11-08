@@ -261,8 +261,8 @@ Every record in `eval/out/` carries the commit, the harness and prompt hashes, t
 | Standard | What it says | Where Rightful follows it |
 |---|---|---|
 | EU payments: [Commission Delegated Regulation 2018/389](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32018R0389), in force since 14 September 2019 | Article 5(1), dynamic linking: the authentication code is "specific to the amount of the payment transaction and the payee", and "any change to the amount or the payee results in the invalidation of the authentication code". Article 4(1): the code "shall be only accepted once". | The receipt is bound to the run, operation, user and request hash; any change to the request finds no receipt; the receipt is burned on use (`gate/receipts.py`). We know of no such rule for an AI agent changing an account. |
-| [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html), §4.2.3 (account recovery) | Recovery after a lost authenticator. | The lost-phone path: the manager approves, the link goes only to the email on file, the owner is notified with a cancel (`packs/helpdesk.json`, `broker/composites.py`). |
-| [OWASP Top 10 for LLM Applications](https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/), LLM07 | The system prompt "should not be used as a security control". | The thesis: authorization lives in the gate, outside the model and its prompt. |
+| [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html), §4.2.3 Account Recovery Notification | Any account recovery must trigger a notification to the subscriber or their designee. | The lost-phone path notifies the owner on every device, with a cancel during the cooling-off; the manager approves and the link goes only to the email on file (`packs/helpdesk.json`, `broker/composites.py`). |
+| [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/), LLM07 | "the system prompt should not be considered a secret, nor should it be used as a security control." | The thesis: authorization lives in the gate, outside the model and its prompt. |
 
 ## 9. Honest limits
 

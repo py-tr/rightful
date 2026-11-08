@@ -419,7 +419,30 @@ class Demo:
         after = events()
         return {"attempts": len(rows), "refused": sum(x["refused"] for x in rows), "rows": rows,
                 "admin_events_before": before, "admin_events_after": after,
-                "not_tried": "the broker's own account: it lives outside the sandbox, which is the point"}
+                "not_tried": "the broker's own account: it lives outside the sandbox, which is the point",
+                "scorecard": self._scorecard(stack, view_only)}
+
+    def _scorecard(self, stack: SessionStack, view_only: str) -> dict:
+        """The writer cannot read its own scorecard (brainstorm P3, 11-08): the gate's own account asks Keycloak for the
+        admin-event log it is graded by (expected 403), next to the view-only reader that keeps the score (expected 200).
+        A read only, of this visitor's own fictional company; nothing is written."""
+        base, realm, h = self.kc_base, stack.realm, {"Host": stack.host}
+        out = {"gate_status": None, "reader_status": None, "error": None}
+        try:
+            b_id, b_secret = stack.company["broker"]
+            tb = httpx.post(f"{base}/realms/{realm}/protocol/openid-connect/token",
+                            data={"grant_type": "client_credentials"}, auth=(b_id, b_secret), headers=h, timeout=15)
+            tb.raise_for_status()
+            gate_tok = tb.json()["access_token"]
+            path = f"{base}/admin/realms/{realm}/admin-events"
+            out["gate_status"] = httpx.get(path, params={"max": 1}, timeout=15,
+                                           headers={**h, "Authorization": f"Bearer {gate_tok}"}).status_code
+            out["reader_status"] = httpx.get(path, params={"max": 1}, timeout=15,
+                                             headers={**h, "Authorization": f"Bearer {view_only}"}).status_code
+        except Exception as e:                         # noqa: BLE001 - shown as "not measured", never as a pass
+            out["error"] = type(e).__name__
+        out["holds"] = out["gate_status"] in (401, 403) and out["reader_status"] == 200
+        return out
 
     def counts_of(self, s: Session) -> dict:
         # ONE read of the identity server's log for both the matching and the count: two reads let a change that

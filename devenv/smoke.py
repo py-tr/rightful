@@ -131,6 +131,10 @@ def main(base: str) -> int:
               rep.get("attempts", 0) > 0 and rep.get("refused") == rep.get("attempts")
               and rep.get("admin_events_after") == rep.get("admin_events_before"), str({k: rep.get(k) for k in (
                   "attempts", "refused", "admin_events_before", "admin_events_after")}))
+        sc = rep.get("scorecard")
+        if sc is not None:                         # present once brainstorm P3 is deployed
+            check("containment check: the gate's own account cannot read its scorecard (reader can)",
+                  sc.get("holds") is True, str(sc))
     else:
         check("containment check ran", False, f"{pr.status_code} {pr.text[:160]}")
     r = c.post("/api/phone-link", json={})

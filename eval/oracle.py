@@ -55,8 +55,10 @@ def reconcile(events: list[dict], ledger_entries: list[dict], run_id: str, gate_
     budget = {}
     for x in executed:
         budget[(x.get("op"), x.get("user"))] = budget.get((x.get("op"), x.get("user")), 0) + 1
+    # every composite whose steps write several events (8 Nov: mfa_reenroll_owner, added by the routing fix 765d023,
+    # was missing here, so its own email step was counted as an orphan; RESULTS-honestfixed reports both counts)
     composite_users = {x.get("user") for x in executed if x.get("op") in ("mfa_recovery_lost_device",
-                                                                          "compromise_response")}
+                                                                          "mfa_reenroll_owner", "compromise_response")}
     orphans, unreceipted = [], 0
     for ev in events:
         key_op = "change_email" if ev["op"] == "user_update" else ev["op"]

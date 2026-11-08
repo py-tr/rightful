@@ -44,4 +44,9 @@ RESULTS-gateon; both stay published side by side with their dates and code.
 - A bug found mid-run: stop, fix, re-run the affected runs, log the deviation below.
 
 ## Deviation log
-(none yet)
+- Records stamp several commits (41a8f06, 7ed08be, 61411bf, ae34129, 63820c6, 7e0bf54, c113aa6): the harness reads
+  HEAD per run and docs/results/demo-page commits landed during the run. The only change to the code under test
+  (gate, broker, agent, harness, cases, packs) is a docstring in gate/ledger.py (7e0bf54).
+- After the run, before publishing: the reconciliation counted the steps of the new owner-approved re-enrolment
+  composite as orphans (121); eval/oracle.py was fixed to recognise that composite and every run re-reconciled from
+  its stored events and ledger (0 orphans). Both counts are published (RESULTS-honestfixed.md).

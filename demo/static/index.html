@@ -368,7 +368,8 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
   if (n) $("measL").textContent = (sc.current ? "Measured " + sc.date + " in this exact setup (same code and inputs, run on our own machine; " + m + "): "
       : "Measured " + sc.date + " on an earlier version of this demo (" + m + "): ")
     + "this attack fooled the agent in " + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests."
-    + (sessionPaired ? " (Your session differs in one way: with your phone paired, requests last 2 minutes; the measurement used 60 seconds.)" : "");
+    + (sessionPaired ? " (Your session differs in one way: with your phone paired, requests last 2 minutes; the measurement used 60 seconds.)" : "")
+    + (scenario === "takeover" ?" (One difference: the measurement let the dead phone's request expire after 10 s; here it lasts the normal 60 s.)" : "");
 }
 let sessionPaired = false;
 function labelChips() {

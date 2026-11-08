@@ -289,7 +289,8 @@ class Gate:
         try:
             seq = self._log("forwarding", {"run": run_id, "method": method, "path": op.path, "op": op.name,
                                          "user": op.user, "request_hash": op.request_hash, "receipt": red.receipt_id,
-                                         "secret_out_of_band": secret is not None})
+                                         # contrast mode hands the secret to the agent below: not out of band there
+                                         "secret_out_of_band": secret is not None and mode != CONTRAST_MODE})
         except LedgerError as e:
             return Decision(False, "denied_ledger_down", f"receipt burned, nothing forwarded: {e}", op)
         headers = {"Accept": "application/json"}

@@ -131,6 +131,74 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .gloss{font-size:12.5px;color:var(--muted);margin:0 0 8px}.repo{margin:0 0 6px}
 .counter small + small{margin-top:4px;font-style:italic}
 .hidden{display:none!important}
+/* 11-08 (owner): use the whole screen, and let the conversation start above the fold */
+body.cmp .wrap{max-width:min(2200px,100%);padding:0 clamp(16px,2vw,32px)}
+@media (min-width:981px){body.cmp .grid{grid-template-columns:minmax(0,1fr) 320px}}
+body.cmp .chat{height:clamp(340px,calc(100vh - 510px),1100px)}
+@media (min-width:1700px){body.cmp .chat{height:clamp(340px,calc(100vh - 445px),1100px)}}
+@media (min-width:1100px){body.cmp .colhead.left{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px;align-items:start}
+  body.cmp .colhead.left>b,body.cmp .colhead.left>.tag{grid-column:1/-1}
+  body.cmp .colhead.left .measured.hidden+.slot{grid-column:1/-1}}
+body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
+/* 11-08 (owner): "more professional, cleaner, like a real help desk" - a support-console look. Light tokens only:
+   the dark-mode block above has higher specificity and keeps its own values. */
+:root{--bg:#f4f5f7;--line:#e3e6eb;--soft:#f1f3f6;--ink:#111827;--muted:#5f6b7a;--blue:#2563eb;--you:#2563eb;
+ --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.05)}
+.panel{border-radius:12px;overflow:hidden}
+.deskbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;background:linear-gradient(90deg,#1d4ed8,#2563eb);color:#dbeafe;font-size:13px}
+.deskbar .brand{display:flex;align-items:center;gap:8px;font-weight:600;color:#fff;font-size:14px;white-space:nowrap}
+.deskbar .live{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+.deskbar .meta{color:#bfdbfe;white-space:nowrap}
+.deskbar .chips{padding:0;flex:1;min-width:240px;justify-content:flex-end}
+.deskbar .attackpick{color:#dbeafe;font-weight:500;font-size:13px;justify-content:flex-end}
+.deskbar .attackpick{color:#fff;font-weight:600}
+.deskbar .attackpick select{background:#fff;color:#111827;border:2px solid #fff;font-size:14.5px;font-weight:600;padding:7px 10px;border-radius:8px;box-shadow:0 2px 8px rgba(15,23,42,.25)}
+.deskbar .attackpick select:hover{border-color:#fde68a}
+.deskbar .attackpick select:focus{outline:none;border-color:#fde68a;box-shadow:0 0 0 3px rgba(253,230,138,.6)}
+.deskbar .attackpick select option{color:#111827;background:#fff}
+.ticket{margin:0;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:9px 16px;background:#fffbeb;font-size:13px}
+.ticket summary{color:#78350f}
+.colhead{background:var(--surface)!important;border-top:3px solid transparent;padding:12px 16px}
+.colhead.left{border-top-color:var(--red)}.colhead.right{border-top-color:var(--green)}
+.colhead>b{display:flex!important;align-items:center;gap:8px;font-size:14.5px}
+.colhead.left>b::after,.colhead.right>b::after{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 8px}
+.colhead.left>b::after{content:"Unprotected";background:var(--red-bg);color:var(--red)}
+.colhead.right>b::after{content:"Protected";background:var(--green-bg);color:var(--green)}
+.slot .counter,.measured{border-radius:8px;background:var(--soft);border:1px solid var(--line)}
+.chat{background:var(--soft);padding:18px 16px}
+.b{border-radius:10px;font-size:14.5px;line-height:1.5;box-shadow:0 1px 1px rgba(16,24,40,.04)}
+.agent{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:3px}
+.you{border-bottom-right-radius:3px}
+.who{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
+.typing{background:var(--surface);border:1px solid var(--line)}
+.composer{background:var(--surface);padding:12px 16px}
+.composer textarea{background:var(--surface);border-color:#d0d5dd;border-radius:8px}
+.composer textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
+.send{border-radius:8px;padding:0 22px}
+.gate,.sys,.ph,.summary,.retry{border-radius:8px}
+/* 11-08 (owner): the controls under the chat were too faint; make them read as buttons and fields */
+.toolbar{background:var(--soft);border-top:1px solid var(--line);padding:10px 16px;font-size:13.5px;color:var(--ink);gap:12px}
+.toolbar #state{color:var(--muted)}
+.toolbar .linkbtn{display:inline-flex;align-items:center;border:1px solid #c7d2fe;background:var(--surface);color:var(--blue);
+  border-radius:8px;padding:6px 12px;font-weight:600;font-size:13.5px;text-decoration:none;cursor:pointer}
+.toolbar .linkbtn:hover{background:#eef2ff}
+.toolbar #restart{border-color:#fecaca;color:var(--red)}.toolbar #restart:hover{background:var(--red-bg)}
+.toolbar .tbctl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.toolbar label{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink)}
+.toolbar select{font-size:13.5px;font-weight:500;padding:6px 8px;border:1px solid #d0d5dd;border-radius:8px;background:var(--surface)}
+.replybar{margin:8px 16px 0;font-size:13.5px;color:var(--ink)}
+.replybar button{font-size:13.5px;font-weight:600;padding:6px 12px;border-radius:8px;border:1px solid #d0d5dd}
+.replybar #endBtn{border-color:#fecaca;color:var(--red)}
+/* 11-08 (owner): text on the left, the two buttons on the right */
+@media (min-width:1100px){.intro{flex-wrap:nowrap;gap:28px;padding:16px 20px}
+  #introText{flex:1 1 auto;min-width:0;max-width:1100px}
+  .intro>span{flex:none;flex-wrap:nowrap!important}}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .ticket{background:#2a2412}:root:not([data-theme="light"]) .ticket summary{color:#f0c24b}}
+#chips .chip{display:none}
+.attackpick{display:flex;align-items:center;gap:10px;flex:1;min-width:0;font-weight:600;font-size:14px}
+.attackpick select{flex:1;min-width:0;width:100%;max-width:760px;text-overflow:ellipsis;font:inherit;font-weight:500;font-size:15px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);cursor:pointer}
+.composer textarea{min-height:88px;max-height:220px;font-size:15px}
+.composer .send{align-self:stretch}
 </style>
 </head>
 <body>
@@ -172,7 +240,8 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 <div class="grid">
   <div>
     <div class="panel">
-      <div class="chips" id="chips"></div>
+      <div class="deskbar"><span class="brand"><span class="live"></span>IT Service Desk</span>
+        <span class="meta">Live chat · AI agent on duty</span><div class="chips" id="chips"></div></div>
       <details class="ticket hidden" id="ticketBox"><summary id="ticketTitle">Ticket</summary>
         <textarea id="ticket" rows="4" maxlength="2500" aria-label="Ticket text (what the agent reads)"></textarea>
         <div style="font-size:12px;color:var(--muted)">This is the ticketing system the agent reads. An attacker who can
@@ -189,7 +258,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       </div>
       <div class="strip hidden" id="strip" style="margin:8px 12px 0;font-size:12px;color:var(--muted);line-height:1.5"></div>
       <div class="thenbar hidden" id="thenBar"><span>Next, send:</span> <button class="chip" id="thenBtn"></button></div>
-      <div class="composer"><textarea id="input" rows="1" maxlength="1200" placeholder="Message the help desk"></textarea>
+      <div class="composer"><textarea id="input" rows="3" maxlength="1200" placeholder="Message the help desk"></textarea>
         <button class="send" id="sendBtn">Send</button></div>
       <div class="replybar hidden" id="replyBar"><span id="replyText"></span>
         <button id="moreBtn">More time</button><button id="endBtn">End now</button></div>
@@ -197,7 +266,7 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
       <div class="toolbar"><span id="state">A fresh fictional company is created for you on your first message.</span>
         <a class="linkbtn" href="/policy" target="_blank" rel="noopener">The policy</a>
         <button class="linkbtn" id="proveBtn" title="A fresh sandbox reports what it can reach; then the tokens an attacker could hope to get are fired straight at your company's identity server">Run a containment check</button>
-        <span><label>Agent's instructions
+        <span class="tbctl"><label>Model
           <select id="model" aria-label="Model"></select></label> <label>Instructions
           <select id="prompt"><option value="light">light (as most teams ship them)</option><option value="hardened">hardened</option></select></label>
           &nbsp;<button class="linkbtn" id="restart">Start over</button></span></div>
@@ -285,7 +354,7 @@ async function intro() {
     const b = el("button", "chip " + (s.kind === "start here" ? "start" : s.kind), s.chip);
     if (s.compare_default) b.dataset.cmp = "1";
     b.dataset.normal = s.chip; b.dataset.id = s.id; b.dataset.kind = s.kind; if (s.compare_chip) b.dataset.cmpchip = s.compare_chip;
-    b.onclick = () => { scenario = s.id; nextThen = s.then || null; thenArmed = false; currentMeasured = s.measured; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
+    b.onclick = () => { if ($("attackSel")) $("attackSel").value = s.id; scenario = s.id; nextThen = s.then || null; thenArmed = false; currentMeasured = s.measured; showMeasured(s.measured); $("input").value = s.caller; $("ticket").value = s.ticket;
       const note = (s.ticket.match(/L1 \([^)]*\):\s*([\s\S]*)$/) || [])[1];   // the lie, visible without a click
       $("ticketBox").classList.remove("hidden"); $("ticketTitle").textContent = s.ticket.split("|")[0].trim() + (note ? ', note from L1: "' + note.replace(/\s+/g, " ").trim() + '"' : ""); $("input").focus({preventScroll: true}); };
     box.append(b);
@@ -312,11 +381,26 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
   if (n) $("measL").textContent = (sc.current ? "Measured " + sc.date + " in this exact setup (same code and inputs, run on our own machine; " + m + "): "
       : "Measured " + sc.date + " on an earlier version of this demo (" + m + "): ")
     + "this attack fooled the agent in " + n[0] + " of " + n[1] + " runs; it completed " + n[2] + " of " + n[3] + " honest requests."
-    + (sessionPaired ? " (Your session differs in one way: with your phone paired, requests last 2 minutes; the measurement used 60 seconds.)" : "");
+    + (sessionPaired ? " (Your session differs in one way: with your phone paired, requests last 2 minutes; the measurement used 60 seconds.)" : "")
+    + (scenario === "takeover" ?" (One difference: the measurement let the dead phone's request expire after 10 s; here it lasts the normal 60 s.)" : "");
 }
 let sessionPaired = false;
 function labelChips() {
-  for (const b of $("chips").querySelectorAll(".chip")) {
+  // 11-08 (owner): one dropdown instead of a row of chips; the chips stay (hidden) as the click targets that
+  // "Run the attack live" and "Run again" use, and the dropdown drives them
+  const box = $("chips"), all = [...box.querySelectorAll(".chip")];
+  let sel = $("attackSel");
+  if (!sel) { const w = el("label", "attackpick"); w.append(el("span", "", "Scenario"));
+    sel = el("select", ""); sel.id = "attackSel"; sel.onchange = () => all.find(b => b.dataset.id === sel.value)?.click();
+    w.append(sel); box.prepend(w); }
+  const shown = all.filter(b => !compare || b.dataset.cmpchip)
+    .sort((a, b) => compare ? parseInt(a.dataset.cmpchip, 10) - parseInt(b.dataset.cmpchip, 10) : 0);
+  const keep = sel.value; sel.replaceChildren();
+  for (const b of shown) { const t = compare ? b.dataset.cmpchip : b.dataset.normal;
+    const o = el("option", "", (b.dataset.kind && b.dataset.kind !== "honest" && b.dataset.kind !== "start here" && !/honest|own attack/i.test(t) ? "⚠ " : "") + t);
+    o.value = b.dataset.id; sel.append(o); }
+  if (shown.some(b => b.dataset.id === keep)) sel.value = keep;
+  for (const b of all) {
     b.classList.toggle("hidden", compare && !b.dataset.cmpchip);
     b.textContent = compare && b.dataset.cmpchip ? b.dataset.cmpchip : b.dataset.normal;
     b.style.order = compare && b.dataset.cmpchip ? parseInt(b.dataset.cmpchip, 10) : "";
@@ -381,7 +465,10 @@ function render(c, e) {
     d.append(document.createTextNode(t[0]), el("span", "num", e.number), document.createTextNode(t.slice(1).join(e.number))); chat.append(d); return; }
   if (e.who === "sandbox") { const d = el("div", "sys"); d.append(el("div", "h", "Sandboxes (measured)"), el("div", "", e.text)); chat.append(d); return; }
   if (e.who === "summary") { const d = el("div", "summary"); d.append(el("div", "h", "What happened"), el("div", "", e.text));
-    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a); d.append(acts); chat.append(d);
+    const acts = el("div", "acts"); const a = el("a", "", "Share this result"); a.href = e.permalink; a.target = "_blank"; a.rel = "noopener"; acts.append(a);
+    if (!c.left && e.permalink) {   // 11-08 (owner): the step-by-step ledger view, for the protected column only
+      const f = el("a", "", "See every step (the gate's ledger) →"); f.href = "/flow/" + e.permalink.split("/").pop(); f.target = "_blank"; f.rel = "noopener"; acts.append(f); }
+    d.append(acts); chat.append(d);
     return; }
   if (e.who === "step") {
     if (!c.group) { const g = el("div", "stepgroup"); const h = el("div", "line"); const ht = el("span", ""); const tog = el("a", "tog", "");
@@ -411,7 +498,13 @@ function drawColumn(c, data) {
   renderRows(c, data.proof); if (added) scrollDown(c);
 }
 const SIDE = {left: "LEFT COLUMN · the agent decides", right: "RIGHT COLUMN · Rightful"};
+// 11-08 (owner: "a card reappears for a few seconds after I tap"): a poll that left before the tap comes back with the
+// old state. Cards and cancel notices already answered on this page are never drawn again (20 s is far longer than
+// any poll in flight; after that the server's state has long caught up).
+const answered = new Map();
+const recent = id => answered.has(id) && Date.now() - answered.get(id) < 20000;
 function renderPhone(p) {
+  p = {...p, pending: p.pending.filter(x => !recent(x.id)), notices: p.notices.filter(n => !n.cancel_id || !recent(n.cancel_id))};
   $("pTitle").textContent = p.title; $("pSub").textContent = p.subtitle;
   const hist = p.history || [];
   const ids = p.pending.map(x => x.id + ":" + (x.nth || 1) + ":" + (x.company || "")).join(",") + "|" + hist.length + "|" + (p.left_note || ""); const cards = $("cards");
@@ -423,7 +516,7 @@ function renderPhone(p) {
       cards.append(el("div", "past", (h.company ? (h.company === "left" ? "LEFT · " : "RIGHT · ") : "") + h.at + "  ·  to " + h.who + "'s phone: " + h.action + "  ·  " + h.outcome));
     if (p.left_note) cards.append(el("div", "leftnote", p.left_note));
     for (const x of p.pending) {
-      const c = el("div", "card" + (x.company ? " side-" + x.company : "")); const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
+      const c = el("div", "card" + (x.company ? " side-" + x.company : "")); c.dataset.pid = x.id; const app = el("div", "app", "Corp sign-in  ·  ref " + x.ref);
       if (x.company) c.append(el("div", "sidetag " + x.company, SIDE[x.company]));
       if (x.owner_name) c.append(el("div", "to", "On " + x.owner_name + "'s phone"));
       // 11-07 (owner): say plainly what is being approved; a 2nd request says it is a 2nd one
@@ -443,11 +536,28 @@ function renderPhone(p) {
   const no = $("notices"); no.replaceChildren();
   // 11-07 (owner): too much at once; while a request waits for an answer, only notices you can act on are shown
   for (const n of p.notices.filter(n => !p.pending.length || n.cancel_id).slice(-3)) { const d = el("div", "notice", (n.company === "left" ? "LEFT · " : n.company === "right" ? "RIGHT · " : "") + n.text);
-    if (n.cancel_id) { const b = el("button", "", "Cancel this change"); b.onclick = () => api("/api/phone/cancel/" + n.cancel_id, {}).catch(e => alert(e.message)); d.append(el("br"), b); }
+    if (n.cancel_id) { const b = el("button", "", "Cancel this change");
+      b.onclick = () => { answered.set(n.cancel_id, Date.now()); d.remove();
+        api("/api/phone/cancel/" + n.cancel_id, {}).then(() => poll(true)).catch(e => { answered.delete(n.cancel_id); alert(e.message); }); };
+      d.append(el("br"), b); }
     no.append(d); }
   $("mail").textContent = p.mail ? p.mail + " email(s) arrived in Jordan's inbox. (The link is not shown here.)" : "";
 }
-async function act(id, action, body) { try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); } catch (e) { alert(e.message); } }
+async function act(id, action, body) {
+  answered.set(id, Date.now());                          // hide it now; a poll already in flight must not redraw it
+  document.querySelector('#cards .card[data-pid="' + CSS.escape(id) + '"]')?.remove();
+  try { await api("/api/phone/" + id + "/" + action, body); lastPhoneIds = ""; poll(true); }
+  catch (e) {
+    if (!/no such request/.test(e.message)) answered.delete(id);   // e.g. a bad number: the card is still open
+    // 11-08 (owner saw "no such request on this phone"): the request expired or was already answered between the
+    // last refresh and the tap (scenario 1's dead phone expires its request after 10 s). Say that on the phone itself.
+    const gone = /no such request/.test(e.message);
+    const n = el("div", "notice", gone ? "This request is no longer open: it expired or was already answered. Nothing was approved."
+                                        : e.message);
+    $("screen").querySelector(".notch").after(n); setTimeout(() => n.remove(), 6000);
+    lastPhoneIds = ""; poll(true);
+  }
+}
 function renderRows(c, rows) {
   const box = c.rows; box.replaceChildren();
   if (!rows.length) { const r = el("div", "rrow"); r.append(el("div", "", "Nothing asked yet.")); box.append(r); return; }
@@ -559,6 +669,8 @@ $("goBtn").onclick = async () => {
   const chip = $("chips").querySelector('.chip[data-cmp="1"]'); if (chip && !$("input").value.trim()) chip.click();
   const label = $("goBtn").textContent;   // show at once that the click did something (owner, 11-07)
   $("goBtn").disabled = true; $("goBtn").textContent = "Starting both columns…";
+  // 11-08 (owner: "it does nothing"): the conversation starts below the fold, so take the visitor to it
+  document.querySelector(".grid .panel").scrollIntoView({behavior: "smooth", block: "start"});
   setTimeout(() => { $("goBtn").disabled = false; $("goBtn").textContent = label; }, 4000);
   send();
 };
@@ -583,6 +695,9 @@ async function send() {
   const text = $("input").value.trim(); if (!text) return;
   if (compare && !serverCompare && !serverBusy) { try { await api("/api/compare", {on: true}); serverCompare = true; } catch (e) { refusal(R, e.message); return; } }
   if (text === nextThen) { nextThen = null; $("thenBar").classList.add("hidden"); }
+  // 11-08 (owner: "use the whole space"): on a wide screen, bring the whole conversation panel into view on send
+  const cpb = document.querySelector(".composer").getBoundingClientRect();
+  if (compare && innerWidth >= 1100 && cpb.bottom > innerHeight) $("chips").scrollIntoView({behavior: "smooth", block: "start"});
   for (const c of compare ? [L, R] : [R]) { c.chat.querySelector(".empty")?.remove(); c.chat.append(el("div", "who r", "You"), el("div", "b you", text)); c.pending.push(text); scrollDown(c); setTyping(c, true); }
   $("input").value = "";
   const starts = !serverBusy;

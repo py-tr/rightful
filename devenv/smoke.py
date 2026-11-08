@@ -9,6 +9,7 @@ Checks, each printed PASS/FAIL with the reason; exits non-zero on any FAIL:
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time
@@ -109,6 +110,12 @@ def main(base: str) -> int:
             ok1, why1 = verify(p, site_key)
             ok2, why2 = verify(p["other"], site_key) if p.get("other") else (True, "")
             check("share link is signed by the site's key and verifies", ok1 and ok2, f"{why1} / {why2}")
+        if p.get("ledger_file"):                   # the flow page: every step from the hash-chained ledger
+            fl = httpx.get(f"{base}/api/flow/{tok}", timeout=30).json()
+            check("flow page: the ledger chain verifies against the signed head, with steps",
+                  fl.get("ok") is True and len(fl.get("steps") or []) > 0, str(fl.get("problem")))
+            check("flow page: no full receipt, run or user id in it",
+                  not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", json.dumps(fl)))
         if p.get("published"):                     # shown only after a confirmed upload; it must resolve
             pub = httpx.get(p["published"], timeout=30)
             check("the published copy in Vultr Object Storage resolves and is the same signed record",

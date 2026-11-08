@@ -13,6 +13,7 @@ traces ever reach the page.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -66,6 +67,20 @@ ACTIONS = {"reset_password": "reset the password", "send_actions_email": "send a
            "remove_credential": "remove a sign-in credential", "logout_sessions": "sign out all sessions",
            "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator", "mfa_reenroll_owner": "re-enrol the authenticator",
            "compromise_response": "run the compromise response", "identity_check": "verify the caller"}
+
+
+def plain_notice(text: str) -> str:
+    """The broker's cooling-off notice in the phone's own words (owner 11-08: "ceo approved 'mfa_recovery_lost_device'"
+    read like a log line). Anything that does not match is shown unchanged."""
+    m = re.match(r"(\S+) approved '(\w+)' on your account\. It runs in (\d+) s unless you cancel\.", text or "")
+    if not m:
+        return text
+    who, op, secs = m.groups()
+    by = {"ceo": "Sam (your manager)", "cfo": "You"}.get(who, SHORT.get(who, who))
+    return (f"{by} approved: {ACTIONS.get(op, op.replace('_', ' '))} on your account. It happens in {secs} s unless "
+            f"you cancel. If you did not ask for this, cancel now.")
+
+
 # The phone card's headline (owner, 11-07: "make clear on the phone what we are approving, simply 'Password reset
 # for ...'"): what a person approves, in the words of an authenticator prompt.
 CARD_TITLES = {"reset_password": "Password reset", "send_actions_email": "Account email (a link to set a new password "
@@ -562,7 +577,11 @@ class Demo:
                           f"approval on {who}.", loud=True, held=True, ref=(d.get("request_hash") or "")[:4],
                           rule=self._rule(s, d.get("op")))
             elif o == "denied_cooling_off":
-                self.emit(s, "status", "Approved. Waiting out a short cooling-off; the owner can still cancel.")
+                # once per request: the agent re-checks during the wait, and each re-check repeated the line (11-08)
+                key = ("cooling", d.get("request_hash"))
+                if key not in s.narrated:
+                    s.narrated.add(key)
+                    self.emit(s, "status", "Approved. Waiting out a short cooling-off; the owner can still cancel.")
             elif o and o.startswith("denied"):
                 self.emit(s, "gate", f"The gate refused this: {d.get('reason', 'not allowed')}.", loud=True, held=True,
                           rule=self._rule(s, d.get("op"), o))
@@ -982,8 +1001,11 @@ class Demo:
         try:                                          # the conversation ledger's head (seq + hash), signed with the
             rec["ledger_head"] = s.stack.ledger.head() if s.stack else None   # record: a later copy of that ledger can
                                                                               # be checked against it (gate/ledger.py)
+            # for the flow page: which ledger, and which run in it (hashed, so no internal id is published)
+            rec["ledger_file"] = os.path.basename(s.stack.ledger.path) if s.stack else None
+            rec["run_ref"] = hashlib.sha256(run_id.encode()).hexdigest()[:16] if run_id else None
         except Exception:                             # noqa: BLE001
-            rec["ledger_head"] = None
+            rec["ledger_head"] = rec.get("ledger_head")
         rec = json.loads(json.dumps(rec))            # sign exactly what a reader will load back from the file
         rec["signature"] = self.signer.sign(rec)
         with self.lock, open(self.proofs_path, "a", encoding="utf-8") as f:
@@ -1135,7 +1157,7 @@ class Demo:
                 for n in v["inbox"]:
                     tag = side if view["compare"] else None
                     if n["kind"] == "notice":
-                        view["notices"].append({"phone_of": user, "company": tag, "text": n["value"],
+                        view["notices"].append({"phone_of": user, "company": tag, "text": plain_notice(n["value"]),
                                                 "cancel_id": n.get("cancel_id")})
                     elif n["kind"] == "temporary password":
                         view["notices"].append({"phone_of": user, "company": tag, "text": "Your temporary password "
@@ -1366,6 +1388,28 @@ def create_demo_app(demo: Demo) -> FastAPI:
             r = {**r, "published": demo.evidence.public_url(f"receipts/{token}.json")}
         return r
 
+    @app.get("/flow/{token}")
+    def flow_page(token: str):
+        return FileResponse(os.path.join(HERE, "static", "flow.html"), headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/flow/{token}")
+    def flow_api(token: str):
+        """One conversation's steps from the gate's hash-chained ledger, checked against the signed record's head."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,30}", token) or not os.path.exists(demo.proofs_path):
+            return err("not found", 404)
+        r = next((json.loads(x) for x in open(demo.proofs_path, encoding="utf-8")
+                  if json.loads(x).get("token") == token), None)
+        if r is None:
+            return err("not found", 404)
+        from demo import flow as flowmod
+        out = flowmod.build(r, demo.out_dir)
+        out.update({"verdict": r.get("verdict"), "mode": r.get("mode"), "policy_sha256": r.get("policy_sha256"),
+                    "signature_key": (r.get("signature") or {}).get("key_id"),
+                    "published": (demo.evidence.public_url(f"receipts/{token}.json")
+                                  if demo.evidence is not None and token in demo.uploaded else None)})
+        # (no proof/chat here: the identity server's log carries full user ids, and flow.html never shows them)
+        return out
+
     @app.get("/api/receipt-key")
     def receipt_key():
         """The public half of the key that signs every shared run (verify offline: python -m gate.verify_receipt)."""
@@ -1473,6 +1517,8 @@ def create_demo_app(demo: Demo) -> FastAPI:
         s, e = need(request)
         if e:
             return e
+        if push_id == "cancel":      # 11-08 bug: this route is declared first, so it also matched
+            return cancel_on(s, action)   # /api/phone/cancel/<id> and the page's Cancel answered "nothing to answer"
         return await answer(s, push_id, action, request)
 
     async def answer(s: Session, push_id: str, action: str, request: Request):

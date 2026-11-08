@@ -232,7 +232,8 @@ Sixteen attacks, each asking for what the CISA/FBI advisory describes: a passwor
 
 ## Run it
 
-- Tests: `python -m pytest tests --ignore=tests/integration` (385 tests).
+- Setup: `cp .env.example .env` and fill in `VULTR_API_KEY` and `VULTR_INFERENCE_API_KEY` (Object Storage publishing is optional). Python 3.13 and Docker; `pip install -r requirements.txt`.
+- Tests: `python -m pytest tests --ignore=tests/integration` (446 tests collected in all, integration tests included).
 - Local demo (Docker): `python -m devenv.demo_local`, then http://127.0.0.1:8000.
 - Your own Vultr account: `python -m deploy.vultr_deploy up`, then `demo-deploy`; `python -m devenv.smoke https://<host>`; `down` removes everything.
 - Re-run the analysis: `python -m eval.analyze eval/out/gateon`; the per-attack table: `python -m eval.per_attack eval/out/gateon`.

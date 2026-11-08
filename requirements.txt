@@ -1,0 +1,15 @@
+# Rightful: Python dependencies (versions used to build and test it, Python 3.13).
+# The agent-side SDK (sandbox/helpdesk) is part of this repo and baked into the sandbox image; it is not a pip package.
+cryptography==50.0.0
+fastapi==0.119.0
+httpx==0.27.2
+mcp==1.30.0
+PyJWT==2.15.1
+requests==2.34.2
+scipy==1.16.0
+segno==1.6.1
+starlette==0.48.0
+uvicorn==0.37.0
+# tests and tooling
+pytest==9.1.1
+playwright==1.63.0

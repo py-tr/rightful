@@ -9,6 +9,7 @@ Checks, each printed PASS/FAIL with the reason; exits non-zero on any FAIL:
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 import time

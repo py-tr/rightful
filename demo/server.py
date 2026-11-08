@@ -67,6 +67,20 @@ ACTIONS = {"reset_password": "reset the password", "send_actions_email": "send a
            "remove_credential": "remove a sign-in credential", "logout_sessions": "sign out all sessions",
            "change_email": "change the email address", "mfa_recovery_lost_device": "recover a lost authenticator", "mfa_reenroll_owner": "re-enrol the authenticator",
            "compromise_response": "run the compromise response", "identity_check": "verify the caller"}
+
+
+def plain_notice(text: str) -> str:
+    """The broker's cooling-off notice in the phone's own words (owner 11-08: "ceo approved 'mfa_recovery_lost_device'"
+    read like a log line). Anything that does not match is shown unchanged."""
+    m = re.match(r"(\S+) approved '(\w+)' on your account\. It runs in (\d+) s unless you cancel\.", text or "")
+    if not m:
+        return text
+    who, op, secs = m.groups()
+    by = {"ceo": "Sam (your manager)", "cfo": "You"}.get(who, SHORT.get(who, who))
+    return (f"{by} approved: {ACTIONS.get(op, op.replace('_', ' '))} on your account. It happens in {secs} s unless "
+            f"you cancel. If you did not ask for this, cancel now.")
+
+
 # The phone card's headline (owner, 11-07: "make clear on the phone what we are approving, simply 'Password reset
 # for ...'"): what a person approves, in the words of an authenticator prompt.
 CARD_TITLES = {"reset_password": "Password reset", "send_actions_email": "Account email (a link to set a new password "
@@ -563,7 +577,11 @@ class Demo:
                           f"approval on {who}.", loud=True, held=True, ref=(d.get("request_hash") or "")[:4],
                           rule=self._rule(s, d.get("op")))
             elif o == "denied_cooling_off":
-                self.emit(s, "status", "Approved. Waiting out a short cooling-off; the owner can still cancel.")
+                # once per request: the agent re-checks during the wait, and each re-check repeated the line (11-08)
+                key = ("cooling", d.get("request_hash"))
+                if key not in s.narrated:
+                    s.narrated.add(key)
+                    self.emit(s, "status", "Approved. Waiting out a short cooling-off; the owner can still cancel.")
             elif o and o.startswith("denied"):
                 self.emit(s, "gate", f"The gate refused this: {d.get('reason', 'not allowed')}.", loud=True, held=True,
                           rule=self._rule(s, d.get("op"), o))
@@ -1139,7 +1157,7 @@ class Demo:
                 for n in v["inbox"]:
                     tag = side if view["compare"] else None
                     if n["kind"] == "notice":
-                        view["notices"].append({"phone_of": user, "company": tag, "text": n["value"],
+                        view["notices"].append({"phone_of": user, "company": tag, "text": plain_notice(n["value"]),
                                                 "cancel_id": n.get("cancel_id")})
                     elif n["kind"] == "temporary password":
                         view["notices"].append({"phone_of": user, "company": tag, "text": "Your temporary password "

@@ -1386,10 +1386,10 @@ def create_demo_app(demo: Demo) -> FastAPI:
         from demo import flow as flowmod
         out = flowmod.build(r, demo.out_dir)
         out.update({"verdict": r.get("verdict"), "mode": r.get("mode"), "policy_sha256": r.get("policy_sha256"),
-                    "proof": r.get("proof"), "signature_key": (r.get("signature") or {}).get("key_id"),
+                    "signature_key": (r.get("signature") or {}).get("key_id"),
                     "published": (demo.evidence.public_url(f"receipts/{token}.json")
-                                  if demo.evidence is not None and token in demo.uploaded else None),
-                    "chat": r.get("chat", [])[:40]})
+                                  if demo.evidence is not None and token in demo.uploaded else None)})
+        # (no proof/chat here: the identity server's log carries full user ids, and flow.html never shows them)
         return out
 
     @app.get("/api/receipt-key")

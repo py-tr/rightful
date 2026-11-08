@@ -33,6 +33,13 @@ TITLES = {
     "contrast_mode": "The unprotected column: the agent decides, nothing asks the owner",
 }
 
+# The unprotected column ("agent decides", the status quo shown for contrast): no owner approval, the temporary
+# password goes to the agent, and the agent's own "I verified the caller" is what lets the change through.
+CONTRAST_TITLES = {
+    "forwarding": "Forwarded on the agent's say-so: nobody asked the owner",
+    "agent_claimed_verification": "The agent claimed it verified the caller: in this column, that is all it takes",
+}
+
 
 def _clean(data: dict) -> dict:
     out = {}
@@ -54,6 +61,8 @@ def build(rec: dict, ledger_dir: str) -> dict:
     path = os.path.join(ledger_dir, name)
     if not os.path.exists(path):
         return {"ok": False, "problem": "the ledger for this conversation is no longer on the server"}
+    contrast = rec.get("mode") == "agent_decides"
+    titles = {**TITLES, **CONTRAST_TITLES} if contrast else TITLES
     prev, seq, steps, problem = GENESIS, 0, [], ""
     want = int(head.get("seq", 0))
     try:
@@ -70,9 +79,12 @@ def build(rec: dict, ledger_dir: str) -> dict:
                 run = (e.get("data") or {}).get("run")
                 mine = run_ref is None or run is None or hashlib.sha256(str(run).encode()).hexdigest()[:16] == run_ref
                 if mine:
+                    data = _clean(e.get("data") or {})
+                    if contrast:                   # older ledgers marked the agent-bound secret as out of band
+                        data.pop("secret_out_of_band", None)
                     steps.append({"seq": e["seq"], "ts": e["ts"], "kind": e["kind"],
-                                  "title": TITLES.get(e["kind"], e["kind"].replace("_", " ")),
-                                  "data": _clean(e.get("data") or {}), "hash": e["hash"][:16], "prev": e["prev"][:16]})
+                                  "title": titles.get(e["kind"], e["kind"].replace("_", " ")),
+                                  "data": data, "hash": e["hash"][:16], "prev": e["prev"][:16]})
     except (OSError, ValueError, KeyError) as ex:
         problem = f"unreadable ledger ({type(ex).__name__})"
     head_ok = not problem and seq == want and prev == head.get("hash")

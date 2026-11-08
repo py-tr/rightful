@@ -58,6 +58,25 @@ def test_entries_after_the_signed_head_are_not_checked_or_shown(tmp_path):
     assert "logout_sessions" not in json.dumps(f)
 
 
+def test_the_agent_decides_column_never_claims_owner_approval_or_an_out_of_band_password(tmp_path):
+    """Review 11-08 B1: under 'Account taken over' the flow said 'Receipt burned' and 'password sent to the owner's
+    device, never to the agent'. In the contrast column the agent's say-so is what forwards it."""
+    _, rec = make(tmp_path)
+    f = build({**rec, "mode": "agent_decides"}, str(tmp_path))
+    fwd = next(s for s in f["steps"] if s["kind"] == "forwarding")
+    assert "Receipt burned" not in fwd["title"] and "nobody asked the owner" in fwd["title"]
+    assert "secret_out_of_band" not in fwd["data"]          # old ledgers marked it; the page must not show it
+    full = build(rec, str(tmp_path))                        # the protected column keeps its wording
+    assert next(s for s in full["steps"] if s["kind"] == "forwarding")["data"]["secret_out_of_band"] is True
+
+
+def test_the_contrast_gate_does_not_log_the_agent_bound_password_as_out_of_band(tmp_path):
+    import inspect
+    from gate import gate as g
+    src = inspect.getsource(g)
+    assert '"secret_out_of_band": secret is not None and mode != CONTRAST_MODE' in src
+
+
 def test_a_record_without_a_ledger_reference_or_a_bad_name_is_refused(tmp_path):
     assert build({}, str(tmp_path))["ok"] is False
     bad = build({"ledger_file": "../../etc/passwd", "ledger_head": {"seq": 1, "hash": "x"}}, str(tmp_path))

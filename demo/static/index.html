@@ -133,11 +133,15 @@ body.cmp .empty .e2,body:not(.cmp) .empty .e1{display:none}
 .hidden{display:none!important}
 /* 11-08 (owner): use the whole screen, and let the conversation start above the fold */
 body.cmp .wrap{max-width:min(2200px,100%);padding:0 clamp(16px,2vw,32px)}
-body.cmp .grid{grid-template-columns:minmax(0,1fr) 320px}
-body.cmp .chat{height:clamp(460px,calc(100vh - 300px),1200px)}
+@media (min-width:981px){body.cmp .grid{grid-template-columns:minmax(0,1fr) 320px}}
+body.cmp .chat{height:clamp(360px,calc(100vh - 500px),1100px)}
+@media (min-width:1700px){body.cmp .chat{height:clamp(360px,calc(100vh - 400px),1100px)}}
+@media (min-width:1100px){body.cmp .colhead.left{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px;align-items:start}
+  body.cmp .colhead.left>b,body.cmp .colhead.left>.tag{grid-column:1/-1}
+  body.cmp .colhead.left .measured.hidden+.slot{grid-column:1/-1}}
 body.cmp .screen{min-height:min(560px,calc(100vh - 380px))}
 .chips:not(.showall) .chip.extra{display:none}
-.chip.more{background:transparent;border-style:dashed;color:var(--muted)}
+.chip.moreatt{background:transparent;border-style:dashed;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -324,12 +328,12 @@ function showMeasured(sc) {          // eval/RESULTS-demosetup.md, for the SELEC
 let sessionPaired = false;
 function labelChips() {
   // 11-08 (owner): one compact row in compare mode; chips after the third sit behind "More attacks"
-  const box = $("chips"), all = [...box.querySelectorAll(".chip:not(.more)")];
+  const box = $("chips"), all = [...box.querySelectorAll(".chip:not(.moreatt)")];
   const extras = all.filter(b => compare && b.dataset.cmpchip && parseInt(b.dataset.cmpchip, 10) > 3);
   for (const b of all) b.classList.toggle("extra", extras.includes(b));
-  let more = box.querySelector(".chip.more");
+  let more = box.querySelector(".chip.moreatt");     // not ".more": an older rule styles that as a small text link
   if (compare && extras.length) {
-    if (!more) { more = el("button", "chip more", ""); more.type = "button";
+    if (!more) { more = el("button", "chip moreatt", ""); more.type = "button";
       more.onclick = () => { box.classList.toggle("showall"); labelChips(); }; box.append(more); }
     more.style.order = 99; more.classList.remove("hidden");
     more.textContent = box.classList.contains("showall") ? "Fewer attacks ▴" : "More attacks (" + extras.length + ") ▾";
@@ -601,6 +605,9 @@ async function send() {
   const text = $("input").value.trim(); if (!text) return;
   if (compare && !serverCompare && !serverBusy) { try { await api("/api/compare", {on: true}); serverCompare = true; } catch (e) { refusal(R, e.message); return; } }
   if (text === nextThen) { nextThen = null; $("thenBar").classList.add("hidden"); }
+  // 11-08 (owner: "use the whole space"): on a wide screen, bring the whole conversation panel into view on send
+  const cpb = document.querySelector(".composer").getBoundingClientRect();
+  if (compare && innerWidth >= 1100 && cpb.bottom > innerHeight) $("chips").scrollIntoView({behavior: "smooth", block: "start"});
   for (const c of compare ? [L, R] : [R]) { c.chat.querySelector(".empty")?.remove(); c.chat.append(el("div", "who r", "You"), el("div", "b you", text)); c.pending.push(text); scrollDown(c); setTyping(c, true); }
   $("input").value = "";
   const starts = !serverBusy;

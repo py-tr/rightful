@@ -58,6 +58,7 @@ function kind(s){
 fetch("/api/flow/" + encodeURIComponent(tok)).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(f => {
   const top = document.getElementById("top");
   if (f.verdict){ const v = document.getElementById("verdict"); v.textContent = f.verdict; v.hidden = false; }
+  if (f.mode === "agent_decides") top.append(box("This column", "The agent decides: no owner approval, and a temporary password goes back to the agent. Shown for contrast.", "bad"));
   const c = f.chain || {};
   top.append(box("Ledger chain", f.ok ? `verified: ${c.entries_checked} entries, each linked to the one before` : (f.problem || "not verified"), f.ok ? "ok" : "bad"));
   top.append(box("Signed head", c.head_hash ? `entry ${c.head_seq} · ${c.head_hash}…` : "none", "mono"));
